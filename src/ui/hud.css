@@ -1360,3 +1360,36 @@ kbd {
     font-size: 12px;
   }
 }
+
+/* ---------- M4: night */
+
+.nvg-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 55%, rgba(0, 20, 0, 0.75) 100%),
+    rgba(70, 255, 110, 0.5);
+  mix-blend-mode: multiply;
+}
+
+.nvg-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(30, 110, 45, 0.18);
+  mix-blend-mode: screen;
+}
+
+@media (max-height: 500px) {
+  /* Keep the selection bar to one short strip so the middle of a landscape phone stays touchable. */
+  .selection .hint {
+    display: none;
+  }
+  .selection > .row {
+    flex-wrap: nowrap;
+  }
+  .selection > .row .btn {
+    white-space: nowrap;
+  }
+}

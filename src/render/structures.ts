@@ -5,8 +5,16 @@ import { box, cone, cylinder, merge, sphere } from './geometry';
 import { COLORS, TEAM_COLORS } from './palette';
 
 export interface Floodlight {
+  id: number;
   owner: number;
   light: THREE.SpotLight | null;
+  lamp: THREE.Mesh;
+}
+
+interface Searchlight {
+  id: number;
+  head: THREE.Group;
+  beam: THREE.Mesh;
 }
 
 const geoCache = new Map<string, THREE.BufferGeometry>();
@@ -198,6 +206,57 @@ export function bodyGeometry(kind: StructureKind, owner: number): THREE.BufferGe
           box(0.6, 0.35, 0.03, 0, 4.2, 0, team),
         ]),
       );
+    case 'generator':
+      return cached(`generator${owner}`, () =>
+        merge([
+          box(1.9, 0.08, 1.9, 0, 0.04, 0, COLORS.asphalt),
+          box(1.4, 0.9, 0.9, -0.15, 0.5, -0.2, 0x6f7a5a),
+          box(1.42, 0.12, 0.92, -0.15, 0.98, -0.2, 0x4f5640),
+          box(0.3, 0.6, 0.06, -0.15, 0.55, 0.26, 0x2d2d2d),
+          cylinder(0.07, 0.07, 0.9, 0.45, 1.35, -0.45, COLORS.metal, 6),
+          cylinder(0.3, 0.3, 0.9, 0.55, 0.45, 0.55, 0xb04a2a, 10, { rz: Math.PI / 2 }),
+          box(1.4, 0.06, 0.06, -0.15, 0.8, 0.27, team),
+        ]),
+      );
+    case 'searchlight':
+      return cached(`searchlight${owner}`, () =>
+        merge([
+          box(0.18, 2.6, 0.18, -0.6, 1.3, -0.6, COLORS.concreteDark),
+          box(0.18, 2.6, 0.18, 0.6, 1.3, -0.6, COLORS.concreteDark),
+          box(0.18, 2.6, 0.18, -0.6, 1.3, 0.6, COLORS.concreteDark),
+          box(0.18, 2.6, 0.18, 0.6, 1.3, 0.6, COLORS.concreteDark),
+          box(1.6, 0.16, 1.6, 0, 2.62, 0, COLORS.concrete),
+          box(0.12, 0.7, 0.12, 0, 0.35, 0, COLORS.metal),
+          box(0.5, 0.3, 0.03, 0.75, 2.85, 0, team),
+        ]),
+      );
+    case 'sensor':
+      return cached('sensor', () =>
+        merge([
+          box(0.5, 0.16, 0.5, 0, 0.08, 0, COLORS.concreteDark),
+          cylinder(0.04, 0.05, 1.6, 0, 0.9, 0, COLORS.metal, 6),
+          sphere(0.16, 0, 1.75, 0, 0x8a9096, 8, 6),
+          box(0.3, 0.2, 0.06, 0.12, 1.3, 0.05, 0x3a3f44),
+        ]),
+      );
+    case 'kennel':
+      return cached('kennel', () => {
+        const parts = [box(1.9, 0.05, 1.9, 0, 0.025, 0, 0xa98a62)];
+        for (const s2 of [-0.93, 0.93]) {
+          parts.push(box(1.86, 0.05, 0.05, 0, 0.35, s2, WOOD));
+          parts.push(box(0.05, 0.05, 1.86, s2, 0.35, 0, WOOD));
+        }
+        parts.push(box(0.6, 0.45, 0.6, -0.45, 0.25, -0.45, 0x8a5a2b));
+        parts.push(cone(0.48, 0.3, -0.45, 0.62, -0.45, 0x5a3a1b, 4, { ry: Math.PI / 4 }));
+        for (const [x, z, c] of [
+          [0.3, 0.2, 0x3a2a1a],
+          [0.5, -0.4, 0x8a6a3a],
+        ] as [number, number, number][]) {
+          parts.push(box(0.4, 0.18, 0.14, x, 0.22, z, c));
+          parts.push(box(0.14, 0.14, 0.14, x + 0.24, 0.3, z, c));
+        }
+        return merge(parts);
+      });
     case 'floodlight':
       return cached('floodlight', () =>
         merge([
@@ -308,6 +367,22 @@ export class StructureRenderer {
     emissiveIntensity: 0,
   });
   readonly floodlights: Floodlight[] = [];
+  private searchlights: Searchlight[] = [];
+  private lampOff = new THREE.MeshLambertMaterial({ color: 0x3a3a3a });
+  private beamMat = new THREE.MeshBasicMaterial({
+    color: 0xfff3c8,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  private beamGeo = (() => {
+    const g = new THREE.ConeGeometry(4.1, 24, 20, 1, true);
+    g.translate(0, -12, 0);
+    g.rotateX(-Math.PI / 2);
+    return g;
+  })();
 
   private bodyMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   private objects = new Map<number, THREE.Object3D>();
@@ -383,13 +458,28 @@ export class StructureRenderer {
       if (this.lightBudget > 0) {
         this.lightBudget--;
         light = new THREE.SpotLight(0xfff0d2, 0, 26, 0.62, 0.55, 1.1);
-        light.position.set(cx + Math.sin(s.rot) * 0.2, base + 3.2, cz + Math.cos(s.rot) * 0.2);
+        light.position.set(Math.sin(s.rot) * 0.2, 3.2, Math.cos(s.rot) * 0.2);
         const tx = cx + Math.sin(s.rot) * 8;
         const tz = cz + Math.cos(s.rot) * 8;
-        light.target.position.set(tx, this.sim.map.heightAt(tx, tz), tz);
-        this.group.add(light, light.target);
+        light.target.position.set(Math.sin(s.rot) * 8, this.sim.map.heightAt(tx, tz) - base, Math.cos(s.rot) * 8);
+        root.add(light, light.target);
       }
-      this.floodlights.push({ owner: s.owner, light });
+      this.floodlights.push({ id: s.id, owner: s.owner, light, lamp });
+    } else if (s.kind === 'searchlight') {
+      const head = new THREE.Group();
+      head.position.set(0, 3.05, 0);
+      const housing = new THREE.Mesh(
+        cached('searchhead', () => merge([cylinder(0.32, 0.38, 0.55, 0, 0, 0, COLORS.metal, 10, { rx: Math.PI / 2 })])),
+        this.bodyMat,
+      );
+      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.3, 12), this.lampMaterial);
+      lens.position.z = 0.28;
+      const beam = new THREE.Mesh(this.beamGeo, this.beamMat);
+      beam.rotation.x = 0.12;
+      beam.renderOrder = 5;
+      head.add(housing, lens, beam);
+      root.add(head);
+      this.searchlights.push({ id: s.id, head, beam });
     }
     this.group.add(root);
     this.objects.set(s.id, root);
@@ -400,7 +490,29 @@ export class StructureRenderer {
     if (!o) return;
     this.objects.delete(id);
     if (o.parent) o.parent.remove(o);
+    const fi = this.floodlights.findIndex((f) => f.id === id);
+    if (fi >= 0) {
+      if (this.floodlights[fi].light) this.lightBudget++;
+      this.floodlights.splice(fi, 1);
+    }
+    this.searchlights = this.searchlights.filter((sl) => sl.id !== id);
     this.wallsDirty = true; // cheap to rebuild; covers wall removal
+  }
+
+  /** Per-frame: lamps follow power, searchlight beams sweep. `lightsOn` is 0 by day, 1 at night. */
+  update(lightsOn: number): void {
+    for (const f of this.floodlights) {
+      const powered = this.sim.structureById(f.id)?.powered ?? false;
+      if (f.light) f.light.intensity = powered ? 45 * lightsOn : 0;
+      f.lamp.material = powered ? this.lampMaterial : this.lampOff;
+    }
+    this.beamMat.opacity = 0.16 * lightsOn;
+    for (const sl of this.searchlights) {
+      const s = this.sim.structureById(sl.id);
+      if (!s) continue;
+      sl.head.rotation.y = this.sim.vision.beamAngle(s.rot, s.id);
+      sl.beam.visible = s.powered && lightsOn > 0.02;
+    }
   }
 
   private rebuildWalls(): void {

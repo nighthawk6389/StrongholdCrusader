@@ -308,6 +308,13 @@ export class InputController {
     if (p.type === 'mouse') {
       if (e.button === 1) this.rotatingMouse = false;
       if (cancelled) return;
+      if (this.game.targeting) {
+        if (e.button === 0) {
+          const g = this.game.renderer.pickGround(p.x, p.y);
+          if (g) this.game.fireFlareAt(g.x, g.z);
+        } else if (e.button === 2) this.game.cancelTargeting();
+        return;
+      }
       if (e.button === 0) {
         if (this.game.placing) {
           const g = this.game.renderer.pickGround(p.x, p.y);
@@ -411,6 +418,8 @@ export class InputController {
       if (!u.alive[i]) continue;
       // Your civilians work on their own; clicks should go to soldiers (or the ground/building).
       if (u.owner[i] === this.game.player && !UNIT_TYPES[u.kind[i]].selectable) continue;
+      // Enemies you can't see can't be clicked either.
+      if (u.owner[i] !== this.game.player && !this.game.sim.vision.isSeen(this.game.player, i)) continue;
       const v = this.game.unitScreenAnchor(i, this.tmpV);
       if (!r.toScreen(v.x, v.y, v.z, this.scr)) continue;
       const d = (this.scr.x - x) ** 2 + (this.scr.y - y) ** 2;
@@ -450,6 +459,11 @@ export class InputController {
   }
 
   private handleTap(x: number, y: number): void {
+    if (this.game.targeting) {
+      const g = this.game.renderer.pickGround(x, y);
+      if (g) this.game.fireFlareAt(g.x, g.z);
+      return;
+    }
     if (this.game.placing) {
       const g = this.game.renderer.pickGround(x, y);
       if (!g) return;
@@ -581,8 +595,12 @@ export class InputController {
       case 'KeyF':
         this.game.takeControl();
         break;
+      case 'KeyV':
+        this.game.startFlare();
+        break;
       case 'Escape':
-        if (this.game.placing) this.game.cancelPlacing();
+        if (this.game.targeting) this.game.cancelTargeting();
+        else if (this.game.placing) this.game.cancelPlacing();
         else if (this.game.selectedStructure >= 0) this.game.deselectStructure();
         else this.game.deselect();
         setHud({ buildOpen: false, moraleOpen: false });

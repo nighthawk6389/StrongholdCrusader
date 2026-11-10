@@ -19,8 +19,12 @@ export class DayNight {
   readonly hemi: THREE.HemisphereLight;
   /** Flashlight on the possessed unit (on at night). */
   readonly flashlight: THREE.SpotLight;
+  /** Night-vision optics on: lift the ambient light (the HUD adds the green phosphor tint). */
+  nvg = false;
   /** 0 = full day, 1 = full night (smoothed). */
   night = 0;
+  /** 0..1: artificial lights fade in as daylight fades. */
+  lightsOn = 0;
   private sky = new THREE.Color();
 
   constructor(
@@ -71,6 +75,13 @@ export class DayNight {
     this.hemi.color.copy(HEMI_SKY_DAY).lerp(HEMI_SKY_NIGHT, this.night);
     this.hemi.groundColor.copy(HEMI_GROUND_DAY).lerp(HEMI_GROUND_NIGHT, this.night);
     this.hemi.intensity = 1.25 - this.night * 0.9;
+    if (this.nvg) {
+      // Image intensifier: amplify the starlight into a flat, bright (green-tinted in CSS) picture.
+      this.hemi.intensity = Math.max(this.hemi.intensity, 1.1);
+      this.hemi.color.copy(HEMI_SKY_DAY);
+      this.hemi.groundColor.copy(HEMI_GROUND_DAY);
+      this.moon.intensity = Math.max(this.moon.intensity, 0.9);
+    }
 
     // Sky/fog: day → warm dusk tint → night.
     const duskAmount = info.phase === 'dusk' || info.phase === 'dawn' ? Math.sin(Math.PI * info.phaseT) : 0;
@@ -81,7 +92,8 @@ export class DayNight {
 
     // Artificial lights switch on as daylight fades.
     const lightsOn = Math.min(1, Math.max(0, (0.65 - daylight) / 0.4));
-    for (const f of this.structures.floodlights) if (f.light) f.light.intensity = 70 * lightsOn;
+    this.structures.update(lightsOn);
+    this.lightsOn = lightsOn;
     this.structures.lampMaterial.emissiveIntensity = 2.2 * lightsOn;
     this.structures.windowMaterial.emissiveIntensity = 0.9 * lightsOn;
   }

@@ -43,6 +43,17 @@ function soldierParts(): { team: THREE.BufferGeometry; gear: THREE.BufferGeometr
       box(0.05, 0.07, 0.46, 0.08, 0.76, 0.26, COLORS.rifle),
       band(),
     ]),
+    // SF operator: balaclava, night-vision goggles, plate carrier, suppressed rifle.
+    merge([
+      box(0.18, 0.18, 0.18, 0, 0.94, 0, 0x1e1f1c),
+      box(0.16, 0.06, 0.08, 0, 1.0, 0.11, 0x2a3a2a),
+      box(0.05, 0.05, 0.06, -0.04, 1.0, 0.16, 0x5aff8a),
+      box(0.05, 0.05, 0.06, 0.04, 1.0, 0.16, 0x5aff8a),
+      box(0.32, 0.22, 0.24, 0, 0.7, 0.01, 0x2b2e26),
+      box(0.18, 0.2, 0.1, 0, 0.66, -0.16, 0x23251f),
+      box(0.045, 0.06, 0.5, 0.08, 0.76, 0.3, 0x141414),
+      box(0.06, 0.06, 0.22, 0.08, 0.76, 0.64, 0x2a2a2a),
+    ]),
   ];
   const leg = merge([
     box(0.13, 0.4, 0.15, 0, -0.2, 0, COLORS.pants),
@@ -80,6 +91,7 @@ const GEAR_VARIANT: Record<number, number> = {
   [UnitKind.Gunner]: 1,
   [UnitKind.Marksman]: 2,
   [UnitKind.Engineer]: 3,
+  [UnitKind.Operator]: 4,
 };
 
 const CARGO_COLORS: Record<number, number> = {
@@ -95,6 +107,8 @@ export interface UnitDrawState {
   dt: number;
   selected: ReadonlySet<number>;
   cameraQuat: THREE.Quaternion;
+  /** False for enemy units your side can't currently see. */
+  visible: (id: number) => boolean;
 }
 
 export class UnitRenderer {
@@ -200,7 +214,7 @@ export class UnitRenderer {
   update(s: UnitDrawState): void {
     const u = this.sim.units;
     const map = this.sim.map;
-    const gearN = [0, 0, 0, 0];
+    const gearN = [0, 0, 0, 0, 0];
     let n = 0; // soldiers
     let c = 0; // civilians
     let legs = 0;
@@ -208,7 +222,7 @@ export class UnitRenderer {
     let rings = 0;
     let bars = 0;
     for (let i = 0; i < u.count; i++) {
-      if (!u.alive[i]) continue;
+      if (!u.alive[i] || !s.visible(i)) continue;
       const x = u.px[i] + (u.x[i] - u.px[i]) * s.alpha;
       const z = u.pz[i] + (u.z[i] - u.pz[i]) * s.alpha;
       const y = map.heightAt(x, z) + u.pelev[i] + (u.elev[i] - u.pelev[i]) * s.alpha;
@@ -253,6 +267,7 @@ export class UnitRenderer {
         const g = GEAR_VARIANT[kind] ?? 0;
         this.gear[g].setMatrixAt(gearN[g]++, this.m);
         this.team.setColorAt(n, this.col.setHex(isCmd ? COMMANDER_TINT[owner] : TEAM_COLORS[owner] ?? 0xffffff));
+        if (kind === UnitKind.Operator) this.col.multiplyScalar(0.45), this.team.setColorAt(n, this.col);
         n++;
       }
 

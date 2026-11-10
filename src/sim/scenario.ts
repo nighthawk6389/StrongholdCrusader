@@ -37,6 +37,7 @@ export const HOLD_WAVES: Wave[] = [
     groups: [
       { kind: UnitKind.Rifleman, n: 8 },
       { kind: UnitKind.Gunner, n: 2 },
+      { kind: UnitKind.Operator, n: 2 },
     ],
   },
   {
@@ -63,6 +64,7 @@ export const HOLD_WAVES: Wave[] = [
       { kind: UnitKind.Gunner, n: 4 },
       { kind: UnitKind.Engineer, n: 4 },
       { kind: UnitKind.Marksman, n: 3 },
+      { kind: UnitKind.Operator, n: 3 },
     ],
   },
   {
@@ -90,6 +92,7 @@ function placeCore(sim: Sim, owner: number, cx: number, cz: number, mirror: bool
   at('rations', 3, 5, 3);
   at('barracks', 6, -2, 3);
   at('armory', -8, -4, 3);
+  at('generator', -4, 5, 2);
 }
 
 function stockUp(sim: Sim, owner: number, extra = { timber: 0, concrete: 0, funds: 0 }): void {
@@ -193,6 +196,7 @@ export function createScenario(mode: GameMode, seed = 1337, difficulty: Difficul
   sim.placeStructure('rations', PLAYER, P.x + 3, P.z + 5);
   sim.placeStructure('barracks', PLAYER, P.x + 6, P.z - 2);
   sim.placeStructure('armory', PLAYER, P.x - 8, P.z - 4);
+  sim.placeStructure('generator', PLAYER, P.x - 4, P.z + 5);
   buildWalledBase(sim, PLAYER, P.x, P.z, 12, ['east', 'west', 'north', 'south']);
   sim.placeStructure('floodlight', PLAYER, P.x + 9, P.z - 5, Math.PI / 2);
   sim.placeStructure('floodlight', PLAYER, P.x + 9, P.z + 5, Math.PI / 2);

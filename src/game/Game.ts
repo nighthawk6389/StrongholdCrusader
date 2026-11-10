@@ -12,7 +12,9 @@ import { setHud, type BuildingInfo, type PlacingInfo } from '../ui/store';
 
 const MAX_STEPS_PER_FRAME = 8;
 const NO_SELECTION: ReadonlySet<number> = new Set();
-const HELP_KEY = 'm2-help-seen';
+const HELP_KEY = 'm4-help-seen';
+/** Buildings whose facing matters (lights): auto-aimed away from the HQ, R turns them. */
+const AIMABLE: StructureKind[] = ['floodlight', 'searchlight'];
 
 /** Public actions the HUD can call. */
 export interface GameActions {
@@ -45,6 +47,9 @@ export interface GameActions {
   recruit(kind: number, count: number): void;
   setRecipe(index: number): void;
   trade(res: number, amount: number): void;
+  setNightShift(on: boolean): void;
+  startFlare(): void;
+  cancelTargeting(): void;
   restart(mode?: GameMode): void;
 }
 
@@ -85,6 +90,10 @@ export class Game implements GameActions {
   /** Building being placed, its rotation, and the footprint origin currently previewed. */
   placing: StructureKind | null = null;
   placeRot = 0;
+  /** Extra quarter turns the player added to a light's automatic facing. */
+  private aimTurns = 0;
+  /** Waiting for a click/tap to fire a flare. */
+  targeting: 'flare' | null = null;
   private placeTile: { tx: number; tz: number } | null = null;
   /** Wall line: anchor tile and current end tile. */
   wallAnchor: { tx: number; tz: number } | null = null;
@@ -264,6 +273,10 @@ export class Game implements GameActions {
       wave: dir
         ? { index: dir.next, total: dir.total, nextIn: dir.nextIn(this.sim), attackers: dir.alive.size }
         : null,
+      power: { supply: p.powerSupply, demand: p.powerDemand },
+      nightShift: p.nightShift,
+      nvg: this.renderer.nvg,
+      targeting: this.targeting,
       placing: this.placingInfo(),
       building: this.buildingInfo(),
       clock: formatHour(info.hour),
@@ -353,6 +366,11 @@ export class Game implements GameActions {
     } else if (def.housing) {
       storage = `Housing ${p.population} / ${p.housing} (all buildings)`;
     }
+    if (def.power && def.power < 0) {
+      storage = s.powered ? `⚡ Powered (uses ${-def.power})` : `No power: build a Generator (needs ${-def.power})`;
+    } else if (def.power && def.power > 0 && s.kind === 'generator') {
+      storage = `⚡ Supplying ${s.workers.length ? def.power : 0} power · grid ${p.powerDemand}/${p.powerSupply}`;
+    }
     const half = (n?: number): number => Math.floor((n ?? 0) / 2);
     const refund = def.buildable
       ? costText({ timber: half(def.cost.timber), concrete: half(def.cost.concrete), funds: half(def.cost.funds) })
@@ -370,6 +388,7 @@ export class Game implements GameActions {
       canDemolish: def.buildable && mine,
       refund,
       storage,
+      powered: !def.power || def.power > 0 || s.powered,
       hp: Math.max(0, Math.round(s.hp)),
       maxHp: def.hp,
       enemy: !mine,
@@ -474,6 +493,8 @@ export class Game implements GameActions {
 
   startPlacing(kind: StructureKind): void {
     if (this.controlled >= 0) return;
+    this.targeting = null;
+    this.aimTurns = 0;
     this.placing = kind;
     this.placeTile = null;
     this.wallAnchor = null;
@@ -495,7 +516,20 @@ export class Game implements GameActions {
     this.pushHud();
   }
 
+  /** Lights face away from your HQ by default (snapped to a quarter turn). */
+  private autoFacing(x: number, z: number): number {
+    const hq = this.sim.economy.hqOf(this.player);
+    if (!hq) return 0;
+    const a = Math.atan2(x - (hq.tx + hq.w / 2), z - (hq.tz + hq.h / 2));
+    return Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
+  }
+
   rotatePlacement(): void {
+    if (this.placing && AIMABLE.includes(this.placing)) {
+      this.aimTurns = (this.aimTurns + 1) % 4;
+      if (this.placeTile) this.previewPlacementAt(this.placeTile.tx + 0.5, this.placeTile.tz + 0.5);
+      return;
+    }
     if (!this.placing || !STRUCTURE_DEFS[this.placing].rotatable) return;
     this.placeRot = this.placeRot ? 0 : Math.PI / 2;
     if (this.placeTile) {
@@ -551,6 +585,7 @@ export class Game implements GameActions {
       this.pushHud();
       return;
     }
+    if (AIMABLE.includes(this.placing)) this.placeRot = this.autoFacing(x, z) + (this.aimTurns * Math.PI) / 2;
     const { w, h } = footprint(this.placing, this.placeRot);
     const tx = Math.round(x - w / 2);
     const tz = Math.round(z - h / 2);
@@ -627,6 +662,30 @@ export class Game implements GameActions {
     }
     this.sim.enqueue({ type: 'recruit', owner: this.player, barracks: s.id, kind, count });
     setTimeout(() => this.pushHud(), 120);
+  }
+
+  setNightShift(on: boolean): void {
+    this.sim.enqueue({ type: 'setNightShift', owner: this.player, on });
+    setTimeout(() => this.pushHud(), 120);
+  }
+
+  startFlare(): void {
+    if (this.controlled >= 0) return;
+    this.cancelPlacing();
+    this.targeting = 'flare';
+    this.pushHud();
+  }
+
+  cancelTargeting(): void {
+    this.targeting = null;
+    this.pushHud();
+  }
+
+  /** Fire a flare at a ground point (from targeting mode). */
+  fireFlareAt(x: number, z: number): void {
+    this.sim.enqueue({ type: 'flare', owner: this.player, x, z });
+    this.targeting = null;
+    this.pushHud();
   }
 
   trade(res: number, amount: number): void {

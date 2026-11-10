@@ -70,6 +70,7 @@ export interface BuildingInfo {
   hp: number;
   maxHp: number;
   enemy: boolean;
+  powered: boolean;
   recipes: { options: string[]; selected: number } | null;
   recruit: RecruitOption[] | null;
   /** Trade Post rows (null for other buildings). */
@@ -111,6 +112,11 @@ export interface HudState {
   opponent: { name: string; difficulty: string } | null;
   /** Latest radio message from the opponent. */
   taunt: { name: string; text: string } | null;
+  power: { supply: number; demand: number };
+  nightShift: boolean;
+  /** Looking through night-vision optics (green view). */
+  nvg: boolean;
+  targeting: 'flare' | null;
   controlledHp: number;
   controlledName: string;
   aiming: boolean;
@@ -147,6 +153,10 @@ export const useHud = create<HudState>(() => ({
   result: null,
   opponent: null,
   taunt: null,
+  power: { supply: 0, demand: 0 },
+  nightShift: false,
+  nvg: false,
+  targeting: null,
   controlledHp: 1,
   controlledName: '',
   aiming: false,

@@ -7,6 +7,10 @@ const DIR_COST = [1, Math.SQRT2, 1, Math.SQRT2, 1, Math.SQRT2, 1, Math.SQRT2] as
 
 /** Direction code: change layer here (only on stairs). */
 export const SWITCH_LAYER = 8;
+/** Direction codes CLIMB_BASE + d: climb/drop onto the other layer of neighbour d (climbers only). */
+export const CLIMB_BASE = 9;
+const CLIMB_UP_COST = 2.5;
+const CLIMB_DOWN_COST = 1.5;
 export const UNREACHABLE = -2;
 export const AT_GOAL = -1;
 
@@ -89,11 +93,13 @@ export interface FieldSpec {
   team: number;
   /** Treat enemy structures as passable at a high cost (for attackers that will blow through). */
   breach: boolean;
+  /** Can scale walls: step between the ground and any adjacent wall top. */
+  climb?: boolean;
 }
 
 export function fieldKey(map: GameMap, s: FieldSpec): number {
   const n = map.width * map.height;
-  return ((s.team * 2 + (s.breach ? 1 : 0)) * 2 + s.goalLayer) * n + s.goal;
+  return (((s.team * 2 + (s.breach ? 1 : 0)) * 2 + (s.climb ? 1 : 0)) * 2 + s.goalLayer) * n + s.goal;
 }
 
 /** Enemy structure tile that attackers may route through in breach mode. */
@@ -158,6 +164,21 @@ export function buildFlowField(map: GameMap, spec: FieldSpec): FlowField {
         heap.push(nd, other);
       }
     }
+    if (spec.climb) {
+      // Neighbour on the other layer steps INTO cur: climbing up if cur is a deck, dropping if not.
+      const cost = layer === 1 ? CLIMB_UP_COST : CLIMB_DOWN_COST;
+      for (let d = 0; d < 8; d += 2) {
+        const nx = cx + DIR_X[d];
+        const nz = cz + DIR_Z[d];
+        if (!passable(nx, nz, 1 - layer)) continue;
+        const ni = (1 - layer) * n + nz * w + nx;
+        const nd = d0 + cost;
+        if (nd < dist[ni]) {
+          dist[ni] = nd;
+          heap.push(nd, ni);
+        }
+      }
+    }
   }
 
   for (let node = 0; node < 2 * n; node++) {
@@ -182,7 +203,22 @@ export function buildFlowField(map: GameMap, spec: FieldSpec): FlowField {
         best = d;
       }
     }
-    if (map.stairs[tile] && dist[(1 - layer) * n + tile] < bestD) best = SWITCH_LAYER;
+    if (map.stairs[tile] && dist[(1 - layer) * n + tile] < bestD) {
+      bestD = dist[(1 - layer) * n + tile];
+      best = SWITCH_LAYER;
+    }
+    if (spec.climb) {
+      for (let d = 0; d < 8; d += 2) {
+        const nx = x + DIR_X[d];
+        const nz = z + DIR_Z[d];
+        if (!passable(nx, nz, 1 - layer)) continue;
+        const nd = dist[(1 - layer) * n + nz * w + nx];
+        if (nd < bestD) {
+          bestD = nd;
+          best = CLIMB_BASE + d;
+        }
+      }
+    }
     if (best >= 0) dir[node] = best;
   }
 
@@ -225,9 +261,11 @@ export class FlowFieldCache {
     let rest = (key - goal) / n;
     const goalLayer = rest % 2;
     rest = (rest - goalLayer) / 2;
+    const climb = rest % 2 === 1;
+    rest = (rest - (climb ? 1 : 0)) / 2;
     const breach = rest % 2 === 1;
     const team = (rest - (breach ? 1 : 0)) / 2;
-    return { goal, goalLayer, team, breach };
+    return { goal, goalLayer, team, breach, climb };
   }
 
   clear(): void {

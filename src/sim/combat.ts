@@ -4,10 +4,9 @@ import { Nav, type Sim } from './sim';
 import { STRUCTURE_DEFS, type Structure } from './structures';
 import { UNIT_TYPES } from './unitTypes';
 import { MAX_UNITS, Order } from './units';
+import { NOISE_SEC } from './vision';
 
 const ENGAGE_INTERVAL = 4;
-/** Seconds to plant a breach charge. */
-const PLANT_SEC = 4;
 const CHARGE_DAMAGE = 520;
 const CHARGE_SPLASH = 50;
 const MUZZLE_Y = 0.76;
@@ -74,7 +73,7 @@ export class Combat {
     if ((this.sim.tick + i) % ENGAGE_INTERVAL === 0) u.target[i] = this.findTarget(i, this.rangeOf(i));
     const t = u.target[i];
     if (t < 0) return -1;
-    if (!u.alive[t] || u.owner[t] === u.owner[i]) {
+    if (!u.alive[t] || u.owner[t] === u.owner[i] || !this.sim.vision.isSeen(u.owner[i], t)) {
       u.target[i] = -1;
       return -1;
     }
@@ -89,8 +88,9 @@ export class Combat {
     const u = this.sim.units;
     let best = -1;
     let bestScore = Infinity;
+    const seen = this.sim.vision.seen[u.owner[i]];
     for (let j = 0; j < u.count; j++) {
-      if (!u.alive[j] || u.owner[j] === u.owner[i]) continue;
+      if (!u.alive[j] || u.owner[j] === u.owner[i] || !seen[j]) continue;
       const dx = u.x[j] - u.x[i];
       const dz = u.z[j] - u.z[i];
       const d = Math.hypot(dx, dz);
@@ -195,7 +195,7 @@ export class Combat {
       return;
     }
     const dist = Math.hypot(u.x[t] - u.x[i], u.z[t] - u.z[i]);
-    if (dist <= this.rangeOf(i) && this.los(i, t)) {
+    if (dist <= this.rangeOf(i) && this.los(i, t) && sim.vision.isSeen(u.owner[i], t)) {
       u.vx[i] = u.vz[i] = 0;
       u.heading[i] = Math.atan2(u.x[t] - u.x[i], u.z[t] - u.z[i]);
       this.autoFire(i, t, false);
@@ -239,7 +239,7 @@ export class Combat {
     const gap = distToRect(u.x[i], u.z[i], s);
     if (engineer && gap <= 0.8 && u.layer[i] === 0) {
       u.vx[i] = u.vz[i] = 0;
-      u.plantTimer[i] = PLANT_SEC;
+      u.plantTimer[i] = UNIT_TYPES[u.kind[i]].plantSec;
       u.heading[i] = Math.atan2(s.tx + s.w / 2 - u.x[i], s.tz + s.h / 2 - u.z[i]);
       return;
     }
@@ -250,6 +250,7 @@ export class Combat {
       u.heading[i] = Math.atan2(cx - u.x[i], cz - u.z[i]);
       if (u.cooldown[i] === 0) {
         this.shotAt(i, cx, cz, 0.8);
+        if (!type.silenced) sim.vision.reveal[i] = NOISE_SEC;
         sim.damageStructure(s, type.structDamage);
         u.cooldown[i] = type.autoCooldown + sim.rng.int(type.autoJitter + 1);
       }
@@ -499,6 +500,8 @@ export class Combat {
       }
     }
 
+    // Unsilenced gunfire gives the shooter's position away.
+    if (!UNIT_TYPES[u.kind[i]].silenced) sim.vision.reveal[i] = NOISE_SEC;
     const endT = hit >= 0 ? hitT : maxT;
     const toX = ox + dx * endT;
     const toZ = oz + dz * endT;

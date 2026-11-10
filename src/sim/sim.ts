@@ -1,7 +1,8 @@
 import { CYCLE_SEC, TICK_SEC, cycleInfo, phaseStartSec, type CycleInfo, type PhaseName } from './clock';
 import { Combat } from './combat';
 import { Economy } from './economy';
-import { AT_GOAL, DIR_X, DIR_Z, FlowFieldCache, SWITCH_LAYER, fieldKey } from './flowfield';
+import { AT_GOAL, CLIMB_BASE, DIR_X, DIR_Z, FlowFieldCache, SWITCH_LAYER, fieldKey } from './flowfield';
+import { Vision } from './vision';
 import { Block, type GameMap } from './map';
 import { Rng } from './rng';
 import { STRUCTURE_DEFS, footprint, type ResId, type Structure, type StructureKind } from './structures';
@@ -44,6 +45,9 @@ export type Command =
   | { type: 'recruit'; owner: number; barracks: number; kind: number; count: number }
   /** Trade Post: buy (amount > 0) or sell (amount < 0). */
   | { type: 'trade'; owner: number; res: ResId; amount: number }
+  /** Fire an illumination flare at a point (needs one of your soldiers within range; costs funds). */
+  | { type: 'flare'; owner: number; x: number; z: number }
+  | { type: 'setNightShift'; owner: number; on: boolean }
   | { type: 'attack'; owner: number; ids: number[]; target: number }
   | { type: 'attackStructure'; owner: number; ids: number[]; structure: number }
   /** Send units to assault `target`'s HQ (breaching walls on the way). */
@@ -65,7 +69,8 @@ export type SimEvent =
   | { type: 'recruited'; owner: number; unit: number; kind: number }
   | { type: 'wave'; owner: number; index: number; total: number; size: number }
   | { type: 'result'; result: 'victory' | 'defeat'; reason: string }
-  | { type: 'taunt'; owner: number; name: string; text: string };
+  | { type: 'taunt'; owner: number; name: string; text: string }
+  | { type: 'flare'; owner: number; x: number; z: number };
 
 export interface SimInit {
   map: GameMap;
@@ -75,6 +80,9 @@ export interface SimInit {
 }
 
 const FORMATION_SPACING = 0.78;
+export const FLARE_COST = 15;
+/** A flare must land within this distance of one of your soldiers. */
+export const FLARE_REACH = 32;
 
 export const Nav = {
   Moving: 0,
@@ -97,6 +105,7 @@ export class Sim {
   readonly rng: Rng;
   readonly economy: Economy;
   readonly combat: Combat;
+  readonly vision: Vision;
   director: WaveDirector | null = null;
   /** Player whose victory/defeat is tracked. */
   defender = 1;
@@ -123,6 +132,7 @@ export class Sim {
     this.flow = new FlowFieldCache(this.map, 64);
     this.economy = new Economy(this);
     this.combat = new Combat(this);
+    this.vision = new Vision(this);
     this.cellHead = new Int32Array(this.map.width * this.map.height).fill(-1);
     this.cellNext = new Int32Array(this.units.alive.length).fill(-1);
   }
@@ -192,6 +202,7 @@ export class Sim {
       active: true,
       status: def.jobs ? 'noWorker' : 'ok',
       recipe: 0,
+      powered: !def.power || def.power > 0,
     };
     for (let z = tz; z < tz + h; z++) {
       for (let x = tx; x < tx + w; x++) {
@@ -306,7 +317,9 @@ export class Sim {
     u.goalZ[i] = exact ? z : Math.floor(goal / map.width) + 0.5;
     u.goalLayer[i] = goalLayer;
     const shared = fieldTile >= 0 && map.walkable(fieldTile % map.width, Math.floor(fieldTile / map.width), goalLayer, team);
-    u.field[i] = fieldKey(map, { goal: shared ? fieldTile : goal, goalLayer, team, breach });
+    const climb = UNIT_TYPES[u.kind[i]].climber;
+    // Climbers go over walls rather than through them.
+    u.field[i] = fieldKey(map, { goal: shared ? fieldTile : goal, goalLayer, team, breach: breach && !climb, climb });
     u.stuck[i] = 0;
     return true;
   }
@@ -355,6 +368,15 @@ export class Sim {
       const d = field.dir[layer * map.width * map.height + tile];
       if (d === SWITCH_LAYER) {
         u.layer[i] = 1 - layer;
+        return Nav.Moving;
+      }
+      if (d >= CLIMB_BASE) {
+        // Grapnel up (or drop down): hop into the neighbouring tile on the other layer.
+        const cd = d - CLIMB_BASE;
+        u.layer[i] = 1 - layer;
+        u.x[i] = tx + DIR_X[cd] + 0.5;
+        u.z[i] = tz + DIR_Z[cd] + 0.5;
+        u.heading[i] = Math.atan2(DIR_X[cd], DIR_Z[cd]);
         return Nav.Moving;
       }
       if (d >= 0) {
@@ -417,6 +439,7 @@ export class Sim {
     this.economy.update();
     if (this.director) this.director.update(this);
     for (const ctl of this.controllers) ctl.update(this);
+    this.vision.update();
     if (this.tick % 20 === 0) this.checkResult();
     if (this.controllers.length) {
       const stepEvents = this.events.slice(ev0);
@@ -525,6 +548,30 @@ export class Sim {
         break;
       case 'trade':
         this.economy.trade(c.owner, c.res, Math.round(c.amount));
+        break;
+      case 'flare': {
+        const p = this.economy.player(c.owner);
+        if (p.funds < FLARE_COST) {
+          this.emit({ type: 'buildFailed', owner: c.owner, reason: 'Not enough funds for a flare' });
+          break;
+        }
+        let near = false;
+        for (let i = 0; i < u.count && !near; i++) {
+          if (u.alive[i] && u.owner[i] === c.owner && UNIT_TYPES[u.kind[i]].armed) {
+            near = Math.hypot(u.x[i] - c.x, u.z[i] - c.z) <= FLARE_REACH;
+          }
+        }
+        if (!near) {
+          this.emit({ type: 'buildFailed', owner: c.owner, reason: 'Too far from your soldiers to fire a flare' });
+          break;
+        }
+        p.funds -= FLARE_COST;
+        this.vision.addFlare(c.x, c.z, c.owner);
+        this.emit({ type: 'flare', owner: c.owner, x: c.x, z: c.z });
+        break;
+      }
+      case 'setNightShift':
+        this.economy.player(c.owner).nightShift = c.on;
         break;
     }
   }
@@ -833,7 +880,8 @@ export class Sim {
       for (const v of p.stock) mix(Math.round(v * 100));
     }
     mix(this.structures.length);
-    for (const s of this.structures) mix(Math.round(s.hp));
+    mix(this.vision.flares.length);
+    for (const s of this.structures) mix(Math.round(s.hp) * 2 + (s.powered ? 1 : 0));
     for (let i = 0; i < u.count; i++) {
       if (!u.alive[i]) continue;
       mix(i);

@@ -92,6 +92,10 @@ export class PlayerEconomy {
   moraleTrend = 0;
   arrivalTimer = 0;
   departTimer = 0;
+  /** Keep working through the night (costs morale after dark). */
+  nightShift = false;
+  powerSupply = 0;
+  powerDemand = 0;
 
   constructor(readonly owner: number) {}
 
@@ -519,17 +523,44 @@ export class Economy {
 
   update(): void {
     const u = this.sim.units;
-    const rate = 0.35 + 0.65 * this.sim.cycle.daylight;
+    const dayRate = 0.35 + 0.65 * this.sim.cycle.daylight;
     for (let i = 0; i < u.count; i++) {
       if (!u.alive[i] || u.kind[i] !== UnitKind.Civilian) continue;
       if (u.task[i] === Task.Recruit) this.updateRecruit(i);
-      else this.updateCivilian(i, rate);
+      else this.updateCivilian(i, this.players.get(u.owner[i])?.nightShift ? 1 : dayRate);
     }
     if (++this.secTimer >= TICK_RATE) {
       this.secTimer = 0;
       this.recount();
       for (const p of this.players.values()) if (p.active) this.perSecond(p);
       this.assignJobs();
+      this.allocatePower();
+    }
+  }
+
+  /** Share each player's power among lights and sensors (oldest first); the rest go dark. */
+  allocatePower(): void {
+    for (const p of this.players.values()) {
+      p.powerSupply = 0;
+      p.powerDemand = 0;
+    }
+    for (const s of this.sim.structures) {
+      const pw = STRUCTURE_DEFS[s.kind].power ?? 0;
+      if (pw <= 0) continue;
+      const p = this.player(s.owner);
+      const running = !STRUCTURE_DEFS[s.kind].jobs || (s.active && s.workers.length > 0);
+      if (running) p.powerSupply += pw;
+    }
+    const left = new Map<number, number>();
+    for (const p of this.players.values()) left.set(p.owner, p.powerSupply);
+    for (const s of this.sim.structures) {
+      const pw = STRUCTURE_DEFS[s.kind].power ?? 0;
+      if (pw >= 0) continue;
+      const p = this.player(s.owner);
+      p.powerDemand += -pw;
+      const have = left.get(s.owner) ?? 0;
+      s.powered = have >= -pw;
+      if (s.powered) left.set(s.owner, have + pw);
     }
   }
 
@@ -611,6 +642,7 @@ export class Economy {
       { key: 'taxes', label: `Taxes: ${tax.name}`, value: tax.morale },
     ];
     if (p.population > p.housing) factors.push({ key: 'housing', label: 'Overcrowding', value: -4 });
+    if (p.nightShift && this.sim.cycle.daylight < 0.5) factors.push({ key: 'night', label: 'Night shifts', value: -4 });
     const total = factors.reduce((a, f) => a + f.value, 0);
     p.factors = factors;
     p.moraleTrend = total;

@@ -68,6 +68,7 @@ const ICON_PATHS: Record<string, ReactNode> = {
       <path d="M5 21l3-3h12l-3 3z" opacity="0.7" />
     </g>
   ),
+  power: <path d="M13 2L4 14h6l-1 8 9-12h-6z" fill="currentColor" />,
   build: (
     <path d="M14 4l6 6-2 2-2-2-7 7.5a2 2 0 0 1-3-3L13 7l-1-1z" fill="currentColor" />
   ),
@@ -228,6 +229,7 @@ function ResourceBar({ game }: { game: GameActions }) {
         {eco.population}/{eco.housing}
         {eco.idle > 0 && <span className="idle">({eco.idle} idle)</span>}
       </span>
+      <PowerGauge />
       <button
         type="button"
         className={`morale-pill ${moraleOpen ? 'open' : ''}`}
@@ -244,6 +246,18 @@ function ResourceBar({ game }: { game: GameActions }) {
       </button>
       {moraleOpen && <MoralePanel game={game} />}
     </div>
+  );
+}
+
+function PowerGauge() {
+  const power = useHud((s) => s.power);
+  if (!power.supply && !power.demand) return null;
+  const short = power.demand > power.supply;
+  return (
+    <span className={`res ${short ? 'warn' : ''}`} title={`Power: ${power.demand} used of ${power.supply}${short ? ' (some lights are dark)' : ''}`}>
+      <Icon name="power" />
+      {power.demand}/{power.supply}
+    </span>
   );
 }
 
@@ -264,6 +278,25 @@ function Segmented(props: {
           {o.name}
         </button>
       ))}
+    </div>
+  );
+}
+
+function NightShiftToggle({ game }: { game: GameActions }) {
+  const on = useHud((s) => s.nightShift);
+  return (
+    <div className="control-group">
+      <div className="control-label">
+        Night shifts <span className="muted">· full-speed work after dark, −4 morale at night</span>
+      </div>
+      <Segmented
+        options={[
+          { key: 'off', name: 'Rest at night' },
+          { key: 'on', name: 'Work through the night' },
+        ]}
+        value={on ? 1 : 0}
+        onChange={(i) => game.setNightShift(i === 1)}
+      />
     </div>
   );
 }
@@ -303,6 +336,7 @@ function MoralePanel({ game }: { game: GameActions }) {
         </div>
         <Segmented options={RATION_LEVELS} value={eco.rationLevel} onChange={(i) => game.setRations(i)} />
       </div>
+      <NightShiftToggle game={game} />
       <div className="control-group">
         <div className="control-label">
           Taxes{' '}
@@ -324,6 +358,7 @@ const CATEGORIES: { key: BuildCategory; name: string }[] = [
   { key: 'food', name: 'Food' },
   { key: 'defense', name: 'Defense' },
   { key: 'military', name: 'Military' },
+  { key: 'night', name: 'Night ops' },
 ];
 
 function BuildMenu({ game }: { game: GameActions }) {
@@ -438,6 +473,7 @@ function BuildingPanel({ game }: { game: GameActions }) {
         <div className="sel-label">
           <strong>{b.name}</strong>
           {b.enemy && <span className="badge bad">Hostile</span>}
+          {!b.enemy && !b.powered && <span className="badge bad">No power</span>}
           {b.jobs > 0 && !b.enemy && (
             <span className={`badge ${b.status === 'ok' ? 'ok' : 'bad'}`}>{STATUS_TEXT[b.status]}</span>
           )}
@@ -529,6 +565,23 @@ function BuildingPanel({ game }: { game: GameActions }) {
 
 function RtsPanel({ game }: { game: GameActions }) {
   const s = useHud();
+  if (s.targeting === 'flare') {
+    return (
+      <div className="bottombar">
+        <div className="panel selection">
+          <div className="sel-label">
+            <strong>Flare</strong> · <span className="muted">$15 · lights an area for 30 s</span>
+          </div>
+          <div className="place-status ok">
+            {s.isTouch ? 'Tap where to fire it (near your soldiers)' : 'Click where to fire it (near your soldiers) · Esc cancels'}
+          </div>
+          <div className="row">
+            <Btn onClick={() => game.cancelTargeting()}>✕ Cancel</Btn>
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (s.placing) return <PlacementPanel game={game} />;
   if (s.buildOpen || s.moraleOpen) return null; // these panels need the room (especially on phones)
   if (s.building) return <BuildingPanel game={game} />;
@@ -548,6 +601,9 @@ function RtsPanel({ game }: { game: GameActions }) {
             <div className="row">
               <Btn onClick={() => game.takeControl()} className="primary" title="Take direct control (F)">
                 Take control{!s.isTouch && <kbd>F</kbd>}
+              </Btn>
+              <Btn onClick={() => game.startFlare()} title="Fire an illumination flare (V)">
+                🔦 Flare{!s.isTouch && <kbd>V</kbd>}
               </Btn>
               <Btn onClick={() => game.deselect()} title="Deselect (Esc)">
                 Deselect
@@ -672,6 +728,11 @@ function WavePill() {
   );
 }
 
+function NvgOverlay() {
+  const on = useHud((s) => s.nvg);
+  return on ? <div className="nvg-overlay" /> : null;
+}
+
 function TauntRadio() {
   const taunt = useHud((s) => s.taunt);
   if (!taunt) return null;
@@ -720,6 +781,12 @@ function Help({ game }: { game: GameActions }) {
           Put troops <b>on the walls</b>: they get range and cover. Engineers can blow holes in walls and gates.
           To train more soldiers, idle civilians, weapons from the <b>Armory</b> and funds are needed. Weapons are made at an{' '}
           <b>Arms Factory</b> from steel (<b>Scrap Yard</b>).
+        </p>
+        <p className="muted">
+          <b>At night</b> you only see enemies that are close, lit or making noise. <b>Floodlights</b> and{' '}
+          <b>searchlights</b> need power from a <b>Generator</b>. <b>Flares</b> light up an area. Motion sensors and
+          dogs catch sneaking troops. <b>SF Operators</b> (night-ops kits) see in the dark, fire silenced, climb walls
+          and carry a demolition charge. Destroy the enemy's generators and their lights go dark.
         </p>
         {s.isTouch ? (
           <ul>
@@ -818,6 +885,7 @@ export function Hud({ game }: { game: GameActions }) {
         <ControlOverlay game={game} />
       )}
       {toast && <div className="toast panel">{toast}</div>}
+      <NvgOverlay />
       <TauntRadio />
       {showHelp && <Help game={game} />}
       {result && <ResultOverlay game={game} />}

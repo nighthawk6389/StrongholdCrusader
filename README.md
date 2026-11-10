@@ -10,8 +10,9 @@ soldiers.
 > name is a placeholder.
 
 - **Design & technical plan:** [docs/PLAN.md](docs/PLAN.md)
-- **Status:** **M0** (foundations), **M1** (economy), **M2** (fortifications & combat) and **M3**
-  (skirmish vs an AI commander) are playable. Next up is **M4** (night & stealth).
+- **Status:** **M0** (foundations), **M1** (economy), **M2** (fortifications & combat), **M3**
+  (skirmish vs an AI commander) and **M4** (night & stealth) are playable. Next up is **M5** (full direct
+  control).
 
 ## Play locally
 
@@ -30,7 +31,8 @@ the render preset. `?seed=123` picks a different map.
   his Commander, and protect yours. Easy, Normal and Hard differ in reaction speed, attack timing and size, and
   a small starting bonus. He never cheats on vision.
 - **Hold the Line:** six escalating waves attack from the east over about 15 minutes, two of them at night.
-  Waves with combat engineers blow holes in your walls and gates. Lose your HQ or your Commander and it's over.
+  Waves with combat engineers blow holes in your walls and gates, and the night waves bring special forces.
+  Lose your HQ or your Commander and it's over.
 - **Sandbox:** no waves. Build at your own pace and skirmish with the hostile patrol.
 
 The start screen picks the mode. You can also link straight to a mode with `?mode=skirmish&difficulty=normal`,
@@ -46,7 +48,8 @@ Grow your outpost:
   producers.
 - **Morale:** set **rations** and **taxes** from the morale panel. Food variety boosts morale, and running out
   of food or taxing hard drives people away.
-- **Night:** work slows to about a third.
+- **Night:** work slows to about a third. Turn on **night shifts** in the morale panel to keep working at
+  full speed, at a morale cost.
 - **Fortify:**
   - Drag to draw **concrete walls**, add **watchtowers** and **gatehouses** (R rotates), and **stairs** so troops
     can climb up.
@@ -60,6 +63,24 @@ Grow your outpost:
   - Machine Gunner: suppresses, so targets move and shoot worse.
   - Marksman: long range.
   - Combat Engineer: breach charges for walls and gates.
+  - SF Operator: needs a night-ops kit. Has night vision, a silenced rifle and one demolition charge, is hard
+    to spot in the dark, and climbs walls without stairs.
+
+Fight at night:
+- **Vision:** in daylight your lookouts see the whole map. At night you only see enemies near your troops and
+  towers, or standing in light. Enemies you can't see aren't drawn and can't be targeted.
+- **Light:**
+  - **Floodlights** light a cone (R aims them).
+  - **Searchlight towers** sweep a long beam.
+  - Burning buildings light up their surroundings.
+  - **Flares** ($15) light an area for 30 seconds: select soldiers, press **V** or **Flare**, then click.
+- **Power:** lights and sensors need power. The HQ gives a little; a staffed **Generator** gives 12. The power
+  gauge sits next to the resources.
+- **Detection:**
+  - **Motion sensors** catch anything that moves nearby, lit or not.
+  - **K9 kennels** sniff out everyone close by, even operators lying still.
+  - Unsilenced gunfire gives the shooter away for a few seconds.
+- **Night vision:** take control of an SF Operator or a Marksman at night to see through their optics.
 
 ## Controls
 
@@ -75,6 +96,7 @@ Grow your outpost:
 | Move | Right-click the ground | Tap the ground |
 | Camera | WASD / screen edges pan, wheel zooms, Q/E or right/middle-drag rotate | Drag pans, pinch zooms, twist rotates |
 | Take control | **F** (WASD + mouse, LMB fire, RMB aim, Esc exits) | **Take control**, then left thumb moves, right thumb aims, **Fire**/**Aim** buttons |
+| Flare | **V** or **Flare** with soldiers selected, then click (Esc cancels) | **Flare**, then tap |
 | Other | Ctrl+1–9 / 1–9 groups, Space centers, H returns to base, P pauses | **Base**, **All**, **Time** (jump to dawn/day/dusk/night) |
 
 ## Scripts
@@ -83,7 +105,7 @@ Grow your outpost:
 |---|---|
 | `npm run dev` | Vite dev server |
 | `npm run build` | Typecheck + production build to `dist/` |
-| `npm test` | Simulation unit tests (Vitest): economy, fortifications, combat, waves, determinism, perf |
+| `npm test` | Simulation unit tests (Vitest): economy, fortifications, combat, waves, AI, night & stealth, determinism, perf |
 | `HOLD_REPORT=1 npx vitest run tests/hold-report.test.ts --silent=false` | Prints a simulated Hold the Line match for balancing (add `GARRISON=1` to man the walls) |
 | `AI_REPORT=1 DIFF=normal npx vitest run tests/ai-report.test.ts --silent=false` | Prints a 20-minute skirmish timeline of the AI against a passive player |
 | `npm run preview` | Serve the production build |
@@ -98,7 +120,7 @@ Grow your outpost:
 ## Code layout
 
 ```
-src/sim/      Pure TypeScript simulation: map gen, layered flow fields, units, economy, combat, waves (no DOM/three)
+src/sim/      Pure TypeScript simulation: map gen, layered flow fields, units, economy, combat, vision, waves, AI (no DOM/three)
 src/render/   Three.js renderer: terrain, structures, instanced soldiers, day/night, FX, cameras
 src/input/    Mouse / keyboard / touch → camera and commands; virtual joystick
 src/ui/       React HUD (zustand store)

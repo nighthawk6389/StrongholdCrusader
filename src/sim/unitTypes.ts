@@ -30,8 +30,22 @@ export interface UnitType {
   suppress: number;
   /** Damage per shot vs non-armoured buildings (walls, towers and gates are immune). */
   structDamage: number;
-  /** Breach charges carried (engineers). */
+  /** Breach charges carried (engineers, SF operators). */
   charges: number;
+  /** Seconds to plant a charge. */
+  plantSec: number;
+
+  // --- Vision & stealth (M4)
+  /** Sight radius in full light (tiles). */
+  sight: number;
+  /** Fraction of sight kept in darkness (1 = night vision / thermal). */
+  nightVision: number;
+  /** Multiplier on enemies' detection range in darkness (1 = normal, lower = stealthier). */
+  stealth: number;
+  /** Silenced weapons don't give the shooter's position away. */
+  silenced: boolean;
+  /** Can scale walls with grapnels (no stairs needed). */
+  climber: boolean;
 
   armed: boolean;
   controllable: boolean;
@@ -48,6 +62,12 @@ const base = {
   suppress: 0,
   structDamage: 4,
   charges: 0,
+  plantSec: 4,
+  sight: 16,
+  nightVision: 0.35,
+  stealth: 1,
+  silenced: false,
+  climber: false,
   armed: true,
   controllable: true,
   selectable: true,
@@ -89,6 +109,7 @@ export const UNIT_TYPES: UnitType[] = [
     autoCooldown: 12,
     autoJitter: 4,
     spread: 0.06,
+    nightVision: 0.5,
     gear: null,
     funds: 0,
     blurb: 'If the Commander dies, you lose.',
@@ -110,6 +131,8 @@ export const UNIT_TYPES: UnitType[] = [
     autoJitter: 0,
     spread: 0,
     structDamage: 0,
+    sight: 8,
+    nightVision: 0.3,
     armed: false,
     controllable: false,
     selectable: false,
@@ -156,6 +179,8 @@ export const UNIT_TYPES: UnitType[] = [
     spread: 0.015,
     suppress: 0.4,
     structDamage: 2,
+    sight: 22,
+    nightVision: 0.8,
     gear: Res.Scoped,
     funds: 40,
     blurb: 'Long range, hits hard, fires slowly.',
@@ -177,9 +202,37 @@ export const UNIT_TYPES: UnitType[] = [
     spread: 0.1,
     structDamage: 2,
     charges: 2,
+    sight: 14,
     gear: Res.Charges,
     funds: 30,
     blurb: 'Blows breaches in walls and gates (2 charges each).',
+  },
+  {
+    ...base,
+    id: 6,
+    key: 'operator',
+    name: 'SF Operator',
+    speed: 2.8,
+    hp: 110,
+    range: 22,
+    damage: 32,
+    cooldown: 5,
+    autoRange: 14,
+    autoDamage: 20,
+    autoCooldown: 10,
+    autoJitter: 4,
+    spread: 0.05,
+    structDamage: 2,
+    charges: 1,
+    plantSec: 2.5,
+    sight: 18,
+    nightVision: 1,
+    stealth: 0.45,
+    silenced: true,
+    climber: true,
+    gear: Res.NVKit,
+    funds: 60,
+    blurb: 'Night vision, silenced, hard to spot in the dark. Climbs walls; one demolition charge.',
   },
 ];
 
@@ -190,7 +243,8 @@ export const UnitKind = {
   Gunner: 3,
   Marksman: 4,
   Engineer: 5,
+  Operator: 6,
 } as const;
 
 /** Units the barracks can train, in menu order. */
-export const RECRUITABLE = [UnitKind.Rifleman, UnitKind.Gunner, UnitKind.Marksman, UnitKind.Engineer];
+export const RECRUITABLE = [UnitKind.Rifleman, UnitKind.Gunner, UnitKind.Marksman, UnitKind.Engineer, UnitKind.Operator];

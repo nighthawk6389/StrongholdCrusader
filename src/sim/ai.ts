@@ -60,7 +60,7 @@ export const DIFFICULTY: Record<Difficulty, AiTuning> = {
 type Near = 'trees' | 'fertile' | 'rock' | 'home' | 'producers';
 
 interface BuildStep {
-  kind: StructureKind | 'fortFront' | 'fortRing';
+  kind: StructureKind | 'fortFront' | 'fortRing' | 'nightKit';
   /** Target number of this kind (cumulative), so destroyed buildings get rebuilt. */
   count?: number;
   near?: Near;
@@ -90,6 +90,8 @@ export const OLD_SARGE: Personality = {
     { kind: 'ranch', count: 1, near: 'home' },
     { kind: 'arms', count: 1, near: 'home' },
     { kind: 'fortFront' },
+    { kind: 'scrapyard', count: 2, near: 'home' },
+    { kind: 'nightKit' },
     { kind: 'depot', count: 2, near: 'producers' },
     { kind: 'house', count: 4, near: 'home' },
     { kind: 'orchard', count: 2, near: 'fertile' },
@@ -185,6 +187,7 @@ export class AiCommander implements Controller {
     this.manageMorale(sim);
     this.build(sim);
     this.military(sim);
+    this.flares(sim);
   }
 
   private say(sim: Sim, kind: keyof Personality['lines']): void {
@@ -234,7 +237,7 @@ export class AiCommander implements Controller {
       return;
     }
     // Rich but short of weapons: buy the one the army mix needs most.
-    if (p.funds > 260 && p.stored('gear') < p.gearCap - 2) {
+    if (p.funds > 190 && p.stored('gear') < p.gearCap - 2) {
       const gear = UNIT_TYPES[this.neededKind(sim)].gear;
       if (gear !== null && p.stock[gear] < 4) sim.enqueue({ type: 'trade', owner: this.owner, res: gear, amount: 2 });
     }
@@ -306,6 +309,10 @@ export class AiCommander implements Controller {
         if (!done) return; // keep pouring concrete into the walls before moving on
         continue;
       }
+      if (step.kind === 'nightKit') {
+        if (!this.nightKit(sim)) return;
+        continue;
+      }
       if (this.impossible.has(`${step.kind}:${step.count}`)) continue;
       if (this.count(sim, step.kind) >= (step.count ?? 1)) continue;
       const def = STRUCTURE_DEFS[step.kind];
@@ -364,6 +371,63 @@ export class AiCommander implements Controller {
       }
     }
     return false;
+  }
+
+  /** Lights and a sensor around the walls (front first). Returns true when all are up. */
+  private nightKit(sim: Sim): boolean {
+    const p = sim.economy.player(this.owner);
+    const { x: hx, z: hz } = this.home;
+    const r = this.ring - 3;
+    const f = this.front === 'west' ? -1 : 1;
+    const q = Math.PI / 2;
+    const kit: { kind: StructureKind; tx: number; tz: number; rot: number }[] = [
+      { kind: 'floodlight', tx: hx + f * r, tz: hz - 5, rot: f * q },
+      { kind: 'floodlight', tx: hx + f * r, tz: hz + 5, rot: f * q },
+      { kind: 'searchlight', tx: hx + f * r - (f < 0 ? 0 : 1), tz: hz + 2, rot: f * q },
+      { kind: 'sensor', tx: hx + f * (r + 1), tz: hz - 2, rot: 0 },
+      { kind: 'floodlight', tx: hx - f * r, tz: hz, rot: -f * q },
+      { kind: 'floodlight', tx: hx, tz: hz - r, rot: Math.PI },
+      { kind: 'floodlight', tx: hx, tz: hz + r, rot: 0 },
+    ];
+    for (const k of kit) {
+      const key = `${k.kind}@${k.tx},${k.tz}`;
+      if (this.impossible.has(key)) continue;
+      const s = sim.structureAt(k.tx, k.tz);
+      if (s && s.kind === k.kind && s.owner === this.owner) continue;
+      // Weapons come first: only spend steel on lights when there's plenty to spare.
+      if (!p.canAfford(STRUCTURE_DEFS[k.kind].cost) || p.stock[Res.Steel] < 14) return false;
+      if (sim.economy.canPlace(this.owner, k.kind, k.tx, k.tz).ok) {
+        sim.enqueue({ type: 'build', owner: this.owner, kind: k.kind, tx: k.tx, tz: k.tz, rot: k.rot });
+        this.lastBuildAt = sim.elapsed;
+        return false;
+      }
+      this.impossible.add(key);
+    }
+    return true;
+  }
+
+  private lastFlareAt = -1e9;
+
+  /** At night, light up intruders near the base with a flare. */
+  private flares(sim: Sim): void {
+    if (sim.cycle.daylight > 0.3 || sim.elapsed - this.lastFlareAt < 25) return;
+    const p = sim.economy.player(this.owner);
+    if (p.funds < 80) return;
+    const u = sim.units;
+    let n = 0;
+    let sx = 0;
+    let sz = 0;
+    for (let i = 0; i < u.count; i++) {
+      if (!u.alive[i] || u.owner[i] !== this.enemy || !UNIT_TYPES[u.kind[i]].armed) continue;
+      if (!sim.vision.isSeen(this.owner, i)) continue;
+      if (Math.hypot(u.x[i] - this.home.x, u.z[i] - this.home.z) > this.ring + 12) continue;
+      n++;
+      sx += u.x[i];
+      sz += u.z[i];
+    }
+    if (n === 0) return;
+    this.lastFlareAt = sim.elapsed;
+    sim.enqueue({ type: 'flare', owner: this.owner, x: sx / n, z: sz / n });
   }
 
   private isFrontCorner(pc: Piece): boolean {

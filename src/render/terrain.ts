@@ -227,3 +227,91 @@ export class TreeRenderer {
     crown.instanceMatrix.needsUpdate = true;
   }
 }
+
+/**
+ * Additive light pools on the ground, driven by the sim's light grid (floodlights, searchlights,
+ * flares, fires). Cheap on phones: one extra draw call instead of dozens of real lights.
+ */
+export class LightOverlay {
+  readonly mesh: THREE.Mesh;
+  private colors: Float32Array;
+  /** Ground colour per vertex (the overlay brightens the terrain's own colour, not white). */
+  private ground: Float32Array;
+  /** Corner index (cz * (w + 1) + cx) per vertex, so pools blend smoothly across tiles. */
+  private corner: Int32Array;
+  private cornerLight: Float32Array;
+  private lastVersion = -1;
+  private lastNight = -1;
+
+  constructor(
+    private map: GameMap,
+    terrain: THREE.Mesh,
+  ) {
+    const src = terrain.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const pos = new Float32Array(src.array as Float32Array);
+    for (let i = 1; i < pos.length; i += 3) pos[i] += 0.04;
+    this.ground = new Float32Array((terrain.geometry.getAttribute('color') as THREE.BufferAttribute).array as Float32Array);
+    const verts = pos.length / 3;
+    this.corner = new Int32Array(verts);
+    const cw = map.width + 1;
+    for (let v = 0; v < verts; v++) this.corner[v] = Math.round(pos[v * 3 + 2]) * cw + Math.round(pos[v * 3]);
+    this.cornerLight = new Float32Array(cw * (map.height + 1));
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this.colors = new Float32Array(pos.length);
+    geo.setAttribute('color', new THREE.BufferAttribute(this.colors, 3));
+    const mat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+    });
+    this.mesh = new THREE.Mesh(geo, mat);
+    this.mesh.renderOrder = 1;
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+  }
+
+  update(light: Float32Array, version: number, night: number): void {
+    this.mesh.visible = night > 0.03;
+    if (!this.mesh.visible) return;
+    const n = Math.round(night * 20) / 20;
+    if (version === this.lastVersion && n === this.lastNight) return;
+    this.lastVersion = version;
+    this.lastNight = n;
+    const { width: w, height: h } = this.map;
+    const cw = w + 1;
+    const cl = this.cornerLight;
+    // Each corner takes the mean of the (up to four) tiles that touch it.
+    for (let cz = 0; cz <= h; cz++) {
+      for (let cx = 0; cx <= w; cx++) {
+        let sum = 0;
+        let cnt = 0;
+        for (let dz = -1; dz <= 0; dz++) {
+          const tz = cz + dz;
+          if (tz < 0 || tz >= h) continue;
+          for (let dx = -1; dx <= 0; dx++) {
+            const tx = cx + dx;
+            if (tx < 0 || tx >= w) continue;
+            sum += light[tz * w + tx];
+            cnt++;
+          }
+        }
+        cl[cz * cw + cx] = cnt ? sum / cnt : 0;
+      }
+    }
+    const c = this.colors;
+    const g = this.ground;
+    const corner = this.corner;
+    const k = 0.8 * n;
+    for (let v = 0, p = 0; v < corner.length; v++, p += 3) {
+      const l = cl[corner[v]] * k;
+      c[p] = g[p] * l * 1.05 + l * 0.05;
+      c[p + 1] = g[p + 1] * l * 0.95 + l * 0.04;
+      c[p + 2] = g[p + 2] * l * 0.8 + l * 0.02;
+    }
+    (this.mesh.geometry.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
+  }
+}

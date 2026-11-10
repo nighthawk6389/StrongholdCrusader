@@ -12,9 +12,10 @@ export const Res = {
   MG: 6,
   Scoped: 7,
   Charges: 8,
+  NVKit: 9,
 } as const;
 export type ResId = (typeof Res)[keyof typeof Res];
-export const RES_COUNT = 9;
+export const RES_COUNT = 10;
 
 export type StoreKind = 'materials' | 'food' | 'gear';
 
@@ -45,6 +46,7 @@ export const RES_INFO: ResInfo[] = [
   res(Res.MG, 'mg', 'Machine guns', 'gear'),
   res(Res.Scoped, 'scoped', 'Scoped rifles', 'gear'),
   res(Res.Charges, 'charges', 'Breach kits', 'gear'),
+  res(Res.NVKit, 'nvkit', 'Night-ops kits', 'gear'),
 ];
 
 /** Trade Post buying price per unit (selling pays half). */
@@ -58,6 +60,7 @@ export const PRICES: Record<ResId, number> = {
   [Res.MG]: 60,
   [Res.Scoped]: 50,
   [Res.Charges]: 40,
+  [Res.NVKit]: 70,
 };
 
 export const FOOD_RES: ResId[] = RES_INFO.filter((r) => r.store === 'food').map((r) => r.id);
@@ -89,7 +92,11 @@ export type StructureKind =
   | 'tower'
   | 'gate'
   | 'stairs'
-  | 'floodlight';
+  | 'floodlight'
+  | 'searchlight'
+  | 'sensor'
+  | 'kennel'
+  | 'generator';
 
 export interface Cost {
   funds?: number;
@@ -120,7 +127,7 @@ export interface Recipe {
   work: number;
 }
 
-export type BuildCategory = 'core' | 'industry' | 'food' | 'defense' | 'military';
+export type BuildCategory = 'core' | 'industry' | 'food' | 'defense' | 'military' | 'night';
 
 export interface StructureDef {
   kind: StructureKind;
@@ -148,6 +155,14 @@ export interface StructureDef {
   armored?: boolean;
   /** Footprint swaps w/h when rotated a quarter turn (gatehouses). */
   rotatable?: boolean;
+  /** Power: positive = supply (generators need a worker), negative = demand. */
+  power?: number;
+  /** Acts as a lookout with this sight radius (tiles). */
+  sight?: number;
+  /** Light it casts at night when powered. */
+  light?: { kind: 'flood' | 'search' | 'area'; range: number };
+  /** Detects enemies within this radius in any light: 'motion' sees movers, 'dogs' sees everyone. */
+  sensor?: { kind: 'motion' | 'dogs'; range: number };
 }
 
 export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
@@ -163,6 +178,9 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     cost: {},
     housing: 8,
     storage: { kind: 'materials', capacity: 60 },
+    power: 4,
+    sight: 12,
+    light: { kind: 'area', range: 5 },
   },
   hub: {
     kind: 'hub',
@@ -315,6 +333,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
       { output: Res.MG, input: Res.Steel, inputAmount: 4, work: 15 },
       { output: Res.Scoped, input: Res.Steel, inputAmount: 3, work: 13 },
       { output: Res.Charges, input: Res.Steel, inputAmount: 2, work: 11 },
+      { output: Res.NVKit, input: Res.Steel, inputAmount: 3, work: 15 },
     ],
   },
   armory: {
@@ -369,6 +388,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     cost: { concrete: 14, timber: 4 },
     deckH: 2.75,
     armored: true,
+    sight: 18,
   },
   gate: {
     kind: 'gate',
@@ -384,6 +404,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     deckH: 2.05,
     armored: true,
     rotatable: true,
+    sight: 12,
   },
   stairs: {
     kind: 'stairs',
@@ -402,13 +423,72 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
   floodlight: {
     kind: 'floodlight',
     name: 'Floodlight',
-    description: 'Lights the ground at night.',
+    description: 'Lights a wide cone outward at night (2 power). Enemies in the light can be seen.',
     w: 1,
     h: 1,
     blocks: true,
-    hp: 150,
-    buildable: false,
-    cost: {},
+    hp: 200,
+    buildable: true,
+    category: 'night',
+    cost: { concrete: 2, steel: 2 },
+    power: -2,
+    light: { kind: 'flood', range: 11 },
+  },
+  searchlight: {
+    kind: 'searchlight',
+    name: 'Searchlight Tower',
+    description: 'A long beam that sweeps the approach at night (3 power). Hard to sneak past, easy to spot.',
+    w: 2,
+    h: 2,
+    blocks: true,
+    hp: 450,
+    buildable: true,
+    category: 'night',
+    cost: { concrete: 10, steel: 6 },
+    power: -3,
+    sight: 10,
+    light: { kind: 'search', range: 24 },
+  },
+  sensor: {
+    kind: 'sensor',
+    name: 'Motion Sensor',
+    description: 'Detects anything moving within 11 tiles, light or not, stealthy or not (1 power).',
+    w: 1,
+    h: 1,
+    blocks: true,
+    hp: 120,
+    buildable: true,
+    category: 'night',
+    cost: { steel: 4, concrete: 2 },
+    power: -1,
+    sensor: { kind: 'motion', range: 11 },
+  },
+  kennel: {
+    kind: 'kennel',
+    name: 'K9 Kennel',
+    description: 'Guard dogs sniff out anyone within 8 tiles, even operators lying still. No power needed.',
+    w: 2,
+    h: 2,
+    blocks: true,
+    hp: 300,
+    buildable: true,
+    category: 'night',
+    cost: { timber: 10, funds: 30 },
+    sensor: { kind: 'dogs', range: 8 },
+  },
+  generator: {
+    kind: 'generator',
+    name: 'Generator',
+    description: 'Supplies 12 power to your lights and sensors while a worker keeps it running.',
+    w: 2,
+    h: 2,
+    blocks: true,
+    hp: 450,
+    buildable: true,
+    category: 'night',
+    cost: { timber: 12, concrete: 8, steel: 4 },
+    jobs: 1,
+    power: 12,
   },
 };
 
@@ -440,6 +520,8 @@ export interface Structure {
   status: StructureStatus;
   /** Selected recipe index (arms factory). */
   recipe: number;
+  /** Lights and sensors: currently receiving power. */
+  powered: boolean;
 }
 
 /** Footprint size for a kind at a rotation (gatehouses swap w/h at a quarter turn). */

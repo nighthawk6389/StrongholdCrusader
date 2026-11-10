@@ -5,7 +5,8 @@ import { DayNight } from './daynight';
 import { Fx } from './fx';
 import type { Structure, StructureKind } from '../sim/structures';
 import { PlacementGhost, SelectionFrame, StructureRenderer, WallLineGhost } from './structures';
-import { buildScatter, buildTerrain, buildWater, TreeRenderer } from './terrain';
+import { buildScatter, buildTerrain, buildWater, LightOverlay, TreeRenderer } from './terrain';
+import { UNIT_TYPES } from '../sim/unitTypes';
 import { UnitRenderer } from './units';
 
 export interface Quality {
@@ -51,6 +52,11 @@ export class GameRenderer {
   readonly ghost: PlacementGhost;
   readonly wallGhost: WallLineGhost;
   readonly selectionFrame: SelectionFrame;
+  readonly lightOverlay: LightOverlay;
+  /** Viewing team (enemies it can't see are hidden). */
+  team = 1;
+  /** True while looking through night-vision optics. */
+  nvg = false;
 
   private raycaster = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
@@ -80,6 +86,8 @@ export class GameRenderer {
 
     this.terrain = buildTerrain(sim.map);
     this.scene.add(this.terrain, buildWater(sim.map), buildScatter(sim.map));
+    this.lightOverlay = new LightOverlay(sim.map, this.terrain);
+    this.scene.add(this.lightOverlay.mesh);
     this.trees = new TreeRenderer(sim.map);
     this.scene.add(this.trees.group);
     this.structures = new StructureRenderer(sim, quality.maxFloodlights);
@@ -130,6 +138,10 @@ export class GameRenderer {
     }
     this.director.apply(f.dt, this.eye, this.look, fov);
 
+    // Night-vision optics when possessing a unit that has them.
+    const c = f.controlled;
+    this.nvg = c >= 0 && this.sim.units.isAlive(c) && UNIT_TYPES[this.sim.units.kind[c]].nightVision >= 0.8 && this.dayNight.night > 0.3;
+    this.dayNight.nvg = this.nvg;
     const focus = f.controlled >= 0 ? this.tmp.copy(this.director.look) : this.rts.target;
     this.dayNight.update(this.sim.cycle, focus);
     const fog = this.scene.fog as THREE.Fog;
@@ -137,7 +149,20 @@ export class GameRenderer {
     fog.near = camDist * 1.4 + 10;
     fog.far = camDist * 3.2 + 60;
 
-    this.units.update({ alpha: f.alpha, dt: f.dt, selected: f.selected, cameraQuat: this.camera.quaternion });
+    const vision = this.sim.vision;
+    this.lightOverlay.update(vision.light, vision.lightVersion, this.dayNight.night);
+    this.fx.updateFlares(vision.flares, this.dayNight.night);
+    const team = this.team;
+    const owner = this.sim.units.owner;
+    const seen = vision.seen[team];
+    this.units.update({
+      alpha: f.alpha,
+      dt: f.dt,
+      selected: f.selected,
+      cameraQuat: this.camera.quaternion,
+      visible: (i) => owner[i] === team || seen[i] === 1,
+    });
+    this.renderer.toneMappingExposure = this.nvg ? 1 + 0.8 * this.dayNight.night : 1;
     this.renderer.render(this.scene, this.camera);
   }
 

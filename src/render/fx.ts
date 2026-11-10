@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { GameMap } from '../sim/map';
 import type { SimEvent } from '../sim/sim';
+import type { Flare } from '../sim/vision';
+import { FLARE_SEC } from '../sim/vision';
 import { COLORS, TEAM_COLORS } from './palette';
 
 interface Timed {
@@ -31,6 +33,8 @@ export class Fx {
   private blastLife = 0;
   private v1 = new THREE.Vector3();
   private v2 = new THREE.Vector3();
+  private flareMeshes: THREE.Mesh[] = [];
+  private flareLights: THREE.PointLight[] = [];
 
   constructor(private map: GameMap) {
     const tracerGeo = new THREE.BoxGeometry(0.035, 0.035, 1);
@@ -97,6 +101,20 @@ export class Fx {
     }
     this.blastLight = new THREE.PointLight(0xffa050, 0, 18, 1.4);
     this.group.add(this.blastLight);
+
+    const flareGeo = new THREE.SphereGeometry(0.22, 8, 6);
+    const flareMat = new THREE.MeshBasicMaterial({ color: 0xfff6d0 });
+    for (let i = 0; i < 6; i++) {
+      const m = new THREE.Mesh(flareGeo, flareMat);
+      m.visible = false;
+      this.group.add(m);
+      this.flareMeshes.push(m);
+    }
+    for (let i = 0; i < 2; i++) {
+      const l = new THREE.PointLight(0xfff0c0, 0, 26, 1.2);
+      this.group.add(l);
+      this.flareLights.push(l);
+    }
   }
 
   handle(events: SimEvent[], controlled: number): void {
@@ -178,6 +196,23 @@ export class Fx {
     m.mesh.position.set(x, this.map.heightAt(x, z) + 0.08, z);
     m.mesh.visible = true;
     m.life = m.max;
+  }
+
+  /** Flares drift down on their parachutes while they burn. */
+  updateFlares(flares: readonly Flare[], night: number): void {
+    this.flareMeshes.forEach((m, i) => {
+      const f = flares[i];
+      m.visible = !!f;
+      if (!f) return;
+      const k = f.ttl / FLARE_SEC;
+      m.position.set(f.x, this.map.heightAt(f.x, f.z) + 2 + 8 * k, f.z);
+      m.scale.setScalar(0.8 + Math.random() * 0.4);
+    });
+    this.flareLights.forEach((l, i) => {
+      const f = flares[i];
+      l.intensity = f ? 40 * Math.min(1, f.ttl / 4) * Math.max(0.25, night) : 0;
+      if (f) l.position.copy(this.flareMeshes[i].position);
+    });
   }
 
   update(dt: number): void {
