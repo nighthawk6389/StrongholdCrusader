@@ -1,17 +1,17 @@
 import * as THREE from 'three';
 import { TICK_SEC, formatHour, type PhaseName } from '../sim/clock';
-import { createM0Scenario, ENEMY } from '../sim/scenario';
-import type { Sim } from '../sim/sim';
-import { UNIT_TYPES } from '../sim/unitTypes';
 import { TAX_LEVELS } from '../sim/economy';
-import { Res, STRUCTURE_DEFS, costText, type StructureKind } from '../sim/structures';
-import type { SimEvent } from '../sim/sim';
+import { createScenario, ENEMY, type GameMode } from '../sim/scenario';
+import type { Sim, SimEvent } from '../sim/sim';
+import { RES_INFO, Res, STRUCTURE_DEFS, costText, footprint, type StructureKind } from '../sim/structures';
+import { RECRUITABLE, UNIT_TYPES } from '../sim/unitTypes';
 import { GameRenderer, detectQuality } from '../render/GameRenderer';
 import { InputController } from '../input/InputController';
-import { setHud } from '../ui/store';
+import { setHud, type BuildingInfo, type PlacingInfo } from '../ui/store';
 
 const MAX_STEPS_PER_FRAME = 8;
 const NO_SELECTION: ReadonlySet<number> = new Set();
+const HELP_KEY = 'm2-help-seen';
 
 /** Public actions the HUD can call. */
 export interface GameActions {
@@ -33,6 +33,7 @@ export interface GameActions {
   startPlacing(kind: StructureKind): void;
   cancelPlacing(): void;
   confirmPlacing(): void;
+  rotatePlacement(): void;
   setRations(level: number): void;
   setTax(level: number): void;
   demolishSelected(): void;
@@ -40,18 +41,52 @@ export interface GameActions {
   deselectStructure(): void;
   setBuildOpen(open: boolean): void;
   setMoraleOpen(open: boolean): void;
+  recruit(kind: number, count: number): void;
+  setRecipe(index: number): void;
+  restart(mode?: GameMode): void;
+}
+
+/** Bresenham line between two tiles (inclusive). */
+export function tileLine(x0: number, z0: number, x1: number, z1: number): [number, number][] {
+  const out: [number, number][] = [];
+  const dx = Math.abs(x1 - x0);
+  const dz = -Math.abs(z1 - z0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sz = z0 < z1 ? 1 : -1;
+  let err = dx + dz;
+  let x = x0;
+  let z = z0;
+  for (let guard = 0; guard < 512; guard++) {
+    out.push([x, z]);
+    if (x === x1 && z === z1) break;
+    const e2 = 2 * err;
+    if (e2 >= dz) {
+      err += dz;
+      x += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      z += sz;
+    }
+  }
+  return out;
 }
 
 export class Game implements GameActions {
   readonly sim: Sim;
+  readonly mode: GameMode;
   readonly player: number;
   readonly renderer: GameRenderer;
   readonly input: InputController;
   readonly selected = new Set<number>();
   controlled = -1;
-  /** Building being placed, and the footprint origin currently previewed. */
+  /** Building being placed, its rotation, and the footprint origin currently previewed. */
   placing: StructureKind | null = null;
+  placeRot = 0;
   private placeTile: { tx: number; tz: number } | null = null;
+  /** Wall line: anchor tile and current end tile. */
+  wallAnchor: { tx: number; tz: number } | null = null;
+  private wallEnd: { tx: number; tz: number } | null = null;
   selectedStructure = -1;
   private lastDepartToast = -1e9;
 
@@ -67,9 +102,11 @@ export class Game implements GameActions {
   private toastTimer = 0;
   private readonly basePos: { x: number; z: number };
 
-  constructor(canvas: HTMLCanvasElement, overlay: HTMLElement) {
-    const scenario = createM0Scenario(Number(new URLSearchParams(location.search).get('seed')) || 1337);
+  constructor(canvas: HTMLCanvasElement, overlay: HTMLElement, mode: GameMode) {
+    const params = new URLSearchParams(location.search);
+    const scenario = createScenario(mode, Number(params.get('seed')) || 1337);
     this.sim = scenario.sim;
+    this.mode = mode;
     this.player = scenario.player;
     this.basePos = scenario.playerBase;
     const quality = detectQuality();
@@ -80,14 +117,15 @@ export class Game implements GameActions {
     const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
     let seenHelp = false;
     try {
-      seenHelp = localStorage.getItem('m1-help-seen') === '1';
+      seenHelp = localStorage.getItem(HELP_KEY) === '1';
     } catch {
       /* storage unavailable */
     }
     setHud({
       isTouch,
+      gameMode: mode,
       quality: quality.name,
-      debug: new URLSearchParams(location.search).has('debug'),
+      debug: params.has('debug'),
       showHelp: !seenHelp,
     });
     window.addEventListener('resize', () => this.renderer.resize());
@@ -128,7 +166,7 @@ export class Game implements GameActions {
 
     // Drop dead units from selection / control.
     const u = this.sim.units;
-    for (const id of this.selected) if (!u.isAlive(id)) this.selected.delete(id);
+    for (const id of this.selected) if (!u.isAlive(id) || u.owner[id] !== this.player) this.selected.delete(id);
     if (this.controlled >= 0 && !u.isAlive(this.controlled)) {
       this.toast('Your unit was killed');
       this.exitControl();
@@ -188,27 +226,33 @@ export class Game implements GameActions {
     const label = [...counts.entries()].map(([n, c]) => (c > 1 ? `${c}× ${n}` : n)).join(', ');
     const c = this.controlled;
     const p = this.sim.economy.player(this.player);
-    const eco = {
-      funds: p.funds,
-      timber: p.stock[Res.Timber],
-      concrete: p.stock[Res.Concrete],
-      produce: p.stock[Res.Produce],
-      meat: p.stock[Res.Meat],
-      materialsCap: p.materialsCap,
-      foodCap: p.foodCap,
-      population: p.population,
-      idle: p.idle,
-      housing: p.housing,
-      morale: p.morale,
-      trend: p.moraleTrend / 20,
-      factors: p.factors,
-      rationLevel: p.rationLevel,
-      taxLevel: p.taxLevel,
-      foodSeconds: p.foodSeconds,
-      taxPerMin: p.population * TAX_LEVELS[p.taxLevel].perMin,
-    };
+    const dir = this.sim.director;
     setHud({
-      eco,
+      eco: {
+        funds: p.funds,
+        timber: p.stock[Res.Timber],
+        concrete: p.stock[Res.Concrete],
+        steel: p.stock[Res.Steel],
+        produce: p.stock[Res.Produce],
+        meat: p.stock[Res.Meat],
+        gear: [Res.Rifle, Res.MG, Res.Scoped, Res.Charges].map((r) => Math.floor(p.stock[r])),
+        materialsCap: p.materialsCap,
+        foodCap: p.foodCap,
+        gearCap: p.gearCap,
+        population: p.population,
+        idle: p.idle,
+        housing: p.housing,
+        morale: p.morale,
+        trend: p.moraleTrend / 20,
+        factors: p.factors,
+        rationLevel: p.rationLevel,
+        taxLevel: p.taxLevel,
+        foodSeconds: p.foodSeconds,
+        taxPerMin: p.population * TAX_LEVELS[p.taxLevel].perMin,
+      },
+      wave: dir
+        ? { index: dir.next, total: dir.total, nextIn: dir.nextIn(this.sim), attackers: dir.alive.size }
+        : null,
       placing: this.placingInfo(),
       building: this.buildingInfo(),
       clock: formatHour(info.hour),
@@ -227,19 +271,48 @@ export class Game implements GameActions {
 
   private handleEvents(events: SimEvent[]): void {
     for (const e of events) {
-      if (e.type === 'buildFailed' && e.owner === this.player) this.toast(e.reason);
-      if (e.type === 'departed' && e.owner === this.player && this.sim.timeSec - this.lastDepartToast > 20) {
-        this.lastDepartToast = this.sim.timeSec;
-        this.toast('Morale is low: civilians are leaving');
+      switch (e.type) {
+        case 'buildFailed':
+          if (e.owner === this.player) this.toast(e.reason);
+          break;
+        case 'departed':
+          if (e.owner === this.player && this.sim.timeSec - this.lastDepartToast > 20) {
+            this.lastDepartToast = this.sim.timeSec;
+            this.toast('Morale is low: civilians are leaving');
+          }
+          break;
+        case 'wave':
+          if (e.owner !== this.player) this.toast(`Wave ${e.index}/${e.total} incoming from the east! (${e.size} troops)`, 4);
+          break;
+        case 'structureDestroyed':
+          if (e.owner === this.player) this.toast(`Your ${STRUCTURE_DEFS[e.kind].name} was destroyed`);
+          break;
+        case 'result':
+          setHud({ result: { result: e.result, reason: e.reason } });
+          break;
       }
     }
   }
 
-  private placingInfo() {
+  private placingInfo(): PlacingInfo | null {
     if (!this.placing) return null;
     const def = STRUCTURE_DEFS[this.placing];
+    if (this.placing === 'wall') {
+      const tiles = this.wallTiles();
+      const valid = tiles.filter((t) => t.ok).length;
+      return {
+        kind: 'wall',
+        name: def.name,
+        cost: `${costText(def.cost)} per tile`,
+        valid: valid > 0,
+        reason: tiles.length && !valid ? 'Nothing buildable on that line' : null,
+        hasSpot: !!this.wallAnchor,
+        rotatable: false,
+        wall: { anchored: !!this.wallAnchor, ended: !!this.wallEnd, tiles: valid },
+      };
+    }
     const t = this.placeTile;
-    const check = t ? this.sim.economy.canPlace(this.player, this.placing, t.tx, t.tz) : null;
+    const check = t ? this.sim.economy.canPlace(this.player, this.placing, t.tx, t.tz, this.placeRot) : null;
     return {
       kind: this.placing,
       name: def.name,
@@ -247,29 +320,29 @@ export class Game implements GameActions {
       valid: !!check?.ok,
       reason: check && !check.ok ? (check.reason ?? null) : null,
       hasSpot: !!t,
+      rotatable: !!def.rotatable,
+      wall: null,
     };
   }
 
-  private buildingInfo() {
+  private buildingInfo(): BuildingInfo | null {
     const s = this.selectedStructure >= 0 ? this.sim.structureById(this.selectedStructure) : undefined;
     if (!s) return null;
     const def = STRUCTURE_DEFS[s.kind];
     const p = this.sim.economy.player(s.owner);
     let storage: string | null = null;
-    if (def.storage?.kind === 'materials') {
-      storage = `Materials ${Math.floor(p.stored('materials'))} / ${p.materialsCap} (all depots)`;
-    } else if (def.storage?.kind === 'food') {
-      storage = `Food ${Math.floor(p.stored('food'))} / ${p.foodCap} (all stores)`;
+    if (def.storage) {
+      const kind = def.storage.kind;
+      const label = kind === 'materials' ? 'Materials' : kind === 'food' ? 'Food' : 'Weapons';
+      storage = `${label} ${Math.floor(p.stored(kind))} / ${p.cap(kind)} (all stores)`;
     } else if (def.housing) {
       storage = `Housing ${p.population} / ${p.housing} (all buildings)`;
     }
+    const half = (n?: number): number => Math.floor((n ?? 0) / 2);
     const refund = def.buildable
-      ? costText({
-          timber: Math.floor((def.cost.timber ?? 0) / 2),
-          concrete: Math.floor((def.cost.concrete ?? 0) / 2),
-          funds: Math.floor((def.cost.funds ?? 0) / 2),
-        })
+      ? costText({ timber: half(def.cost.timber), concrete: half(def.cost.concrete), funds: half(def.cost.funds) })
       : '';
+    const mine = s.owner === this.player;
     return {
       id: s.id,
       kind: s.kind,
@@ -279,10 +352,95 @@ export class Game implements GameActions {
       workers: s.workers.length,
       jobs: def.jobs ?? 0,
       active: s.active,
-      canDemolish: def.buildable && s.owner === this.player,
+      canDemolish: def.buildable && mine,
       refund,
       storage,
+      hp: Math.max(0, Math.round(s.hp)),
+      maxHp: def.hp,
+      enemy: !mine,
+      recipes: def.recipes
+        ? { options: def.recipes.map((r) => `${RES_INFO[r.output].name} (${r.inputAmount} steel)`), selected: s.recipe }
+        : null,
+      recruit:
+        s.kind === 'barracks' && mine
+          ? RECRUITABLE.map((k) => {
+              const t = UNIT_TYPES[k];
+              return {
+                kind: k,
+                name: t.name,
+                blurb: t.blurb,
+                cost: `${RES_INFO[t.gear!].name.replace(/s$/, '')} + $${t.funds}`,
+                stock: Math.floor(p.stock[t.gear!]),
+                blocker: this.sim.economy.recruitBlocker(this.player, k),
+              };
+            })
+          : null,
     };
+  }
+
+  toast(msg: string, sec = 2.5): void {
+    setHud({ toast: msg });
+    this.toastTimer = sec;
+  }
+
+  // ---------------------------------------------------------------- orders / selection
+
+  /** Right-click / tap command at a picked point: attack a unit, attack a structure, or move. */
+  commandAt(point: { x: number; z: number; layer: number }, enemyUnit: number, enemyStructure: number): void {
+    if (this.selected.size === 0) return;
+    const ids = [...this.selected];
+    if (enemyUnit >= 0) {
+      this.sim.enqueue({ type: 'attack', owner: this.player, ids, target: enemyUnit });
+      this.renderer.fx.moveMarker(this.sim.units.x[enemyUnit], this.sim.units.z[enemyUnit]);
+      return;
+    }
+    if (enemyStructure >= 0) {
+      const s = this.sim.structureById(enemyStructure);
+      if (s && STRUCTURE_DEFS[s.kind].armored && ids.every((id) => this.sim.units.charges[id] === 0)) {
+        this.toast('Only combat engineers can breach walls and gates');
+        return;
+      }
+      this.sim.enqueue({ type: 'attackStructure', owner: this.player, ids, structure: enemyStructure });
+      if (s) this.renderer.fx.moveMarker(s.tx + s.w / 2, s.tz + s.h / 2);
+      return;
+    }
+    this.sim.enqueue({ type: 'move', owner: this.player, ids, x: point.x, z: point.z, layer: point.layer });
+    this.renderer.fx.moveMarker(point.x, point.z);
+  }
+
+  issueMove(x: number, z: number, layer = 0): void {
+    this.commandAt({ x, z, layer }, -1, -1);
+  }
+
+  select(ids: number[], additive: boolean): void {
+    if (!additive) this.selected.clear();
+    if (ids.length && this.selectedStructure >= 0) {
+      this.selectedStructure = -1;
+      this.renderer.setSelectedStructure(undefined);
+    }
+    const u = this.sim.units;
+    for (const id of ids) {
+      if (u.isAlive(id) && u.owner[id] === this.player && UNIT_TYPES[u.kind[id]].selectable) this.selected.add(id);
+    }
+    this.pushHud();
+  }
+
+  selectAll(): void {
+    const u = this.sim.units;
+    const ids: number[] = [];
+    for (let i = 0; i < u.count; i++) {
+      if (u.alive[i] && u.owner[i] === this.player && UNIT_TYPES[u.kind[i]].selectable) ids.push(i);
+    }
+    this.select(ids, false);
+  }
+
+  deselect(): void {
+    this.selected.clear();
+    this.pushHud();
+  }
+
+  setSelectMode(on: boolean): void {
+    setHud({ selectMode: on });
   }
 
   // ---------------------------------------------------------------- building
@@ -291,8 +449,11 @@ export class Game implements GameActions {
     if (this.controlled >= 0) return;
     this.placing = kind;
     this.placeTile = null;
+    this.wallAnchor = null;
+    this.wallEnd = null;
     this.deselectStructure();
     this.renderer.setGhost(null);
+    this.renderer.setWallGhost([]);
     setHud({ buildOpen: false, moraleOpen: false });
     this.pushHud();
   }
@@ -300,34 +461,107 @@ export class Game implements GameActions {
   cancelPlacing(): void {
     this.placing = null;
     this.placeTile = null;
+    this.wallAnchor = null;
+    this.wallEnd = null;
     this.renderer.setGhost(null);
+    this.renderer.setWallGhost([]);
     this.pushHud();
   }
 
-  /** Preview the current building centred on a ground point. */
+  rotatePlacement(): void {
+    if (!this.placing || !STRUCTURE_DEFS[this.placing].rotatable) return;
+    this.placeRot = this.placeRot ? 0 : Math.PI / 2;
+    if (this.placeTile) {
+      const { w, h } = footprint(this.placing, this.placeRot);
+      this.previewPlacementAt(this.placeTile.tx + w / 2, this.placeTile.tz + h / 2);
+    }
+    this.pushHud();
+  }
+
+  /** Tiles of the current wall line with per-tile validity (affordability is cumulative). */
+  private wallTiles(): { x: number; z: number; ok: boolean }[] {
+    if (!this.wallAnchor) return [];
+    const end = this.wallEnd ?? this.wallAnchor;
+    const p = this.sim.economy.player(this.player);
+    const per = STRUCTURE_DEFS.wall.cost.concrete ?? 0;
+    let budget = Math.floor(p.stock[Res.Concrete] / Math.max(1, per));
+    return tileLine(this.wallAnchor.tx, this.wallAnchor.tz, end.tx, end.tz).map(([x, z]) => {
+      let ok = this.sim.economy.canPlaceWallTile(this.player, x, z).ok && budget > 0;
+      if (ok) budget--;
+      else ok = false;
+      return { x, z, ok };
+    });
+  }
+
+  private refreshWallGhost(): void {
+    const flat: number[] = [];
+    for (const t of this.wallTiles()) flat.push(t.x, t.z, t.ok ? 1 : 0);
+    this.renderer.setWallGhost(flat);
+  }
+
+  /** Wall placement: set the line's anchor (start). */
+  wallStart(x: number, z: number): void {
+    this.wallAnchor = { tx: Math.floor(x), tz: Math.floor(z) };
+    this.wallEnd = null;
+    this.refreshWallGhost();
+    this.pushHud();
+  }
+
+  /** Preview the current building centred on a ground point (or extend the wall line). */
   previewPlacementAt(x: number, z: number): void {
     if (!this.placing) return;
-    const def = STRUCTURE_DEFS[this.placing];
-    const tx = Math.round(x - def.w / 2);
-    const tz = Math.round(z - def.h / 2);
+    if (this.placing === 'wall') {
+      if (!this.wallAnchor) {
+        // Hover preview of a single tile.
+        const tx = Math.floor(x);
+        const tz = Math.floor(z);
+        const ok = this.sim.economy.canPlaceWallTile(this.player, tx, tz).ok;
+        this.renderer.setWallGhost([tx, tz, ok ? 1 : 0]);
+      } else {
+        this.wallEnd = { tx: Math.floor(x), tz: Math.floor(z) };
+        this.refreshWallGhost();
+      }
+      this.pushHud();
+      return;
+    }
+    const { w, h } = footprint(this.placing, this.placeRot);
+    const tx = Math.round(x - w / 2);
+    const tz = Math.round(z - h / 2);
     this.placeTile = { tx, tz };
-    const ok = this.sim.economy.canPlace(this.player, this.placing, tx, tz).ok;
-    this.renderer.setGhost(this.placing, tx, tz, ok);
+    const ok = this.sim.economy.canPlace(this.player, this.placing, tx, tz, this.placeRot).ok;
+    const rot = this.placing === 'stairs' ? (this.sim.economy.stairsFacing(tx, tz, this.player) ?? 0) : this.placeRot;
+    this.renderer.setGhost(this.placing, tx, tz, ok, rot);
     this.pushHud();
   }
 
-  /** Place at the previewed spot (stays in placement mode for repeat building). */
+  /** Build at the previewed spot (stays in placement mode for repeat building). */
   confirmPlacing(): void {
-    if (!this.placing || !this.placeTile) return;
+    if (!this.placing) return;
+    if (this.placing === 'wall') {
+      const tiles = this.wallTiles().filter((t) => t.ok);
+      if (tiles.length === 0) {
+        this.toast('Nothing buildable on that line');
+        return;
+      }
+      const flat: number[] = [];
+      for (const t of tiles) flat.push(t.x, t.z);
+      this.sim.enqueue({ type: 'buildWall', owner: this.player, tiles: flat });
+      // Chain the next segment from where this one ended.
+      const end = this.wallEnd ?? this.wallAnchor;
+      this.wallAnchor = useHudIsTouch() && end ? { ...end } : null;
+      this.wallEnd = null;
+      this.renderer.setWallGhost([]);
+      return;
+    }
+    if (!this.placeTile) return;
     const { tx, tz } = this.placeTile;
-    const check = this.sim.economy.canPlace(this.player, this.placing, tx, tz);
+    const check = this.sim.economy.canPlace(this.player, this.placing, tx, tz, this.placeRot);
     if (!check.ok) {
       this.toast(check.reason ?? 'Cannot build here');
       return;
     }
-    this.sim.enqueue({ type: 'build', owner: this.player, kind: this.placing, tx, tz });
-    // Ghost turns red until moved (the spot is now taken); refresh after the sim applies it.
-    this.renderer.setGhost(this.placing, tx, tz, false);
+    this.sim.enqueue({ type: 'build', owner: this.player, kind: this.placing, tx, tz, rot: this.placeRot });
+    this.renderer.setGhost(this.placing, tx, tz, false, this.placeRot);
   }
 
   selectStructure(id: number): void {
@@ -356,6 +590,25 @@ export class Game implements GameActions {
     setTimeout(() => this.pushHud(), 120);
   }
 
+  recruit(kind: number, count: number): void {
+    const s = this.sim.structureById(this.selectedStructure);
+    if (!s || s.kind !== 'barracks') return;
+    const blocker = this.sim.economy.recruitBlocker(this.player, kind);
+    if (blocker) {
+      this.toast(blocker);
+      return;
+    }
+    this.sim.enqueue({ type: 'recruit', owner: this.player, barracks: s.id, kind, count });
+    setTimeout(() => this.pushHud(), 120);
+  }
+
+  setRecipe(index: number): void {
+    const s = this.sim.structureById(this.selectedStructure);
+    if (!s) return;
+    this.sim.enqueue({ type: 'setRecipe', owner: this.player, id: s.id, recipe: index });
+    setTimeout(() => this.pushHud(), 120);
+  }
+
   setRations(level: number): void {
     this.sim.enqueue({ type: 'setRations', owner: this.player, level });
     setTimeout(() => this.pushHud(), 120);
@@ -375,50 +628,6 @@ export class Game implements GameActions {
     setHud({ moraleOpen: open, buildOpen: false });
   }
 
-  toast(msg: string): void {
-    setHud({ toast: msg });
-    this.toastTimer = 2.5;
-  }
-
-  // ---------------------------------------------------------------- orders / selection
-
-  issueMove(x: number, z: number): void {
-    if (this.selected.size === 0) return;
-    this.sim.enqueue({ type: 'move', owner: this.player, ids: [...this.selected], x, z });
-    this.renderer.fx.moveMarker(x, z);
-  }
-
-  select(ids: number[], additive: boolean): void {
-    if (!additive) this.selected.clear();
-    if (ids.length && this.selectedStructure >= 0) {
-      this.selectedStructure = -1;
-      this.renderer.setSelectedStructure(undefined);
-    }
-    for (const id of ids) {
-      const u = this.sim.units;
-      if (u.isAlive(id) && u.owner[id] === this.player && UNIT_TYPES[u.kind[id]].selectable) this.selected.add(id);
-    }
-    this.pushHud();
-  }
-
-  selectAll(): void {
-    const u = this.sim.units;
-    const ids: number[] = [];
-    for (let i = 0; i < u.count; i++) {
-      if (u.alive[i] && u.owner[i] === this.player && UNIT_TYPES[u.kind[i]].selectable) ids.push(i);
-    }
-    this.select(ids, false);
-  }
-
-  deselect(): void {
-    this.selected.clear();
-    this.pushHud();
-  }
-
-  setSelectMode(on: boolean): void {
-    setHud({ selectMode: on });
-  }
-
   // ---------------------------------------------------------------- direct control
 
   takeControl(): void {
@@ -433,7 +642,7 @@ export class Game implements GameActions {
       }
     }
     if (pick < 0) {
-      this.toast('Select a unit first');
+      this.toast('Select a soldier first');
       return;
     }
     this.controlled = pick;
@@ -445,7 +654,7 @@ export class Game implements GameActions {
     this.renderer.ots.aiming = false;
     this.renderer.director.startSwoop();
     this.input.enterControl();
-    setHud({ mode: 'control' });
+    setHud({ view: 'control' });
     this.pushHud();
   }
 
@@ -459,7 +668,7 @@ export class Game implements GameActions {
     this.renderer.director.startSwoop();
     this.renderer.ots.aiming = false;
     this.input.exitControl();
-    setHud({ mode: 'rts', aiming: false });
+    setHud({ view: 'rts', aiming: false });
   }
 
   setFire(on: boolean): void {
@@ -497,6 +706,13 @@ export class Game implements GameActions {
     this.renderer.rts.lookAtSoft(this.basePos.x + 6, this.basePos.z);
   }
 
+  restart(mode?: GameMode): void {
+    const params = new URLSearchParams(location.search);
+    if (mode) params.set('mode', mode);
+    else params.delete('mode');
+    location.search = params.toString();
+  }
+
   toggleFullscreen(): void {
     const el = document.documentElement;
     if (!document.fullscreenElement) {
@@ -515,7 +731,7 @@ export class Game implements GameActions {
   dismissHelp(): void {
     setHud({ showHelp: false });
     try {
-      localStorage.setItem('m1-help-seen', '1');
+      localStorage.setItem(HELP_KEY, '1');
     } catch {
       /* storage unavailable */
     }
@@ -529,4 +745,8 @@ export class Game implements GameActions {
   unitScreenAnchor(id: number, out: THREE.Vector3): THREE.Vector3 {
     return this.renderer.units.unitPosition(id, 1, out).setY(out.y + 0.55);
   }
+}
+
+function useHudIsTouch(): boolean {
+  return matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 }

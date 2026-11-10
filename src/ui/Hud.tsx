@@ -62,6 +62,12 @@ const ICON_PATHS: Record<string, ReactNode> = {
       <path d="M14.5 20c.3-2.8 1.5-5 4-5 2.3 0 3.5 2 3.5 5z" opacity="0.7" />
     </g>
   ),
+  steel: (
+    <g fill="currentColor">
+      <path d="M3 17l4-9h14l-4 9z" />
+      <path d="M5 21l3-3h12l-3 3z" opacity="0.7" />
+    </g>
+  ),
   build: (
     <path d="M14 4l6 6-2 2-2-2-7 7.5a2 2 0 0 1-3-3L13 7l-1-1z" fill="currentColor" />
   ),
@@ -134,12 +140,13 @@ function TopBar({ game }: { game: GameActions }) {
           {s.paused ? '▶' : '❚❚'}
         </Btn>
         {[1, 2, 3].map((v) => (
-          <Btn key={v} onClick={() => game.setSpeed(v)} active={!s.paused && s.speed === v}>
+          <Btn key={v} className={`x${v}`} onClick={() => game.setSpeed(v)} active={!s.paused && s.speed === v}>
             {v}×
           </Btn>
         ))}
       </div>
       <ResourceBar game={game} />
+      <WavePill />
       <div className="spacer" />
       <div className="panel forces" title="Your soldiers vs hostile soldiers">
         <span className="dot blue" /> {s.playerUnits}
@@ -147,7 +154,7 @@ function TopBar({ game }: { game: GameActions }) {
         <span className="dot red" /> {s.enemyUnits}
       </div>
       <div className="panel menu">
-        <div className="dropdown">
+        <div className="dropdown time-dropdown">
           <Btn onClick={() => setTimeOpen(!timeOpen)} active={timeOpen} title="Jump the day/night clock (test)">
             Time
           </Btn>
@@ -203,6 +210,10 @@ function ResourceBar({ game }: { game: GameActions }) {
       <span className="res" title="Concrete">
         <Icon name="concrete" />
         {fmt(eco.concrete)}
+      </span>
+      <span className="res" title="Steel (for weapons)">
+        <Icon name="steel" />
+        {fmt(eco.steel)}
       </span>
       <span
         className={`res ${eco.foodSeconds < 60 && eco.rationLevel > 0 ? 'warn' : ''}`}
@@ -310,6 +321,8 @@ const CATEGORIES: { key: BuildCategory; name: string }[] = [
   { key: 'core', name: 'Core' },
   { key: 'industry', name: 'Industry' },
   { key: 'food', name: 'Food' },
+  { key: 'defense', name: 'Defense' },
+  { key: 'military', name: 'Military' },
 ];
 
 function BuildMenu({ game }: { game: GameActions }) {
@@ -335,6 +348,7 @@ function BuildMenu({ game }: { game: GameActions }) {
           const afford =
             (def.cost.timber ?? 0) <= eco.timber &&
             (def.cost.concrete ?? 0) <= eco.concrete &&
+            (def.cost.steel ?? 0) <= eco.steel &&
             (def.cost.funds ?? 0) <= eco.funds;
           return (
             <button
@@ -363,32 +377,47 @@ const STATUS_TEXT: Record<StructureStatus, string> = {
   noTrees: 'No trees in range',
   storageFull: 'Storage full: build another store',
   paused: 'Paused',
+  noInput: 'Waiting for steel (build a scrap yard)',
 };
 
 function PlacementPanel({ game }: { game: GameActions }) {
   const placing = useHud((s) => s.placing)!;
   const isTouch = useHud((s) => s.isTouch);
+  let status: string | null;
+  let ok = placing.valid;
+  if (placing.wall) {
+    const w = placing.wall;
+    if (!w.anchored) {
+      status = isTouch ? 'Tap where the wall starts' : 'Drag along the ground to draw a wall';
+      ok = true;
+    } else if (isTouch && !w.ended) {
+      status = 'Now tap where it ends';
+      ok = true;
+    } else {
+      status = w.tiles > 0 ? `${w.tiles} tile${w.tiles === 1 ? '' : 's'} ${isTouch ? '· tap Place' : '· release to build'}` : placing.reason;
+    }
+  } else if (!placing.hasSpot) {
+    status = isTouch ? 'Tap the ground to position it' : 'Move the cursor over the ground';
+    ok = true;
+  } else {
+    status = placing.valid ? (isTouch ? 'Looks good: tap Place to build' : 'Click to build · right-click or Esc to stop') : placing.reason;
+  }
   return (
     <div className="bottombar">
       <div className="panel selection">
         <div className="sel-label">
           Placing <strong>{placing.name}</strong> · <span className="muted">{placing.cost}</span>
         </div>
-        <div className={`place-status ${placing.valid ? 'ok' : 'bad'}`}>
-          {!placing.hasSpot
-            ? isTouch
-              ? 'Tap the ground to position it'
-              : 'Move the cursor over the ground'
-            : placing.valid
-              ? isTouch
-                ? 'Looks good: tap Place to build'
-                : 'Click to build · right-click or Esc to stop'
-              : placing.reason}
-        </div>
+        <div className={`place-status ${ok ? 'ok' : 'bad'}`}>{status}</div>
         <div className="row">
           {isTouch && (
-            <Btn className="primary" disabled={!placing.valid} onClick={() => game.confirmPlacing()}>
+            <Btn className="primary" disabled={!placing.valid || (!!placing.wall && !placing.wall.ended)} onClick={() => game.confirmPlacing()}>
               ✓ Place
+            </Btn>
+          )}
+          {placing.rotatable && (
+            <Btn onClick={() => game.rotatePlacement()} title="Rotate (R)">
+              ⟲ Rotate{!isTouch && <kbd>R</kbd>}
             </Btn>
           )}
           <Btn onClick={() => game.cancelPlacing()}>✕ Done</Btn>
@@ -400,24 +429,74 @@ function PlacementPanel({ game }: { game: GameActions }) {
 
 function BuildingPanel({ game }: { game: GameActions }) {
   const b = useHud((s) => s.building)!;
+  const eco = useHud((s) => s.eco);
+  const hpFrac = b.maxHp ? b.hp / b.maxHp : 1;
   return (
     <div className="bottombar">
-      <div className="panel selection building-panel">
+      <div className={`panel selection building-panel ${b.recruit || b.recipes ? 'wide' : ''}`}>
         <div className="sel-label">
           <strong>{b.name}</strong>
-          {b.jobs > 0 && (
+          {b.enemy && <span className="badge bad">Hostile</span>}
+          {b.jobs > 0 && !b.enemy && (
             <span className={`badge ${b.status === 'ok' ? 'ok' : 'bad'}`}>{STATUS_TEXT[b.status]}</span>
           )}
         </div>
-        <div className="muted small">{b.description}</div>
-        {b.jobs > 0 && (
+        <div className="hp-row small">
+          <div className="hpbar wide">
+            <div className="hpfill" style={{ width: `${hpFrac * 100}%`, background: hpFrac < 0.35 ? 'var(--red)' : undefined }} />
+          </div>
+          <span className="muted">
+            {b.hp}/{b.maxHp}
+          </span>
+        </div>
+        {!b.recruit && <div className="muted small">{b.description}</div>}
+        {b.jobs > 0 && !b.enemy && (
           <div className="small">
             Workers {b.workers}/{b.jobs}
           </div>
         )}
-        {b.storage && <div className="small">{b.storage}</div>}
+        {b.storage && !b.enemy && <div className="small">{b.storage}</div>}
+        {b.kind === 'armory' && !b.enemy && (
+          <div className="small gear-list">
+            Rifles {eco.gear[0]} · MGs {eco.gear[1]} · Scoped {eco.gear[2]} · Breach kits {eco.gear[3]}
+          </div>
+        )}
+        {b.recipes && !b.enemy && (
+          <div className="control-group">
+            <div className="control-label">Producing</div>
+            <Segmented
+              options={b.recipes.options.map((o, i) => ({ key: String(i), name: o }))}
+              value={b.recipes.selected}
+              onChange={(i) => game.setRecipe(i)}
+            />
+          </div>
+        )}
+        {b.recruit && (
+          <div className="recruit-grid">
+            {b.recruit.map((r) => (
+              <div key={r.kind} className={`recruit-card ${r.blocker ? 'cant' : ''}`} title={r.blocker ?? r.blurb}>
+                <div className="recruit-name">{r.name}</div>
+                <div className="recruit-cost">
+                  {r.cost}
+                  <span className="muted"> · {r.stock} in armory</span>
+                </div>
+                <div className="row nowrap">
+                  <Btn className="primary" disabled={!!r.blocker} onClick={() => game.recruit(r.kind, 1)}>
+                    +1
+                  </Btn>
+                  <Btn disabled={!!r.blocker} onClick={() => game.recruit(r.kind, 5)}>
+                    +5
+                  </Btn>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {b.recruit && b.recruit.every((r) => r.blocker) && (
+          <div className="muted small">{b.recruit[0].blocker}: weapons come from an Arms Factory (needs steel).</div>
+        )}
         <div className="row">
-          {b.jobs > 0 && <Btn onClick={() => game.toggleSelectedActive()}>{b.active ? '❚❚ Pause' : '▶ Resume'}</Btn>}
+          {b.jobs > 0 && !b.enemy && <Btn onClick={() => game.toggleSelectedActive()}>{b.active ? '❚❚ Pause' : '▶ Resume'}</Btn>}
           {b.canDemolish && (
             <Btn className="danger" onClick={() => game.demolishSelected()} title={`Refund: ${b.refund}`}>
               Demolish
@@ -443,6 +522,11 @@ function RtsPanel({ game }: { game: GameActions }) {
             <div className="sel-label">
               <strong>{s.selectionCount}</strong> selected · <span className="muted">{s.selectionLabel}</span>
             </div>
+            <div className="muted small hint">
+              {s.isTouch
+                ? 'Tap ground to move · tap a wall top to man it · tap an enemy to attack'
+                : 'Right-click: move · on a wall top: man it · on an enemy: attack'}
+            </div>
             <div className="row">
               <Btn onClick={() => game.takeControl()} className="primary" title="Take direct control (F)">
                 Take control{!s.isTouch && <kbd>F</kbd>}
@@ -464,7 +548,7 @@ function RtsPanel({ game }: { game: GameActions }) {
           <>
             <div className="sel-label muted">
               {s.isTouch
-                ? 'Tap a soldier or building · Build to expand your economy'
+                ? 'Tap a soldier or building · Build to expand and fortify'
                 : 'Select soldiers or buildings · B to build · F to take control of a soldier'}
             </div>
             <div className="row">
@@ -544,6 +628,52 @@ function ControlOverlay({ game }: { game: GameActions }) {
   );
 }
 
+// ------------------------------------------------------------------ waves & results
+
+function WavePill() {
+  const wave = useHud((s) => s.wave);
+  if (!wave) return null;
+  const next = wave.nextIn;
+  const soon = next !== null && next < 30;
+  return (
+    <div className={`panel wave-pill ${soon ? 'soon' : ''}`} title="Hold the Line: survive every wave">
+      <span className="wave-label">Wave</span>
+      <strong>
+        {wave.index}/{wave.total}
+      </strong>
+      {next !== null ? (
+        <span className="wave-next">
+          <span className="lbl">next in </span>
+          {formatDuration(next)}
+        </span>
+      ) : (
+        <span className="wave-next">final wave</span>
+      )}
+      {wave.attackers > 0 && <span className="wave-attackers">{wave.attackers} attacking</span>}
+    </div>
+  );
+}
+
+function ResultOverlay({ game }: { game: GameActions }) {
+  const result = useHud((s) => s.result)!;
+  const mode = useHud((s) => s.gameMode);
+  const win = result.result === 'victory';
+  return (
+    <div className="modal-backdrop">
+      <div className={`panel modal result ${win ? 'win' : 'lose'}`}>
+        <h2>{win ? 'Victory' : 'Defeat'}</h2>
+        <p>{result.reason}</p>
+        <div className="row end">
+          <Btn onClick={() => game.restart()}>Main menu</Btn>
+          <Btn className="primary" onClick={() => game.restart(mode)}>
+            Play again
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------ help & misc
 
 function Help({ game }: { game: GameActions }) {
@@ -551,23 +681,26 @@ function Help({ game }: { game: GameActions }) {
   return (
     <div className="modal-backdrop" onClick={() => game.dismissHelp()}>
       <div className="panel modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Prototype M1: economy</h2>
+        <h2>{s.gameMode === 'hold' ? 'Hold the Line' : 'Sandbox'}</h2>
         <p className="muted">
-          Grow your outpost. Civilians arrive while <b>morale</b> is above 50 and there's free housing. Build lumber
-          camps, a quarry, orchards and ranches. Workers carry goods to your depots and ration store, so build stores
-          near producers. Set <b>rations</b> and <b>taxes</b> from the morale panel. Work slows at night.
+          {s.gameMode === 'hold'
+            ? 'Six waves will attack from the east, two of them at night. Keep your HQ and Commander alive. '
+            : 'No waves: build at your own pace. '}
+          Put troops <b>on the walls</b>: they get range and cover. Engineers can blow holes in walls and gates.
+          To train more soldiers, idle civilians, weapons from the <b>Armory</b> and funds are needed. Weapons are made at an{' '}
+          <b>Arms Factory</b> from steel (<b>Scrap Yard</b>).
         </p>
         {s.isTouch ? (
           <ul>
             <li>
-              <b>Build</b> → pick a building → <b>tap the ground</b> to position → <b>✓ Place</b>.
+              <b>Build</b> → pick → <b>tap</b> to position → <b>✓ Place</b>. Walls: tap the start, tap the end, place.
             </li>
             <li>
-              <b>Tap</b> a building to see its status, pause it or demolish it. Tap <b>Morale</b> for rations and taxes.
+              Tap the <b>Barracks</b> to recruit. Tap a building for its status, or <b>Morale</b> for rations and taxes.
             </li>
             <li>
-              <b>Tap</b> a soldier to select, <b>double-tap</b> for the squad, <b>tap ground</b> to move. Drag pans, pinch
-              zooms, twist rotates.
+              Tap soldiers to select (double-tap for the squad). Tap ground to move, a <b>wall top</b> to man it, an{' '}
+              <b>enemy</b> to attack.
             </li>
             <li>
               <b>Take control</b> of a soldier: left thumb moves, right thumb aims, hold <b>Fire</b>.
@@ -576,20 +709,27 @@ function Help({ game }: { game: GameActions }) {
         ) : (
           <ul>
             <li>
-              <b>B</b> or <b>Build</b> → pick a building → <b>click</b> to place (repeat), <b>right-click/Esc</b> to stop.
+              <b>B</b> builds. <b>Drag</b> to draw walls. <b>R</b> rotates gatehouses. Right-click or Esc stops placing.
             </li>
             <li>
-              <b>Click</b> a building for status, pause or demolish. Click <b>Morale</b> for rations and taxes.
+              Click the <b>Barracks</b> to recruit. Click a building for status, or <b>Morale</b> for rations and taxes.
             </li>
             <li>
-              <b>Drag</b> to box-select soldiers, <b>right-click</b> to move. <b>WASD</b>/edges pan, <b>wheel</b> zoom,{' '}
-              <b>Q/E</b> rotate.
+              Drag to select soldiers. <b>Right-click</b>: ground = move, wall top = man it, enemy = attack.
             </li>
             <li>
-              <b>F</b> takes direct control of a soldier: WASD + mouse, <b>LMB</b> fire, <b>RMB</b> aim, <b>Esc</b> exit.
+              <b>F</b> takes direct control: WASD + mouse, <b>LMB</b> fire, <b>RMB</b> aim, <b>Esc</b> exit. <b>P</b> pauses.
             </li>
           </ul>
         )}
+        <div className="test-tools">
+          <span className="muted small">Test tools: jump the clock to</span>
+          {(['dawn', 'day', 'dusk', 'night'] as PhaseName[]).map((p) => (
+            <Btn key={p} onClick={() => game.skipToPhase(p)}>
+              {PHASE_LABEL[p]}
+            </Btn>
+          ))}
+        </div>
         <div className="row end">
           <Btn className="primary" onClick={() => game.dismissHelp()}>
             Deploy
@@ -619,15 +759,16 @@ function PortraitHint() {
 }
 
 export function Hud({ game }: { game: GameActions }) {
-  const mode = useHud((s) => s.mode);
+  const view = useHud((s) => s.view);
   const toast = useHud((s) => s.toast);
   const showHelp = useHud((s) => s.showHelp);
   const buildOpen = useHud((s) => s.buildOpen);
   const placing = useHud((s) => s.placing);
+  const result = useHud((s) => s.result);
   return (
     <div className="hud">
       <TopBar game={game} />
-      {mode === 'rts' ? (
+      {view === 'rts' ? (
         <>
           {buildOpen && <BuildMenu game={game} />}
           {!placing && (
@@ -647,6 +788,7 @@ export function Hud({ game }: { game: GameActions }) {
       )}
       {toast && <div className="toast panel">{toast}</div>}
       {showHelp && <Help game={game} />}
+      {result && <ResultOverlay game={game} />}
       <PortraitHint />
     </div>
   );

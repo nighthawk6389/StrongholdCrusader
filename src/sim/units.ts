@@ -7,6 +7,12 @@ export const Order = {
   Move: 1,
   /** Possessed by the player in over-the-shoulder mode. */
   Control: 2,
+  /** Hunt a specific enemy unit (`target`). */
+  Attack: 3,
+  /** Attack a structure (`targetStruct`): engineers plant charges, others shoot soft buildings. */
+  Breach: 4,
+  /** Wave AI: push toward the goal, blowing through walls on the way. */
+  Assault: 5,
 } as const;
 
 /** Civilian work-cycle states (see Economy). */
@@ -18,6 +24,10 @@ export const Task = {
   Chopping: 4,
   ToStore: 5,
   Wait: 6,
+  /** Walking to a depot to pick up inputs (arms factory). */
+  ToFetch: 7,
+  /** Walking to the barracks to be trained. */
+  Recruit: 8,
 } as const;
 
 /** `carry` value for an unsawn log (not a stockpiled resource). */
@@ -65,6 +75,27 @@ export class UnitStore {
   readonly carryAmt = new Uint8Array(MAX_UNITS);
   /** Path retries for the current leg. */
   readonly retries = new Uint8Array(MAX_UNITS);
+  /** Kind a recruit becomes on reaching the barracks. */
+  readonly recruitKind = new Int8Array(MAX_UNITS).fill(-1);
+
+  // --- navigation layers
+  /** 0 = ground, 1 = deck (wall tops). */
+  readonly layer = new Uint8Array(MAX_UNITS);
+  readonly goalLayer = new Uint8Array(MAX_UNITS);
+  /** Visual elevation above ground (eases toward the deck height). */
+  readonly elev = new Float32Array(MAX_UNITS);
+  readonly pelev = new Float32Array(MAX_UNITS);
+
+  // --- combat
+  /** Seconds of suppression left. */
+  readonly suppressed = new Float32Array(MAX_UNITS);
+  readonly charges = new Uint8Array(MAX_UNITS);
+  /** Structure being attacked/breached, -1 if none. */
+  readonly targetStruct = new Int32Array(MAX_UNITS).fill(-1);
+  /** Seconds left planting a breach charge (0 = not planting). */
+  readonly plantTimer = new Float32Array(MAX_UNITS);
+  /** Ticks until the next re-path for Attack/Assault. */
+  readonly repath = new Uint8Array(MAX_UNITS);
 
   spawn(kind: number, owner: number, x: number, z: number, heading: number): number {
     let id = -1;
@@ -101,6 +132,15 @@ export class UnitStore {
     this.carry[id] = CARRY_NONE;
     this.carryAmt[id] = 0;
     this.retries[id] = 0;
+    this.recruitKind[id] = -1;
+    this.layer[id] = 0;
+    this.goalLayer[id] = 0;
+    this.elev[id] = this.pelev[id] = 0;
+    this.suppressed[id] = 0;
+    this.charges[id] = UNIT_TYPES[kind].charges;
+    this.targetStruct[id] = -1;
+    this.plantTimer[id] = 0;
+    this.repath[id] = 0;
     return id;
   }
 
@@ -111,6 +151,19 @@ export class UnitStore {
     this.target[id] = -1;
     this.job[id] = -1;
     this.carry[id] = CARRY_NONE;
+    this.targetStruct[id] = -1;
+  }
+
+  /** Turn a unit into another kind in place (recruit → soldier). */
+  convert(id: number, kind: number): void {
+    this.kind[id] = kind;
+    this.hp[id] = UNIT_TYPES[kind].hp;
+    this.charges[id] = UNIT_TYPES[kind].charges;
+    this.job[id] = -1;
+    this.task[id] = 0;
+    this.carry[id] = CARRY_NONE;
+    this.recruitKind[id] = -1;
+    this.order[id] = Order.Idle;
   }
 
   isAlive(id: number): boolean {

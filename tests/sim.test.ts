@@ -51,7 +51,7 @@ describe('flow field', () => {
     // Vertical wall at x=8 with a gap at z=14.
     for (let z = 0; z < 16; z++) if (z !== 14) m.setBlocked(8, z, Block.Structure);
     const goal = m.idx(12, 2);
-    const f = buildFlowField(m, goal);
+    const f = buildFlowField(m, { goal: goal, goalLayer: 0, team: 1, breach: false });
     expect(f.dir[goal]).toBe(AT_GOAL);
     const start = m.idx(3, 2);
     expect(f.dir[start]).toBeGreaterThanOrEqual(0);
@@ -68,7 +68,7 @@ describe('flow field', () => {
       m.setBlocked(4, i, Block.Structure);
       m.setBlocked(8, i, Block.Structure);
     }
-    const f = buildFlowField(m, m.idx(1, 1));
+    const f = buildFlowField(m, { goal: m.idx(1, 1), goalLayer: 0, team: 1, breach: false });
     expect(f.dir[m.idx(6, 6)]).toBe(UNREACHABLE);
   });
 
@@ -76,7 +76,7 @@ describe('flow field', () => {
     const m = openMap(8, 8);
     m.setBlocked(4, 3, Block.Structure);
     m.setBlocked(3, 4, Block.Structure);
-    const f = buildFlowField(m, m.idx(4, 4));
+    const f = buildFlowField(m, { goal: m.idx(4, 4), goalLayer: 0, team: 1, breach: false });
     // From (3,3) the diagonal to (4,4) squeezes between two blocked tiles; must not be taken.
     expect(f.dist[m.idx(3, 3)]).toBeGreaterThan(Math.SQRT2 + 0.01);
   });

@@ -10,19 +10,40 @@ const HIP_Y = 0.46;
 const HIP_X = 0.085;
 
 /** Procedural low-poly soldier, split so team colour and walk cycle can be applied per instance. */
-function soldierParts(): { team: THREE.BufferGeometry; gear: THREE.BufferGeometry; leg: THREE.BufferGeometry } {
+function soldierParts(): { team: THREE.BufferGeometry; gear: THREE.BufferGeometry[]; leg: THREE.BufferGeometry } {
   const team = merge([
     box(0.36, 0.4, 0.22, 0, 0.66, 0, 0xffffff), // vest
     box(0.25, 0.11, 0.26, 0, 1.04, 0.01, 0xd6d6d6), // helmet
     box(0.09, 0.09, 0.34, -0.16, 0.74, 0.14, 0xe8e8e8), // left arm
     box(0.09, 0.09, 0.3, 0.17, 0.72, 0.1, 0xe8e8e8), // right arm
   ]);
-  const gear = merge([
-    box(0.18, 0.18, 0.18, 0, 0.94, 0, COLORS.skin), // head
-    box(0.26, 0.28, 0.12, 0, 0.68, -0.17, COLORS.pack), // backpack
-    box(0.05, 0.07, 0.62, 0.08, 0.76, 0.32, COLORS.rifle), // rifle
-    box(0.2, 0.05, 0.02, 0, 0.97, 0.1, 0x1c1c1c), // goggles band
-  ]);
+  const head = (): THREE.BufferGeometry => box(0.18, 0.18, 0.18, 0, 0.94, 0, COLORS.skin);
+  const band = (): THREE.BufferGeometry => box(0.2, 0.05, 0.02, 0, 0.97, 0.1, 0x1c1c1c);
+  // One gear set per soldier type: [rifleman/commander, machine gunner, marksman, engineer]
+  const gear = [
+    merge([head(), box(0.26, 0.28, 0.12, 0, 0.68, -0.17, COLORS.pack), box(0.05, 0.07, 0.62, 0.08, 0.76, 0.32, COLORS.rifle), band()]),
+    merge([
+      head(),
+      box(0.3, 0.3, 0.14, 0, 0.66, -0.18, 0x3f4a34),
+      box(0.09, 0.11, 0.78, 0.1, 0.74, 0.36, 0x1a1a1a),
+      box(0.14, 0.12, 0.12, 0.1, 0.62, 0.22, 0x3a3f2a),
+      band(),
+    ]),
+    merge([
+      head(),
+      box(0.22, 0.24, 0.1, 0, 0.68, -0.16, 0x4a5a32),
+      box(0.04, 0.05, 0.92, 0.08, 0.78, 0.4, 0x2b2620),
+      box(0.05, 0.06, 0.22, 0.08, 0.84, 0.3, 0x111111),
+      box(0.27, 0.06, 0.27, 0, 1.06, 0.01, 0x55673a),
+    ]),
+    merge([
+      head(),
+      box(0.3, 0.32, 0.16, 0, 0.67, -0.18, 0xc86a2a),
+      box(0.12, 0.12, 0.12, -0.12, 0.88, -0.2, 0xd8b04a),
+      box(0.05, 0.07, 0.46, 0.08, 0.76, 0.26, COLORS.rifle),
+      band(),
+    ]),
+  ];
   const leg = merge([
     box(0.13, 0.4, 0.15, 0, -0.2, 0, COLORS.pants),
     box(0.14, 0.08, 0.21, 0, -0.42, 0.03, COLORS.boots),
@@ -52,6 +73,15 @@ const JOB_COLORS: Partial<Record<StructureKind, number>> = {
 };
 const IDLE_COLOR = 0xd8cfb8;
 
+/** Which gear mesh each unit kind wears. */
+const GEAR_VARIANT: Record<number, number> = {
+  [UnitKind.Rifleman]: 0,
+  [UnitKind.Commander]: 0,
+  [UnitKind.Gunner]: 1,
+  [UnitKind.Marksman]: 2,
+  [UnitKind.Engineer]: 3,
+};
+
 const CARGO_COLORS: Record<number, number> = {
   [Res.Timber]: 0xc8a06a,
   [Res.Concrete]: 0xb9b4a8,
@@ -70,7 +100,7 @@ export interface UnitDrawState {
 export class UnitRenderer {
   readonly group = new THREE.Group();
   private team: THREE.InstancedMesh;
-  private gear: THREE.InstancedMesh;
+  private gear: THREE.InstancedMesh[];
   private legL: THREE.InstancedMesh;
   private legR: THREE.InstancedMesh;
   private civShirt: THREE.InstancedMesh;
@@ -98,10 +128,10 @@ export class UnitRenderer {
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
     const cap = MAX_UNITS;
     this.team = new THREE.InstancedMesh(parts.team, mat, cap);
-    this.gear = new THREE.InstancedMesh(parts.gear, mat, cap);
+    this.gear = parts.gear.map((g) => new THREE.InstancedMesh(g, mat, cap));
     this.legL = new THREE.InstancedMesh(parts.leg, mat, cap);
     this.legR = new THREE.InstancedMesh(parts.leg, mat, cap);
-    for (const im of [this.team, this.gear, this.legL, this.legR]) {
+    for (const im of [this.team, ...this.gear, this.legL, this.legR]) {
       im.frustumCulled = false;
       im.castShadow = castShadows;
       im.count = 0;
@@ -158,17 +188,19 @@ export class UnitRenderer {
     for (let i = 0; i < cap; i++) this.barFg.setColorAt(i, this.col.setHex(0x55dd55));
   }
 
-  /** Interpolated world position of a unit (for cameras / FX). */
+  /** Interpolated world position of a unit, including wall-top elevation (for cameras / FX). */
   unitPosition(id: number, alpha: number, out: THREE.Vector3): THREE.Vector3 {
     const u = this.sim.units;
     const x = u.px[id] + (u.x[id] - u.px[id]) * alpha;
     const z = u.pz[id] + (u.z[id] - u.pz[id]) * alpha;
-    return out.set(x, this.sim.map.heightAt(x, z), z);
+    const elev = u.pelev[id] + (u.elev[id] - u.pelev[id]) * alpha;
+    return out.set(x, this.sim.map.heightAt(x, z) + elev, z);
   }
 
   update(s: UnitDrawState): void {
     const u = this.sim.units;
     const map = this.sim.map;
+    const gearN = [0, 0, 0, 0];
     let n = 0; // soldiers
     let c = 0; // civilians
     let legs = 0;
@@ -179,7 +211,7 @@ export class UnitRenderer {
       if (!u.alive[i]) continue;
       const x = u.px[i] + (u.x[i] - u.px[i]) * s.alpha;
       const z = u.pz[i] + (u.z[i] - u.pz[i]) * s.alpha;
-      const y = map.heightAt(x, z);
+      const y = map.heightAt(x, z) + u.pelev[i] + (u.elev[i] - u.pelev[i]) * s.alpha;
       let dh = u.heading[i] - u.pheading[i];
       if (dh > Math.PI) dh -= Math.PI * 2;
       if (dh < -Math.PI) dh += Math.PI * 2;
@@ -218,7 +250,8 @@ export class UnitRenderer {
         }
       } else {
         this.team.setMatrixAt(n, this.m);
-        this.gear.setMatrixAt(n, this.m);
+        const g = GEAR_VARIANT[kind] ?? 0;
+        this.gear[g].setMatrixAt(gearN[g]++, this.m);
         this.team.setColorAt(n, this.col.setHex(isCmd ? COMMANDER_TINT[owner] : TEAM_COLORS[owner] ?? 0xffffff));
         n++;
       }
@@ -254,11 +287,12 @@ export class UnitRenderer {
         bars++;
       }
     }
-    this.team.count = this.gear.count = n;
+    this.team.count = n;
+    this.gear.forEach((im, k) => (im.count = gearN[k]));
     this.civShirt.count = this.civHead.count = c;
     this.legL.count = this.legR.count = legs;
     this.cargo.count = cargo;
-    for (const im of [this.team, this.gear, this.legL, this.legR, this.civShirt, this.civHead, this.cargo]) {
+    for (const im of [this.team, ...this.gear, this.legL, this.legR, this.civShirt, this.civHead, this.cargo]) {
       im.instanceMatrix.needsUpdate = true;
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
     }

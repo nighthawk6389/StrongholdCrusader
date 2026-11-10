@@ -15,6 +15,14 @@ export const Block = {
   Free: 0,
   Terrain: 1,
   Structure: 2,
+  /** Gatehouse: walkable on the ground only for `gateOwner`'s team. */
+  Gate: 3,
+} as const;
+
+/** Navigation layers: the ground, and the walkable tops of walls/towers/gatehouses. */
+export const Layer = {
+  Ground: 0,
+  Deck: 1,
 } as const;
 
 export interface Oasis {
@@ -51,6 +59,18 @@ export class GameMap {
   readonly heights: Float32Array;
   readonly oases: Oasis[] = [];
   readonly trees: Tree[] = [];
+  /** Owner of the gatehouse on a tile (0 = none). */
+  readonly gateOwner: Uint8Array;
+  /** 1 where the tile has a walkable top (wall, tower, gatehouse, stairs). */
+  readonly deck: Uint8Array;
+  /** Height of the walkable top above the ground. */
+  readonly deckH: Float32Array;
+  /** 1 on stairs: the only tiles where units switch between ground and deck. */
+  readonly stairs: Uint8Array;
+  /** Structure id covering each tile (0 = none). */
+  readonly structAt: Int32Array;
+  /** Owner of the structure covering each tile (0 = none). */
+  readonly structOwner: Uint8Array;
   /** Tree index per tile, -1 if none. */
   readonly treeAt: Int32Array;
   /** Incremented whenever passability changes (flow-field caches key off this). */
@@ -65,6 +85,85 @@ export class GameMap {
     this.blocked = new Uint8Array(width * height);
     this.heights = new Float32Array((width + 1) * (height + 1));
     this.treeAt = new Int32Array(width * height).fill(-1);
+    const n = width * height;
+    this.gateOwner = new Uint8Array(n);
+    this.deck = new Uint8Array(n);
+    this.deckH = new Float32Array(n);
+    this.stairs = new Uint8Array(n);
+    this.structAt = new Int32Array(n);
+    this.structOwner = new Uint8Array(n);
+  }
+
+  /** Walkability for a unit of `team` on `layer`. */
+  walkable(tx: number, tz: number, layer: number, team: number): boolean {
+    if (tx < 0 || tz < 0 || tx >= this.width || tz >= this.height) return false;
+    const i = tz * this.width + tx;
+    if (layer === 1) return this.deck[i] === 1;
+    const b = this.blocked[i];
+    return b === Block.Free || (b === Block.Gate && this.gateOwner[i] === team);
+  }
+
+  walkableAt(x: number, z: number, layer: number, team: number): boolean {
+    return this.walkable(Math.floor(x), Math.floor(z), layer, team);
+  }
+
+  /** Does this tile stop bullets fired at ground level? (Rocks and structures; gates count as closed.) */
+  blocksGroundFire(tx: number, tz: number): boolean {
+    if (!this.inBounds(tx, tz)) return true;
+    const b = this.blocked[tz * this.width + tx];
+    return b === Block.Terrain || b === Block.Structure || b === Block.Gate;
+  }
+
+  /** Nearest tile walkable on `layer` for `team`, or -1. */
+  nearestOnLayer(tx: number, tz: number, layer: number, team: number, maxR = 12): number {
+    if (this.walkable(tx, tz, layer, team)) return this.idx(tx, tz);
+    for (let r = 1; r <= maxR; r++) {
+      let best = -1;
+      let bestD = Infinity;
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          if (!this.walkable(tx + dx, tz + dz, layer, team)) continue;
+          const d = dx * dx + dz * dz;
+          if (d < bestD) {
+            bestD = d;
+            best = this.idx(tx + dx, tz + dz);
+          }
+        }
+      }
+      if (best >= 0) return best;
+    }
+    return -1;
+  }
+
+  /** Straight-line walkability on a layer (sampled). Deck movement ignores unit radius. */
+  segmentClearOn(
+    x0: number,
+    z0: number,
+    x1: number,
+    z1: number,
+    radius: number,
+    layer: number,
+    team: number,
+  ): boolean {
+    const dx = x1 - x0;
+    const dz = z1 - z0;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-6) return this.walkableAt(x0, z0, layer, team);
+    const r = layer === 1 ? 0 : radius;
+    const nx = (-dz / len) * r;
+    const nz = (dx / len) * r;
+    const steps = Math.ceil(len / 0.3);
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const px = x0 + dx * t;
+      const pz = z0 + dz * t;
+      if (!this.walkableAt(px, pz, layer, team)) return false;
+      if (r > 0 && (!this.walkableAt(px + nx, pz + nz, layer, team) || !this.walkableAt(px - nx, pz - nz, layer, team))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   addTree(tx: number, tz: number, kind: 0 | 1, wood: number, jitter: number): void {

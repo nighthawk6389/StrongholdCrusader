@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Sim, SimEvent } from '../sim/sim';
-import { STRUCTURE_DEFS, type Structure, type StructureKind } from '../sim/structures';
+import { footprint, type Structure, type StructureKind } from '../sim/structures';
 import { box, cone, cylinder, merge, sphere } from './geometry';
 import { COLORS, TEAM_COLORS } from './palette';
 
@@ -191,7 +191,79 @@ export function bodyGeometry(kind: StructureKind, owner: number): THREE.BufferGe
         ]),
       );
     case 'gate':
-      return cached('gate', () => merge([box(1.0, 0.04, 1.0, 0, 0.02, 0, COLORS.asphalt)]));
+      // Gatehouse built along x (3 long); rotated a quarter turn when it sits in a north–south wall.
+      return cached(`gate${owner}`, () =>
+        merge([
+          box(3.0, 0.04, 1.0, 0, 0.02, 0, COLORS.asphalt),
+          box(0.7, 2.0, 1.1, -1.15, 1.0, 0, COLORS.concrete),
+          box(0.7, 2.0, 1.1, 1.15, 1.0, 0, COLORS.concrete),
+          box(3.1, 0.3, 1.15, 0, 1.9, 0, COLORS.concreteDark),
+          box(1.6, 1.55, 0.12, 0, 0.78, 0, 0x5a5348),
+          box(1.6, 0.12, 0.14, 0, 1.1, 0, 0xc9a23a),
+          box(0.5, 0.3, 0.03, -1.15, 1.45, 0.57, team),
+          box(0.5, 0.3, 0.03, 1.15, 1.45, -0.57, team),
+        ]),
+      );
+    case 'stairs':
+      // Ramp rising toward +z (the wall it serves).
+      return cached('stairs', () => {
+        const parts = [box(0.9, 0.06, 0.95, 0, 0.03, 0, COLORS.concreteDark)];
+        for (let k = 0; k < 5; k++) {
+          const h = 0.31 * (k + 1);
+          parts.push(box(0.85, h, 0.19, 0, h / 2, -0.38 + k * 0.19, COLORS.concrete));
+        }
+        parts.push(box(0.05, 0.5, 0.95, -0.44, 1.2, 0, COLORS.metal, { rx: -0.9 }));
+        return merge(parts);
+      });
+    case 'scrapyard':
+      return cached('scrapyard', () =>
+        merge([
+          box(2.95, 0.05, 2.95, 0, 0.025, 0, 0x8a7a64),
+          box(1.2, 0.5, 0.9, -0.7, 0.25, -0.7, 0x7b5a3c, { ry: 0.3 }),
+          box(0.8, 0.6, 1.2, 0.6, 0.3, -0.8, 0x6d6a66, { ry: -0.4 }),
+          cylinder(0.3, 0.3, 1.0, -0.8, 0.3, 0.7, 0x8c4a2f, 8, { rz: Math.PI / 2 }),
+          box(0.6, 0.35, 0.6, 0.2, 0.18, 0.2, 0x9a8f7a),
+          box(0.12, 2.4, 0.12, 1.1, 1.2, 0.9, 0xc9a23a),
+          box(1.4, 0.1, 0.1, 0.45, 2.35, 0.9, 0xc9a23a),
+          cylinder(0.25, 0.25, 0.08, -0.2, 2.0, 0.9, COLORS.metal, 10),
+          box(0.8, 0.7, 0.7, 0.9, 0.35, 0.0, COLORS.metal),
+        ]),
+      );
+    case 'arms':
+      return cached(`arms${owner}`, () =>
+        merge([
+          box(2.8, 1.4, 2.6, 0, 0.7, -0.1, 0x8f8a80),
+          box(2.9, 0.15, 2.7, 0, 1.47, -0.1, COLORS.roof),
+          box(1.0, 0.9, 0.06, 0.6, 0.45, 1.21, 0x4a443c),
+          cylinder(0.18, 0.22, 1.4, -0.9, 2.1, -0.9, COLORS.metal, 8),
+          box(0.9, 0.06, 0.2, -0.3, 1.0, 1.22, team),
+          box(0.6, 0.5, 0.5, -0.9, 0.25, 1.35, COLORS.crate),
+        ]),
+      );
+    case 'armory':
+      return cached(`armory${owner}`, () =>
+        merge([
+          box(2.8, 1.2, 2.8, 0, 0.6, 0, 0x7d7a5f),
+          box(3.0, 0.2, 3.0, 0, 1.3, 0, 0x5d5a45),
+          box(1.1, 0.9, 0.06, 0, 0.45, 1.41, 0x3d3a30),
+          box(0.6, 0.06, 0.06, 0, 0.95, 1.45, team),
+          box(0.5, 0.35, 0.8, -1.0, 0.18, 1.6, 0x5f6b4a),
+          box(0.5, 0.35, 0.8, 1.0, 0.18, 1.6, 0x5f6b4a),
+        ]),
+      );
+    case 'barracks':
+      return cached(`barracks${owner}`, () =>
+        merge([
+          box(2.9, 1.1, 1.8, 0, 0.55, -0.5, 0xa79c80),
+          box(3.0, 0.12, 1.9, 0, 1.16, -0.5, 0x5f6b4a),
+          box(0.7, 0.8, 0.06, 0, 0.4, 0.42, 0x4a443c),
+          box(2.9, 0.04, 1.0, 0, 0.02, 0.95, 0xb9a77f),
+          cylinder(0.03, 0.03, 2.2, 1.3, 1.1, 1.2, COLORS.metal, 5),
+          box(0.6, 0.38, 0.03, 1.6, 2.0, 1.2, team),
+          box(0.12, 0.6, 0.12, -1.2, 0.3, 1.2, 0x6b4a2b),
+          box(0.9, 0.08, 0.08, -0.8, 0.55, 1.2, 0x6b4a2b),
+        ]),
+      );
     case 'wall':
       return cached('wall', () =>
         merge([box(1.0, 1.45, 1.0, 0, 0.725, 0, COLORS.concrete), box(1.04, 0.1, 1.04, 0, 1.5, 0, COLORS.concreteDark)]),
@@ -283,14 +355,8 @@ export class StructureRenderer {
       const fire = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.35, 5), this.lampMaterial);
       fire.position.set(0.3, 0.3, 0.45);
       root.add(fire);
-    } else if (s.kind === 'gate') {
-      const beam = new THREE.Mesh(
-        cached('gatebeam', () => box(0.5, 0.25, 1.0, 0, 0, 0, 0xc9a23a)),
-        this.bodyMat,
-      );
-      beam.position.set(0, 2.05, 0);
-      beam.rotation.y = s.rot - Math.PI / 2;
-      root.add(beam);
+    } else if (s.kind === 'gate' || s.kind === 'stairs') {
+      mesh.rotation.y = s.rot;
     } else if (s.kind === 'floodlight') {
       mesh.rotation.y = s.rot;
       const lamp = new THREE.Mesh(this.lampGeo, this.lampMaterial);
@@ -361,13 +427,13 @@ export class PlacementGhost {
     this.group.visible = false;
   }
 
-  set(kind: StructureKind | null, tx: number, tz: number, valid: boolean): void {
+  set(kind: StructureKind | null, tx: number, tz: number, valid: boolean, rot = 0): void {
     if (!kind) {
       this.group.visible = false;
       this.kind = null;
       return;
     }
-    const def = STRUCTURE_DEFS[kind];
+    const { w, h } = footprint(kind, rot);
     if (kind !== this.kind) {
       this.body.geometry = bodyGeometry(kind, 1);
       this.kind = kind;
@@ -375,11 +441,48 @@ export class PlacementGhost {
     const color = valid ? 0x7dff8a : 0xff5a4a;
     this.mat.color.setHex(color);
     this.padMat.color.setHex(color);
-    const base = footprintBase(this.sim, tx, tz, def.w, def.h);
-    this.group.position.set(tx + def.w / 2, base, tz + def.h / 2);
-    this.footprint.scale.set(def.w, 1, def.h);
+    const base = footprintBase(this.sim, tx, tz, w, h);
+    this.group.position.set(tx + w / 2, base, tz + h / 2);
+    this.body.rotation.y = kind === 'gate' || kind === 'stairs' ? rot : 0;
+    this.footprint.scale.set(w, 1, h);
     this.footprint.position.y = 0.06;
     this.group.visible = true;
+  }
+}
+
+/** Preview for a wall line: one translucent block per tile, green or red. */
+export class WallLineGhost {
+  readonly mesh: THREE.InstancedMesh;
+  private m4 = new THREE.Matrix4();
+  private col = new THREE.Color();
+
+  constructor(private sim: Sim) {
+    const geo = new THREE.BoxGeometry(0.96, 1.5, 0.96);
+    geo.translate(0, 0.75, 0);
+    this.mesh = new THREE.InstancedMesh(
+      geo,
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthWrite: false }),
+      256,
+    );
+    this.mesh.count = 0;
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 4;
+    for (let i = 0; i < 256; i++) this.mesh.setColorAt(i, this.col.setHex(0xffffff));
+  }
+
+  /** tiles: flat [x, z, valid(0/1), ...] */
+  set(tiles: number[]): void {
+    let n = 0;
+    for (let k = 0; k + 2 < tiles.length && n < 256; k += 3, n++) {
+      const x = tiles[k];
+      const z = tiles[k + 1];
+      this.m4.makeTranslation(x + 0.5, footprintBase(this.sim, x, z, 1, 1), z + 0.5);
+      this.mesh.setMatrixAt(n, this.m4);
+      this.mesh.setColorAt(n, this.col.setHex(tiles[k + 2] ? 0x7dff8a : 0xff5a4a));
+    }
+    this.mesh.count = n;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 }
 

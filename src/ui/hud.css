@@ -936,3 +936,281 @@ kbd {
     top: calc(50px + var(--safe-top));
   }
 }
+
+/* ---------- M2: menu, waves, results, recruiting */
+
+.menu-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  pointer-events: auto;
+  background:
+    radial-gradient(1200px 600px at 70% 20%, rgba(217, 178, 111, 0.22), transparent 60%),
+    linear-gradient(180deg, #2a2117 0%, #14110d 70%);
+  overflow: auto;
+}
+
+.menu-card {
+  max-width: 640px;
+  width: 100%;
+  padding: 22px 24px;
+}
+
+.menu-kicker {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+.menu-card h1 {
+  margin: 4px 0 6px;
+  font-size: 34px;
+  letter-spacing: 0.5px;
+}
+
+.menu-modes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin: 16px 0 10px;
+}
+
+.mode-card {
+  appearance: none;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mode-card:hover {
+  border-color: var(--accent);
+}
+
+.mode-card.primary {
+  background: rgba(217, 178, 111, 0.18);
+  border-color: var(--accent);
+}
+
+.mode-title {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.mode-desc {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.menu-foot {
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+
+.wave-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  min-height: 40px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wave-pill .wave-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.wave-pill .wave-next {
+  font-size: 13px;
+}
+
+.wave-pill .wave-attackers {
+  color: var(--red);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.wave-pill.soon {
+  border-color: var(--red);
+  animation: pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes pulse {
+  from {
+    box-shadow: 0 0 0 rgba(224, 87, 75, 0);
+  }
+  to {
+    box-shadow: 0 0 14px rgba(224, 87, 75, 0.55);
+  }
+}
+
+.result h2 {
+  font-size: 28px;
+}
+
+.result.win h2 {
+  color: var(--good);
+}
+
+.result.lose h2 {
+  color: var(--red);
+}
+
+.hp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.hpbar.wide {
+  flex: 1;
+  margin-top: 0;
+}
+
+.gear-list {
+  color: var(--accent-strong);
+}
+
+.hint {
+  font-size: 11.5px;
+}
+
+.recruit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+}
+
+.recruit-card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recruit-card.cant {
+  opacity: 0.6;
+}
+
+.recruit-name {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.recruit-cost {
+  font-size: 11.5px;
+  color: var(--accent);
+}
+
+.building-panel {
+  max-width: min(680px, calc(100vw - 16px));
+}
+
+@media (max-height: 500px) {
+  .wave-pill {
+    min-height: 36px;
+    padding: 3px 9px;
+    gap: 5px;
+  }
+  .wave-pill .wave-label {
+    display: none;
+  }
+  .recruit-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .recruit-card .recruit-cost .muted {
+    display: none;
+  }
+  .building-panel .hint,
+  .building-panel .muted.small {
+    display: none;
+  }
+  .menu-card h1 {
+    font-size: 26px;
+  }
+}
+
+.row.nowrap {
+  flex-wrap: nowrap;
+}
+
+.building-panel.wide {
+  width: min(660px, calc(100vw - 16px));
+}
+
+.recruit-grid {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.test-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0 12px;
+}
+
+@media (max-height: 500px) {
+  .speed .btn.x2,
+  .time-dropdown,
+  .wave-pill .lbl {
+    display: none;
+  }
+  .recruit-card .btn {
+    min-height: 32px;
+    padding: 3px 8px;
+  }
+  .recruit-name {
+    font-size: 12px;
+  }
+}
+
+@media (max-height: 500px) {
+  .topbar {
+    gap: 4px;
+  }
+  .resources {
+    gap: 6px;
+    padding-left: 7px;
+    font-size: 12.5px;
+  }
+  .res {
+    gap: 3px;
+  }
+  .res .icon {
+    width: 13px;
+    height: 13px;
+  }
+  .clock-time {
+    font-size: 15px;
+  }
+  .speed .btn,
+  .menu .btn {
+    min-width: 30px;
+    padding: 4px 6px;
+  }
+  .morale-value {
+    font-size: 14px;
+  }
+}

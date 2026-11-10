@@ -1,16 +1,21 @@
 import { create } from 'zustand';
 import type { PhaseName } from '../sim/clock';
 import type { MoraleFactor } from '../sim/economy';
+import type { GameMode } from '../sim/scenario';
 import type { StructureKind, StructureStatus } from '../sim/structures';
 
 export interface EcoSnapshot {
   funds: number;
   timber: number;
   concrete: number;
+  steel: number;
   produce: number;
   meat: number;
+  /** Armory stock: rifles, machine guns, scoped rifles, breach kits. */
+  gear: number[];
   materialsCap: number;
   foodCap: number;
+  gearCap: number;
   population: number;
   idle: number;
   housing: number;
@@ -34,6 +39,20 @@ export interface PlacingInfo {
   reason: string | null;
   /** Touch: a position has been chosen and can be confirmed. */
   hasSpot: boolean;
+  rotatable: boolean;
+  /** Wall-line placement state (null for other buildings). */
+  wall: { anchored: boolean; ended: boolean; tiles: number } | null;
+}
+
+export interface RecruitOption {
+  kind: number;
+  name: string;
+  blurb: string;
+  cost: string;
+  /** Matching weapons in the armory. */
+  stock: number;
+  /** Why it can't be trained right now (null = it can). */
+  blocker: string | null;
 }
 
 export interface BuildingInfo {
@@ -48,6 +67,20 @@ export interface BuildingInfo {
   canDemolish: boolean;
   refund: string;
   storage: string | null;
+  hp: number;
+  maxHp: number;
+  enemy: boolean;
+  recipes: { options: string[]; selected: number } | null;
+  recruit: RecruitOption[] | null;
+}
+
+export interface WaveInfo {
+  /** Waves launched so far. */
+  index: number;
+  total: number;
+  /** Seconds until the next wave (null when all have launched). */
+  nextIn: number | null;
+  attackers: number;
 }
 
 export interface HudState {
@@ -59,7 +92,11 @@ export interface HudState {
   selectionCount: number;
   selectionLabel: string;
   canControl: boolean;
-  mode: 'rts' | 'control';
+  /** Camera/control view. */
+  view: 'rts' | 'control';
+  gameMode: GameMode;
+  wave: WaveInfo | null;
+  result: { result: 'victory' | 'defeat'; reason: string } | null;
   controlledHp: number;
   controlledName: string;
   aiming: boolean;
@@ -90,7 +127,10 @@ export const useHud = create<HudState>(() => ({
   selectionCount: 0,
   selectionLabel: '',
   canControl: false,
-  mode: 'rts',
+  view: 'rts',
+  gameMode: 'sandbox',
+  wave: null,
+  result: null,
   controlledHp: 1,
   controlledName: '',
   aiming: false,
@@ -109,10 +149,13 @@ export const useHud = create<HudState>(() => ({
     funds: 0,
     timber: 0,
     concrete: 0,
+    steel: 0,
     produce: 0,
     meat: 0,
+    gear: [0, 0, 0, 0],
     materialsCap: 0,
     foodCap: 0,
+    gearCap: 0,
     population: 0,
     idle: 0,
     housing: 0,

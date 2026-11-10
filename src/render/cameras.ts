@@ -104,11 +104,13 @@ export class OtsCameraRig {
     const side = this.aiming ? 0.42 : 0.6;
     const up = this.aiming ? 1.15 : 1.3;
     // Camera boom: shorten it if a wall/building/rock sits between the unit and the camera.
+    // (Units up on a wall or tower already look over everything around them.)
     const ex = -fx * back + rx * side;
     const ez = -fz * back + rz * side;
     const boom = Math.hypot(ex, ez);
+    const elevated = unitPos.y - this.map.heightAt(unitPos.x, unitPos.z) > 0.5;
     let k = 1;
-    for (let t = 0.1; t <= boom + 0.3; t += 0.1) {
+    for (let t = 0.1; !elevated && t <= boom + 0.3; t += 0.1) {
       const f = t / boom;
       if (!this.map.isWalkable(unitPos.x + ex * f, unitPos.z + ez * f)) {
         k = Math.max(0.12, (t - 0.35) / boom);

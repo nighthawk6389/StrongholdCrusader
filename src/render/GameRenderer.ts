@@ -4,7 +4,7 @@ import { CameraDirector, OtsCameraRig, RtsCameraRig } from './cameras';
 import { DayNight } from './daynight';
 import { Fx } from './fx';
 import type { Structure, StructureKind } from '../sim/structures';
-import { PlacementGhost, SelectionFrame, StructureRenderer } from './structures';
+import { PlacementGhost, SelectionFrame, StructureRenderer, WallLineGhost } from './structures';
 import { buildScatter, buildTerrain, buildWater, TreeRenderer } from './terrain';
 import { UnitRenderer } from './units';
 
@@ -49,6 +49,7 @@ export class GameRenderer {
   readonly structures: StructureRenderer;
   readonly trees: TreeRenderer;
   readonly ghost: PlacementGhost;
+  readonly wallGhost: WallLineGhost;
   readonly selectionFrame: SelectionFrame;
 
   private raycaster = new THREE.Raycaster();
@@ -84,8 +85,9 @@ export class GameRenderer {
     this.structures = new StructureRenderer(sim, quality.maxFloodlights);
     this.scene.add(this.structures.group);
     this.ghost = new PlacementGhost(sim);
+    this.wallGhost = new WallLineGhost(sim);
     this.selectionFrame = new SelectionFrame(sim);
-    this.scene.add(this.ghost.group, this.selectionFrame.group);
+    this.scene.add(this.ghost.group, this.wallGhost.mesh, this.selectionFrame.group);
 
     this.units = new UnitRenderer(sim, quality.shadows);
     this.scene.add(this.units.group);
@@ -175,8 +177,42 @@ export class GameRenderer {
     return null;
   }
 
-  setGhost(kind: StructureKind | null, tx = 0, tz = 0, valid = false): void {
-    this.ghost.set(kind, tx, tz, valid);
+  setGhost(kind: StructureKind | null, tx = 0, tz = 0, valid = false, rot = 0): void {
+    this.ghost.set(kind, tx, tz, valid, rot);
+  }
+
+  /** Wall-line preview: flat [x, z, valid, ...]; empty to hide. */
+  setWallGhost(tiles: number[]): void {
+    this.wallGhost.set(tiles);
+  }
+
+  /**
+   * Point under a client pixel, aware of wall tops: returns layer 1 when the ray hits a walkable
+   * deck (wall, tower, gatehouse, stairs), otherwise the ground (layer 0).
+   */
+  pickPoint(clientX: number, clientY: number): { x: number; y: number; z: number; layer: number } | null {
+    const rect = this.canvas.getBoundingClientRect();
+    this.ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(this.ndc, this.camera);
+    const o = this.raycaster.ray.origin;
+    const d = this.raycaster.ray.direction;
+    const map = this.sim.map;
+    if (d.y >= -1e-4) return null;
+    let t = Math.max(0, (o.y - 7) / -d.y);
+    for (let i = 0; i < 3000; i++, t += 0.15) {
+      const x = o.x + d.x * t;
+      const y = o.y + d.y * t;
+      const z = o.z + d.z * t;
+      if (y < -6) break;
+      const tx = Math.floor(x);
+      const tz = Math.floor(z);
+      if (!map.inBounds(tx, tz)) continue;
+      const ground = map.heightAt(x, z);
+      const ti = map.idx(tx, tz);
+      if (map.deck[ti] && y <= ground + map.deckH[ti]) return { x, y, z, layer: 1 };
+      if (y <= ground) return { x, y: ground, z, layer: 0 };
+    }
+    return null;
   }
 
   setSelectedStructure(s: Structure | undefined): void {

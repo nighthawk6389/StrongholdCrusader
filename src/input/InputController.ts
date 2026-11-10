@@ -226,6 +226,10 @@ export class InputController {
 
     if (e.pointerType === 'mouse') {
       if (e.button === 1) this.rotatingMouse = true;
+      if (e.button === 0 && this.game.placing === 'wall') {
+        const g = this.game.renderer.pickGround(e.clientX, e.clientY);
+        if (g) this.game.wallStart(g.x, g.z);
+      }
       return;
     }
 
@@ -318,8 +322,7 @@ export class InputController {
           this.game.cancelPlacing();
           return;
         }
-        const g = this.game.renderer.pickGround(p.x, p.y);
-        if (g) this.game.issueMove(g.x, g.z);
+        this.commandAt(p.x, p.y, 22);
       }
       return;
     }
@@ -449,7 +452,9 @@ export class InputController {
   private handleTap(x: number, y: number): void {
     if (this.game.placing) {
       const g = this.game.renderer.pickGround(x, y);
-      if (g) this.game.previewPlacementAt(g.x, g.z);
+      if (!g) return;
+      if (this.game.placing === 'wall' && !this.game.wallAnchor) this.game.wallStart(g.x, g.z);
+      else this.game.previewPlacementAt(g.x, g.z);
       return;
     }
     const id = this.pickUnit(x, y, 34);
@@ -459,16 +464,34 @@ export class InputController {
       return;
     }
     if (this.game.selected.size > 0) {
-      const g = this.game.renderer.pickGround(x, y);
-      if (g) this.game.issueMove(g.x, g.z);
+      this.commandAt(x, y, 34);
       return;
     }
     this.pickStructure(x, y);
   }
 
+  /** Order the selection at a screen point: attack an enemy unit/structure, or move (onto walls too). */
+  private commandAt(x: number, y: number, radius: number): void {
+    const game = this.game;
+    const u = game.sim.units;
+    const unit = this.pickUnit(x, y, radius);
+    const p = game.renderer.pickPoint(x, y);
+    if (unit >= 0 && u.owner[unit] !== game.player) {
+      game.commandAt(p ?? { x: u.x[unit], z: u.z[unit], layer: 0 }, unit, -1);
+      return;
+    }
+    if (!p) return;
+    const s = game.sim.structureAt(Math.floor(p.x), Math.floor(p.z));
+    if (s && s.owner !== game.player) {
+      game.commandAt(p, -1, s.id);
+      return;
+    }
+    game.commandAt(p, -1, -1);
+  }
+
   /** Select the building under a screen point; returns true if one was found. */
   private pickStructure(x: number, y: number): boolean {
-    const g = this.game.renderer.pickGround(x, y);
+    const g = this.game.renderer.pickPoint(x, y);
     if (!g) return false;
     const s = this.game.sim.structureAt(Math.floor(g.x), Math.floor(g.z));
     if (!s) {
@@ -566,6 +589,9 @@ export class InputController {
         break;
       case 'KeyB':
         this.game.setBuildOpen(!useHud.getState().buildOpen);
+        break;
+      case 'KeyR':
+        this.game.rotatePlacement();
         break;
       case 'KeyH':
         this.game.centerOnBase();

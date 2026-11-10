@@ -3,16 +3,18 @@ import { Block, Tile } from './map';
 import type { Sim } from './sim';
 import {
   FOOD_RES,
-  MATERIAL_RES,
   RES_COUNT,
   RES_INFO,
   STRUCTURE_DEFS,
+  footprint,
+  resIdsFor,
   type Cost,
   type ResId,
+  type StoreKind,
   type Structure,
   type StructureKind,
 } from './structures';
-import { UnitKind } from './unitTypes';
+import { UNIT_TYPES, UnitKind } from './unitTypes';
 import { CARRY_LOG, CARRY_NONE, Order, Task } from './units';
 
 // ------------------------------------------------------------------ tuning tables
@@ -60,6 +62,7 @@ const CHOP_SEC = 3;
 const ARRIVE_R = 1.25;
 /** Fraction of cost refunded on demolish. */
 const REFUND = 0.5;
+const DEFENSE_KINDS: StructureKind[] = ['wall', 'tower', 'gate', 'stairs'];
 
 export interface MoraleFactor {
   key: string;
@@ -68,7 +71,7 @@ export interface MoraleFactor {
 }
 
 export class PlayerEconomy {
-  /** Only active economies eat, pay taxes and attract civilians (the enemy gets one with the AI in M3). */
+  /** Only active economies eat, pay taxes and attract civilians. */
   active = false;
   funds = 0;
   readonly stock = new Float64Array(RES_COUNT);
@@ -81,6 +84,7 @@ export class PlayerEconomy {
   housing = 0;
   materialsCap = 0;
   foodCap = 0;
+  gearCap = 0;
   /** Seconds of food left at the current ration level (Infinity if not eating). */
   foodSeconds = Infinity;
   factors: MoraleFactor[] = [];
@@ -90,19 +94,30 @@ export class PlayerEconomy {
 
   constructor(readonly owner: number) {}
 
-  stored(kind: 'materials' | 'food'): number {
-    const ids = kind === 'food' ? FOOD_RES : MATERIAL_RES;
+  stored(kind: StoreKind): number {
     let s = 0;
-    for (const r of ids) s += this.stock[r];
+    for (const r of resIdsFor(kind)) s += this.stock[r];
     return s;
+  }
+
+  cap(kind: StoreKind): number {
+    return kind === 'food' ? this.foodCap : kind === 'gear' ? this.gearCap : this.materialsCap;
   }
 
   canAfford(c: Cost): boolean {
     return (
       (c.funds ?? 0) <= this.funds + 1e-9 &&
       (c.timber ?? 0) <= this.stock[0] + 1e-9 &&
-      (c.concrete ?? 0) <= this.stock[1] + 1e-9
+      (c.concrete ?? 0) <= this.stock[1] + 1e-9 &&
+      (c.steel ?? 0) <= this.stock[4] + 1e-9
     );
+  }
+
+  pay(c: Cost): void {
+    this.funds -= c.funds ?? 0;
+    this.stock[0] -= c.timber ?? 0;
+    this.stock[1] -= c.concrete ?? 0;
+    this.stock[4] -= c.steel ?? 0;
   }
 }
 
@@ -111,9 +126,11 @@ export interface PlaceCheck {
   reason?: string;
 }
 
-/** Economy: population, morale, storage, placement, and the civilian work cycle. */
+/** Economy: population, morale, storage, placement, recruiting, and the civilian work cycle. */
 export class Economy {
   readonly players = new Map<number, PlayerEconomy>();
+  /** Why the last wall line failed (for UI feedback). */
+  lastWallReason = '';
   private secTimer = 0;
 
   constructor(private sim: Sim) {}
@@ -133,20 +150,8 @@ export class Economy {
     return this.sim.structures.find((s) => s.owner === owner && s.kind === 'hq');
   }
 
-  canPlace(owner: number, kind: StructureKind, tx: number, tz: number): PlaceCheck {
-    const def = STRUCTURE_DEFS[kind];
-    const map = this.sim.map;
-    if (!def.buildable) return { ok: false, reason: 'Not buildable' };
-    for (let z = tz; z < tz + def.h; z++) {
-      for (let x = tx; x < tx + def.w; x++) {
-        if (!map.inBounds(x, z)) return { ok: false, reason: 'Off the map' };
-        const i = map.idx(x, z);
-        if (map.blocked[i] !== Block.Free) return { ok: false, reason: 'Blocked' };
-        if (map.treeAt[i] >= 0) return { ok: false, reason: 'Trees in the way' };
-      }
-    }
-    const cx = tx + def.w / 2;
-    const cz = tz + def.h / 2;
+  /** Inside the build radius and away from the enemy. */
+  private territory(owner: number, cx: number, cz: number): PlaceCheck {
     const hq = this.hqOf(owner);
     if (hq && Math.hypot(cx - (hq.tx + hq.w / 2), cz - (hq.tz + hq.h / 2)) > BUILD_RADIUS) {
       return { ok: false, reason: 'Too far from your HQ' };
@@ -157,10 +162,49 @@ export class Economy {
         return { ok: false, reason: 'Too close to the enemy' };
       }
     }
+    return { ok: true };
+  }
+
+  /** Is the tile empty ground that can take a structure? Returns a reason if not. */
+  private tileFree(x: number, z: number): string | null {
+    const map = this.sim.map;
+    if (!map.inBounds(x, z)) return 'Off the map';
+    const i = map.idx(x, z);
+    if (map.blocked[i] !== Block.Free || map.structAt[i] !== 0) return 'Blocked';
+    if (map.treeAt[i] >= 0) return 'Trees in the way';
+    return null;
+  }
+
+  /** Enemy soldiers standing on the footprint block construction (your own people step aside). */
+  private enemiesOn(owner: number, x: number, z: number, w: number, h: number): boolean {
+    const u = this.sim.units;
+    for (let i = 0; i < u.count; i++) {
+      if (!u.alive[i] || u.layer[i] !== 0 || u.owner[i] === owner) continue;
+      const ux = Math.floor(u.x[i]);
+      const uz = Math.floor(u.z[i]);
+      if (ux >= x && uz >= z && ux < x + w && uz < z + h) return true;
+    }
+    return false;
+  }
+
+  canPlace(owner: number, kind: StructureKind, tx: number, tz: number, rot = 0): PlaceCheck {
+    const def = STRUCTURE_DEFS[kind];
+    const map = this.sim.map;
+    if (!def.buildable) return { ok: false, reason: 'Not buildable' };
+    const { w, h } = footprint(kind, rot);
+    for (let z = tz; z < tz + h; z++) {
+      for (let x = tx; x < tx + w; x++) {
+        const r = this.tileFree(x, z);
+        if (r) return { ok: false, reason: r };
+      }
+    }
+    if (this.enemiesOn(owner, tx, tz, w, h)) return { ok: false, reason: 'Enemies in the way' };
+    const terr = this.territory(owner, tx + w / 2, tz + h / 2);
+    if (!terr.ok) return terr;
     if (def.requires === 'nearRock') {
       let rock = 0;
-      for (let z = tz - 1; z <= tz + def.h; z++) {
-        for (let x = tx - 1; x <= tx + def.w; x++) {
+      for (let z = tz - 1; z <= tz + h; z++) {
+        for (let x = tx - 1; x <= tx + w; x++) {
           if (map.inBounds(x, z) && map.tileAt(x, z) === Tile.Rock) rock++;
         }
       }
@@ -168,48 +212,121 @@ export class Economy {
     }
     if (def.requires === 'fertile') {
       let fertile = 0;
-      for (let z = tz; z < tz + def.h; z++) {
-        for (let x = tx; x < tx + def.w; x++) if (map.tileAt(x, z) === Tile.Fertile) fertile++;
+      for (let z = tz; z < tz + h; z++) {
+        for (let x = tx; x < tx + w; x++) if (map.tileAt(x, z) === Tile.Fertile) fertile++;
       }
-      if (fertile < Math.ceil(def.w * def.h * 0.6)) return { ok: false, reason: 'Needs fertile ground' };
+      if (fertile < Math.ceil(w * h * 0.6)) return { ok: false, reason: 'Needs fertile ground' };
     }
-    if (this.findDoor(tx, tz, def.w, def.h, owner) === null) return { ok: false, reason: 'No access' };
+    if (def.requires === 'besideWall' && this.stairsFacing(tx, tz, owner) === null) {
+      return { ok: false, reason: 'Must be right next to your wall' };
+    }
+    if (!DEFENSE_KINDS.includes(kind) && this.findDoor(tx, tz, w, h, owner) === null) {
+      return { ok: false, reason: 'No access' };
+    }
     const p = this.player(owner);
     if (!p.canAfford(def.cost)) {
       if ((def.cost.timber ?? 0) > p.stock[0]) return { ok: false, reason: 'Not enough timber' };
       if ((def.cost.concrete ?? 0) > p.stock[1]) return { ok: false, reason: 'Not enough concrete' };
+      if ((def.cost.steel ?? 0) > p.stock[4]) return { ok: false, reason: 'Not enough steel' };
       return { ok: false, reason: 'Not enough funds' };
     }
     return { ok: true };
   }
 
   /** Validate, pay and place. Returns the new structure or null. */
-  build(owner: number, kind: StructureKind, tx: number, tz: number): Structure | null {
-    if (!this.canPlace(owner, kind, tx, tz).ok) return null;
-    const def = STRUCTURE_DEFS[kind];
-    const p = this.player(owner);
-    p.funds -= def.cost.funds ?? 0;
-    p.stock[0] -= def.cost.timber ?? 0;
-    p.stock[1] -= def.cost.concrete ?? 0;
-    const s = this.sim.placeStructure(kind, owner, tx, tz);
-    if (s) this.displaceUnits(s);
+  build(owner: number, kind: StructureKind, tx: number, tz: number, rot = 0): Structure | null {
+    if (!this.canPlace(owner, kind, tx, tz, rot).ok) return null;
+    this.player(owner).pay(STRUCTURE_DEFS[kind].cost);
+    const facing = kind === 'stairs' ? (this.stairsFacing(tx, tz, owner) ?? 0) : rot;
+    const s = this.sim.placeStructure(kind, owner, tx, tz, kind === 'stairs' ? 0 : rot);
+    if (s) {
+      s.rot = facing;
+      this.displaceUnits(s);
+    }
     this.recount();
     return s;
+  }
+
+  /** Per-tile check for a wall segment (no cost). */
+  canPlaceWallTile(owner: number, x: number, z: number): PlaceCheck {
+    const r = this.tileFree(x, z);
+    if (r) return { ok: false, reason: r };
+    if (this.enemiesOn(owner, x, z, 1, 1)) return { ok: false, reason: 'Enemies in the way' };
+    return this.territory(owner, x + 0.5, z + 0.5);
+  }
+
+  /** Build as much of a wall line as is valid and affordable. Returns tiles built. */
+  buildWall(owner: number, tiles: number[]): number {
+    const p = this.player(owner);
+    const cost = STRUCTURE_DEFS.wall.cost;
+    let built = 0;
+    this.lastWallReason = 'Nothing to build';
+    for (let k = 0; k + 1 < tiles.length; k += 2) {
+      const x = tiles[k];
+      const z = tiles[k + 1];
+      const check = this.canPlaceWallTile(owner, x, z);
+      if (!check.ok) {
+        this.lastWallReason = check.reason ?? 'Blocked';
+        continue;
+      }
+      if (!p.canAfford(cost)) {
+        this.lastWallReason = 'Not enough concrete';
+        break;
+      }
+      p.pay(cost);
+      const s = this.sim.placeStructure('wall', owner, x, z);
+      if (s) {
+        this.displaceUnits(s);
+        built++;
+      }
+    }
+    return built;
+  }
+
+  /** Direction from a stairs tile to the adjacent own wall/tower/gate deck, or null if none. */
+  stairsFacing(tx: number, tz: number, owner: number): number | null {
+    const map = this.sim.map;
+    const dirs: [number, number, number][] = [
+      [0, 1, 0],
+      [1, 0, Math.PI / 2],
+      [0, -1, Math.PI],
+      [-1, 0, -Math.PI / 2],
+    ];
+    for (const [dx, dz, rot] of dirs) {
+      const x = tx + dx;
+      const z = tz + dz;
+      if (!map.inBounds(x, z)) continue;
+      const i = map.idx(x, z);
+      if (map.deck[i] && !map.stairs[i] && map.structOwner[i] === owner) return rot;
+    }
+    return null;
   }
 
   demolish(owner: number, id: number): boolean {
     const s = this.sim.structureById(id);
     if (!s || s.owner !== owner || !STRUCTURE_DEFS[s.kind].buildable) return false;
-    for (const w of [...s.workers]) this.release(w);
     const cost = STRUCTURE_DEFS[s.kind].cost;
     const p = this.player(owner);
+    this.onStructureLost(s);
     p.funds += Math.floor((cost.funds ?? 0) * REFUND);
     p.stock[0] += Math.floor((cost.timber ?? 0) * REFUND);
     p.stock[1] += Math.floor((cost.concrete ?? 0) * REFUND);
+    p.stock[4] += Math.floor((cost.steel ?? 0) * REFUND);
     this.sim.removeStructure(s);
-    this.recount();
-    this.clampStock(p);
+    this.afterStructureRemoved(owner);
     return true;
+  }
+
+  /** A structure is going away (demolished or destroyed): free its workers. */
+  onStructureLost(s: Structure): void {
+    for (const w of [...s.workers]) this.release(w);
+    s.workers = [];
+  }
+
+  /** Storage may have shrunk: recount and spill any excess. */
+  afterStructureRemoved(owner: number): void {
+    this.recount();
+    this.clampStock(this.player(owner));
   }
 
   setActive(owner: number, id: number, active: boolean): void {
@@ -222,6 +339,14 @@ export class Economy {
     }
   }
 
+  setRecipe(owner: number, id: number, recipe: number): void {
+    const s = this.sim.structureById(id);
+    if (!s || s.owner !== owner) return;
+    const recipes = STRUCTURE_DEFS[s.kind].recipes;
+    if (!recipes || recipe < 0 || recipe >= recipes.length) return;
+    s.recipe = recipe;
+  }
+
   /** Walkable tile next to the footprint, preferring the side facing the owner's HQ. */
   findDoor(tx: number, tz: number, w: number, h: number, owner: number): { x: number; z: number } | null {
     const map = this.sim.map;
@@ -231,7 +356,7 @@ export class Economy {
     let best: { x: number; z: number } | null = null;
     let bestD = Infinity;
     const consider = (x: number, z: number): void => {
-      if (!map.isWalkableTile(x, z)) return;
+      if (!map.isWalkableTile(x, z) || map.structAt[map.idx(x, z)] !== 0) return;
       const d = Math.hypot(x + 0.5 - fx, z + 0.5 - fz);
       if (d < bestD) {
         bestD = d;
@@ -251,7 +376,10 @@ export class Economy {
 
   /** The door of `s`, recomputed if something has since been built on it. */
   door(s: Structure): { x: number; z: number } {
-    if (!this.sim.map.isWalkable(s.doorX, s.doorZ)) {
+    const map = this.sim.map;
+    const tx = Math.floor(s.doorX);
+    const tz = Math.floor(s.doorZ);
+    if (!map.isWalkableTile(tx, tz) || map.structAt[map.idx(tx, tz)] !== 0) {
       const d = this.findDoor(s.tx, s.tz, s.w, s.h, s.owner);
       if (d) {
         s.doorX = d.x;
@@ -265,15 +393,98 @@ export class Economy {
     const u = this.sim.units;
     const map = this.sim.map;
     for (let i = 0; i < u.count; i++) {
-      if (!u.alive[i]) continue;
+      if (!u.alive[i] || u.layer[i] !== 0) continue;
       const x = Math.floor(u.x[i]);
       const z = Math.floor(u.z[i]);
       if (x < s.tx || z < s.tz || x >= s.tx + s.w || z >= s.tz + s.h) continue;
-      const t = map.nearestWalkable(x, z, 8);
+      if (map.walkable(x, z, 0, u.owner[i])) continue; // e.g. own gatehouse or stairs
+      const t = map.nearestOnLayer(x, z, 0, u.owner[i], 8);
       if (t < 0) continue;
       u.x[i] = u.px[i] = (t % map.width) + 0.5;
       u.z[i] = u.pz[i] = Math.floor(t / map.width) + 0.5;
     }
+  }
+
+  // ------------------------------------------------------------------ recruiting
+
+  private idleCivilians(owner: number): number[] {
+    const u = this.sim.units;
+    const out: number[] = [];
+    for (let i = 0; i < u.count; i++) {
+      if (!u.alive[i] || u.owner[i] !== owner || u.kind[i] !== UnitKind.Civilian) continue;
+      if (u.job[i] < 0 && u.task[i] !== Task.Recruit) out.push(i);
+    }
+    return out;
+  }
+
+  /** Why recruiting can't proceed right now, or null if it can. */
+  recruitBlocker(owner: number, kind: number): string | null {
+    const t = UNIT_TYPES[kind];
+    const p = this.player(owner);
+    if (t.gear === null) return 'Cannot be trained';
+    if (p.stock[t.gear] < 1) return `No ${RES_INFO[t.gear].name.toLowerCase()} in the armory`;
+    if (p.funds < t.funds) return 'Not enough funds';
+    if (this.idleCivilians(owner).length === 0) return 'No idle civilians';
+    return null;
+  }
+
+  /** Send idle civilians to the barracks; gear and funds are paid up front. Returns how many. */
+  recruit(owner: number, barracksId: number, kind: number, count: number): number {
+    const b = this.sim.structureById(barracksId);
+    if (!b || b.owner !== owner || b.kind !== 'barracks') return 0;
+    const t = UNIT_TYPES[kind];
+    if (t.gear === null) return 0;
+    const p = this.player(owner);
+    const u = this.sim.units;
+    const d = this.door(b);
+    let n = 0;
+    for (let k = 0; k < count; k++) {
+      if (this.recruitBlocker(owner, kind)) break;
+      const idle = this.idleCivilians(owner);
+      idle.sort((a, c) => Math.hypot(u.x[a] - d.x, u.z[a] - d.z) - Math.hypot(u.x[c] - d.x, u.z[c] - d.z) || a - c);
+      const i = idle[0];
+      p.stock[t.gear]--;
+      p.funds -= t.funds;
+      u.task[i] = Task.Recruit;
+      u.dest[i] = b.id;
+      u.recruitKind[i] = kind;
+      u.retries[i] = 0;
+      this.sim.goTo(i, d.x, d.z);
+      n++;
+    }
+    this.recount();
+    return n;
+  }
+
+  private updateRecruit(i: number): void {
+    const u = this.sim.units;
+    const b = this.sim.structureById(u.dest[i]);
+    const kind = u.recruitKind[i];
+    if (!b || kind < 0) {
+      // Barracks gone: refund and stand down.
+      if (kind >= 0) {
+        const t = UNIT_TYPES[kind];
+        const p = this.player(u.owner[i]);
+        if (t.gear !== null) p.stock[t.gear]++;
+        p.funds += t.funds;
+      }
+      u.task[i] = Task.Idle;
+      u.recruitKind[i] = -1;
+      return;
+    }
+    const d = this.door(b);
+    const r = this.reached(i, d.x, d.z);
+    if (r === 'stuck') {
+      u.retries[i] = 0;
+      return;
+    }
+    if (!r) return;
+    u.convert(i, kind);
+    this.sim.emit({ type: 'recruited', owner: u.owner[i], unit: i, kind });
+    // Muster a little way from the door.
+    const a = this.sim.rng.next() * Math.PI * 2;
+    this.sim.goTo(i, d.x + Math.cos(a) * 2, d.z + Math.sin(a) * 2);
+    this.recount();
   }
 
   // ------------------------------------------------------------------ per tick
@@ -283,7 +494,8 @@ export class Economy {
     const rate = 0.35 + 0.65 * this.sim.cycle.daylight;
     for (let i = 0; i < u.count; i++) {
       if (!u.alive[i] || u.kind[i] !== UnitKind.Civilian) continue;
-      this.updateCivilian(i, rate);
+      if (u.task[i] === Task.Recruit) this.updateRecruit(i);
+      else this.updateCivilian(i, rate);
     }
     if (++this.secTimer >= TICK_RATE) {
       this.secTimer = 0;
@@ -301,13 +513,14 @@ export class Economy {
       p.housing = 0;
       p.materialsCap = 0;
       p.foodCap = 0;
+      p.gearCap = 0;
     }
     const u = this.sim.units;
     for (let i = 0; i < u.count; i++) {
       if (!u.alive[i] || u.kind[i] !== UnitKind.Civilian) continue;
       const p = this.player(u.owner[i]);
       p.population++;
-      if (u.job[i] < 0) p.idle++;
+      if (u.job[i] < 0 && u.task[i] !== Task.Recruit) p.idle++;
     }
     for (const s of this.sim.structures) {
       const def = STRUCTURE_DEFS[s.kind];
@@ -316,17 +529,18 @@ export class Economy {
       p.housing += def.housing ?? 0;
       if (def.storage?.kind === 'materials') p.materialsCap += def.storage.capacity;
       if (def.storage?.kind === 'food') p.foodCap += def.storage.capacity;
+      if (def.storage?.kind === 'gear') p.gearCap += def.storage.capacity;
     }
   }
 
   private clampStock(p: PlayerEconomy): void {
-    // Storage lost (e.g. a depot demolished): spill the excess proportionally.
-    for (const kind of ['materials', 'food'] as const) {
-      const cap = kind === 'food' ? p.foodCap : p.materialsCap;
+    // Storage lost (e.g. a depot destroyed): spill the excess proportionally.
+    for (const kind of ['materials', 'food', 'gear'] as const) {
+      const cap = p.cap(kind);
       const have = p.stored(kind);
       if (have <= cap || have <= 0) continue;
       const k = cap / have;
-      for (const r of kind === 'food' ? FOOD_RES : MATERIAL_RES) p.stock[r] *= k;
+      for (const r of resIdsFor(kind)) p.stock[r] *= k;
     }
   }
 
@@ -381,8 +595,7 @@ export class Economy {
       const interval = 10 - ((p.morale - 50) / 50) * 7;
       if (p.arrivalTimer >= interval) {
         p.arrivalTimer = 0;
-        const n = Math.min(2, p.housing - p.population);
-        this.spawnArrivals(p.owner, n);
+        this.spawnArrivals(p.owner, Math.min(2, p.housing - p.population));
       }
     } else if (p.morale < 50 || p.population > p.housing) {
       p.arrivalTimer = 0;
@@ -420,7 +633,7 @@ export class Economy {
     const u = this.sim.units;
     let pick = -1;
     for (let i = 0; i < u.count; i++) {
-      if (!u.alive[i] || u.owner[i] !== owner || u.kind[i] !== UnitKind.Civilian) continue;
+      if (!u.alive[i] || u.owner[i] !== owner || u.kind[i] !== UnitKind.Civilian || u.task[i] === Task.Recruit) continue;
       if (u.job[i] < 0) {
         pick = i;
         break;
@@ -451,7 +664,8 @@ export class Economy {
         let best = -1;
         let bestD = Infinity;
         for (let i = 0; i < u.count; i++) {
-          if (!u.alive[i] || u.owner[i] !== s.owner || u.kind[i] !== UnitKind.Civilian || u.job[i] >= 0) continue;
+          if (!u.alive[i] || u.owner[i] !== s.owner || u.kind[i] !== UnitKind.Civilian) continue;
+          if (u.job[i] >= 0 || u.task[i] === Task.Recruit) continue;
           const dist = Math.hypot(u.x[i] - d.x, u.z[i] - d.z);
           if (dist < bestD) {
             bestD = dist;
@@ -532,12 +746,15 @@ export class Economy {
       this.release(i);
       return;
     }
-    const prod = STRUCTURE_DEFS[s.kind].producer;
-    if (!prod) {
+    const def = STRUCTURE_DEFS[s.kind];
+    const recipe = def.recipes?.[s.recipe];
+    const prod = def.producer;
+    if (!prod && !recipe) {
       this.release(i);
       return;
     }
     const door = this.door(s);
+    const output = (recipe?.output ?? prod?.output) as ResId;
 
     switch (u.task[i]) {
       case Task.Idle:
@@ -545,11 +762,13 @@ export class Economy {
         const r = this.reached(i, door.x, door.z);
         if (r === 'stuck') return this.wait(i, 2);
         if (!r) return;
-        if (prod.gather === 'tree' && u.carry[i] !== CARRY_LOG) {
+        if (prod?.gather === 'tree' && u.carry[i] !== CARRY_LOG) {
           this.goToTree(i, s);
+        } else if (recipe && u.carry[i] !== recipe.input) {
+          this.goFetch(i, s, recipe.input, recipe.inputAmount);
         } else {
           u.task[i] = Task.Working;
-          u.taskTimer[i] = prod.work;
+          u.taskTimer[i] = recipe?.work ?? prod!.work;
           u.carry[i] = CARRY_NONE;
           s.status = 'ok';
         }
@@ -558,11 +777,29 @@ export class Economy {
       case Task.Working:
         u.taskTimer[i] -= TICK_SEC * rate;
         if (u.taskTimer[i] <= 0) {
-          u.carry[i] = prod.output;
-          u.carryAmt[i] = prod.batch;
-          this.goToStore(i, s, prod.output);
+          u.carry[i] = output;
+          u.carryAmt[i] = recipe ? 1 : prod!.batch;
+          this.goToStore(i, s, output);
         }
         return;
+      case Task.ToFetch: {
+        const depot = this.sim.structureById(u.dest[i]);
+        if (!depot || !recipe) return this.wait(i, 2);
+        const d = this.door(depot);
+        const r = this.reached(i, d.x, d.z);
+        if (r === 'stuck') return this.wait(i, 2);
+        if (!r) return;
+        const p = this.player(s.owner);
+        if (p.stock[recipe.input] < recipe.inputAmount) {
+          s.status = 'noInput';
+          return this.wait(i, 3);
+        }
+        p.stock[recipe.input] -= recipe.inputAmount;
+        u.carry[i] = recipe.input;
+        u.carryAmt[i] = recipe.inputAmount;
+        this.startLeg(i, Task.ToWork, door.x, door.z);
+        return;
+      }
       case Task.ToTree: {
         const tree = this.sim.map.trees[u.dest[i]];
         if (!tree || tree.wood <= 0) return this.goToTree(i, s);
@@ -604,8 +841,11 @@ export class Economy {
       case Task.Wait:
         u.taskTimer[i] -= TICK_SEC;
         if (u.taskTimer[i] > 0) return;
-        if (u.carry[i] >= 0 && u.carry[i] < RES_COUNT) this.goToStore(i, s, u.carry[i] as ResId);
-        else this.startLeg(i, Task.ToWork, door.x, door.z);
+        if (u.carry[i] >= 0 && u.carry[i] < RES_COUNT && u.carry[i] !== recipe?.input) {
+          this.goToStore(i, s, u.carry[i] as ResId);
+        } else {
+          this.startLeg(i, Task.ToWork, door.x, door.z);
+        }
         return;
     }
   }
@@ -615,6 +855,37 @@ export class Economy {
     u.task[i] = Task.Wait;
     u.taskTimer[i] = sec;
     if (u.order[i] === Order.Move) u.order[i] = Order.Idle;
+  }
+
+  private nearestStore(owner: number, kind: StoreKind, x: number, z: number): Structure | undefined {
+    let best: Structure | undefined;
+    let bestD = Infinity;
+    for (const st of this.sim.structures) {
+      if (st.owner !== owner || STRUCTURE_DEFS[st.kind].storage?.kind !== kind) continue;
+      const d = Math.hypot(st.doorX - x, st.doorZ - z);
+      if (d < bestD) {
+        bestD = d;
+        best = st;
+      }
+    }
+    return best;
+  }
+
+  private goFetch(i: number, s: Structure, res: ResId, amount: number): void {
+    const u = this.sim.units;
+    const p = this.player(s.owner);
+    if (p.stock[res] < amount) {
+      s.status = 'noInput';
+      return this.wait(i, 3);
+    }
+    const depot = this.nearestStore(s.owner, RES_INFO[res].store, u.x[i], u.z[i]);
+    if (!depot) {
+      s.status = 'noInput';
+      return this.wait(i, 3);
+    }
+    u.dest[i] = depot.id;
+    const d = this.door(depot);
+    this.startLeg(i, Task.ToFetch, d.x, d.z);
   }
 
   private goToTree(i: number, s: Structure): void {
@@ -645,22 +916,12 @@ export class Economy {
   private goToStore(i: number, s: Structure, res: ResId): void {
     const u = this.sim.units;
     const p = this.player(s.owner);
-    const kind = RES_INFO[res].food ? 'food' : 'materials';
-    const cap = kind === 'food' ? p.foodCap : p.materialsCap;
-    if (p.stored(kind) + u.carryAmt[i] > cap + 1e-6) {
+    const kind = RES_INFO[res].store;
+    if (p.stored(kind) + u.carryAmt[i] > p.cap(kind) + 1e-6) {
       s.status = 'storageFull';
       return this.wait(i, 2);
     }
-    let best: Structure | undefined;
-    let bestD = Infinity;
-    for (const st of this.sim.structures) {
-      if (st.owner !== s.owner || STRUCTURE_DEFS[st.kind].storage?.kind !== kind) continue;
-      const d = Math.hypot(st.doorX - u.x[i], st.doorZ - u.z[i]);
-      if (d < bestD) {
-        bestD = d;
-        best = st;
-      }
-    }
+    const best = this.nearestStore(s.owner, kind, u.x[i], u.z[i]);
     if (!best) {
       s.status = 'storageFull';
       return this.wait(i, 3);
@@ -675,9 +936,8 @@ export class Economy {
     const res = u.carry[i];
     if (res < 0 || res >= RES_COUNT) return;
     const p = this.player(s.owner);
-    const kind = RES_INFO[res].food ? 'food' : 'materials';
-    const cap = kind === 'food' ? p.foodCap : p.materialsCap;
-    const amount = Math.max(0, Math.min(u.carryAmt[i], cap - p.stored(kind)));
+    const kind = RES_INFO[res].store;
+    const amount = Math.max(0, Math.min(u.carryAmt[i], p.cap(kind) - p.stored(kind)));
     p.stock[res] += amount;
     this.sim.emit({ type: 'delivered', owner: s.owner, res: res as ResId, amount, x: u.x[i], z: u.z[i] });
     u.carry[i] = CARRY_NONE;
