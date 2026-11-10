@@ -3,8 +3,9 @@ import type { Sim, SimEvent } from '../sim/sim';
 import { CameraDirector, OtsCameraRig, RtsCameraRig } from './cameras';
 import { DayNight } from './daynight';
 import { Fx } from './fx';
-import { buildStructures } from './structures';
-import { buildScatter, buildTerrain, buildWater } from './terrain';
+import type { Structure, StructureKind } from '../sim/structures';
+import { PlacementGhost, SelectionFrame, StructureRenderer } from './structures';
+import { buildScatter, buildTerrain, buildWater, TreeRenderer } from './terrain';
 import { UnitRenderer } from './units';
 
 export interface Quality {
@@ -45,6 +46,10 @@ export class GameRenderer {
   readonly fx: Fx;
   readonly dayNight: DayNight;
   readonly terrain: THREE.Mesh;
+  readonly structures: StructureRenderer;
+  readonly trees: TreeRenderer;
+  readonly ghost: PlacementGhost;
+  readonly selectionFrame: SelectionFrame;
 
   private raycaster = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
@@ -74,14 +79,19 @@ export class GameRenderer {
 
     this.terrain = buildTerrain(sim.map);
     this.scene.add(this.terrain, buildWater(sim.map), buildScatter(sim.map));
-    const structures = buildStructures(sim, quality.maxFloodlights);
-    this.scene.add(structures.group);
+    this.trees = new TreeRenderer(sim.map);
+    this.scene.add(this.trees.group);
+    this.structures = new StructureRenderer(sim, quality.maxFloodlights);
+    this.scene.add(this.structures.group);
+    this.ghost = new PlacementGhost(sim);
+    this.selectionFrame = new SelectionFrame(sim);
+    this.scene.add(this.ghost.group, this.selectionFrame.group);
 
     this.units = new UnitRenderer(sim, quality.shadows);
     this.scene.add(this.units.group);
     this.fx = new Fx(sim.map);
     this.scene.add(this.fx.group);
-    this.dayNight = new DayNight(this.scene, structures, quality.shadows);
+    this.dayNight = new DayNight(this.scene, this.structures, quality.shadows);
 
     this.rts = new RtsCameraRig(sim.map);
     this.ots = new OtsCameraRig(sim.map);
@@ -98,6 +108,8 @@ export class GameRenderer {
   }
 
   render(f: FrameState): void {
+    this.structures.handle(f.events);
+    for (const e of f.events) if (e.type === 'treeFelled') this.trees.fell(e.index);
     this.fx.handle(f.events, f.controlled);
     this.fx.update(f.dt);
 
@@ -161,6 +173,14 @@ export class GameRenderer {
       prevT = t;
     }
     return null;
+  }
+
+  setGhost(kind: StructureKind | null, tx = 0, tz = 0, valid = false): void {
+    this.ghost.set(kind, tx, tz, valid);
+  }
+
+  setSelectedStructure(s: Structure | undefined): void {
+    this.selectionFrame.set(s);
   }
 
   /** Project a world point to client pixels. Returns null if behind the camera. */

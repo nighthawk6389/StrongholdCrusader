@@ -1,6 +1,6 @@
 import { generateDesertMap } from './map';
 import { Sim } from './sim';
-import type { StructureKind } from './structures';
+import { Res } from './structures';
 import { UnitKind } from './unitTypes';
 
 export const PLAYER = 1;
@@ -18,13 +18,19 @@ interface BaseLayout {
   cz: number;
   /** Chebyshev radius of the wall ring. */
   ring: number;
-  /** Gate side: +1 = east (+x), -1 = west (-x). */
-  gateSide: 1 | -1;
+  /** Sides with a 3-tile checkpoint gate. */
+  gates: ('east' | 'west' | 'north' | 'south')[];
 }
 
 function buildWalledBase(sim: Sim, owner: number, b: BaseLayout): void {
-  const { cx, cz, ring, gateSide } = b;
-  const gateX = cx + gateSide * ring;
+  const { cx, cz, ring, gates } = b;
+  const isGate = (x: number, z: number): number | null => {
+    if (gates.includes('east') && x === cx + ring && Math.abs(z - cz) <= 1) return Math.PI / 2;
+    if (gates.includes('west') && x === cx - ring && Math.abs(z - cz) <= 1) return Math.PI / 2;
+    if (gates.includes('north') && z === cz - ring && Math.abs(x - cx) <= 1) return 0;
+    if (gates.includes('south') && z === cz + ring && Math.abs(x - cx) <= 1) return 0;
+    return null;
+  };
 
   // Corner towers first so walls flow around them.
   const corners: [number, number][] = [
@@ -38,9 +44,8 @@ function buildWalledBase(sim: Sim, owner: number, b: BaseLayout): void {
   for (let z = cz - ring; z <= cz + ring; z++) {
     for (let x = cx - ring; x <= cx + ring; x++) {
       if (Math.max(Math.abs(x - cx), Math.abs(z - cz)) !== ring) continue;
-      const isGate = x === gateX && Math.abs(z - cz) <= 1;
-      const kind: StructureKind = isGate ? 'gate' : 'wall';
-      sim.placeStructure(kind, owner, x, z, isGate ? Math.PI / 2 : 0);
+      const g = isGate(x, z);
+      sim.placeStructure(g === null ? 'wall' : 'gate', owner, x, z, g ?? 0);
     }
   }
 }
@@ -64,28 +69,37 @@ export function createM0Scenario(seed = 1337): Scenario {
     ],
     extraOases: 2,
     oilPatches: 3,
+    groves: [
+      { x: 12, z: 84, r: 5 },
+      { x: 44, z: 86, r: 4 },
+      { x: 112, z: 50, r: 4 },
+    ],
   });
 
   // Start mid-morning: ~4.5 minutes until dusk.
   const sim = new Sim({ map, seed, startSec: 45 });
 
-  // --- Player outpost
+  // --- Player outpost: the pre-built core (HQ, arrivals hub, 2 housing blocks, depot, ration store).
   const P = playerBase;
   sim.placeStructure('hq', PLAYER, P.x - 2, P.z - 2);
-  for (const [x, z] of [
-    [P.x - 8, P.z - 8],
-    [P.x - 5, P.z - 8],
-    [P.x - 8, P.z + 6],
-    [P.x - 5, P.z + 6],
-  ]) {
-    sim.placeStructure('house', PLAYER, x, z);
-  }
+  sim.placeStructure('hub', PLAYER, P.x - 7, P.z + 2);
+  sim.placeStructure('house', PLAYER, P.x - 8, P.z - 8);
+  sim.placeStructure('house', PLAYER, P.x - 5, P.z - 8);
   sim.placeStructure('depot', PLAYER, P.x + 3, P.z - 8);
-  buildWalledBase(sim, PLAYER, { cx: P.x, cz: P.z, ring: 10, gateSide: 1 });
+  sim.placeStructure('rations', PLAYER, P.x + 3, P.z + 5);
+  buildWalledBase(sim, PLAYER, { cx: P.x, cz: P.z, ring: 10, gates: ['east', 'west', 'north', 'south'] });
   sim.placeStructure('floodlight', PLAYER, P.x + 8, P.z - 4, Math.PI / 2);
   sim.placeStructure('floodlight', PLAYER, P.x + 8, P.z + 4, Math.PI / 2);
   sim.placeStructure('floodlight', PLAYER, P.x - 8, P.z, -Math.PI / 2);
   sim.placeStructure('floodlight', PLAYER, P.x, P.z + 8, 0);
+
+  const eco = sim.economy.player(PLAYER);
+  eco.active = true;
+  eco.funds = 300;
+  eco.stock[Res.Timber] = 60;
+  eco.stock[Res.Concrete] = 20;
+  eco.stock[Res.Produce] = 50;
+  sim.economy.spawnArrivals(PLAYER, 8);
 
   sim.spawnUnit(UnitKind.Commander, PLAYER, P.x - 3.5, P.z + 0.5, Math.PI / 2);
   for (let i = 0; i < 18; i++) {
@@ -96,10 +110,11 @@ export function createM0Scenario(seed = 1337): Scenario {
 
   // --- Hostile outpost
   const E = enemyBase;
+  sim.placeStructure('hq', ENEMY, E.x + 2, E.z - 5);
   sim.placeStructure('depot', ENEMY, E.x - 1, E.z - 4);
   sim.placeStructure('house', ENEMY, E.x + 2, E.z + 2);
   sim.placeStructure('house', ENEMY, E.x - 3, E.z + 2);
-  buildWalledBase(sim, ENEMY, { cx: E.x, cz: E.z, ring: 7, gateSide: -1 });
+  buildWalledBase(sim, ENEMY, { cx: E.x, cz: E.z, ring: 7, gates: ['west'] });
   sim.placeStructure('floodlight', ENEMY, E.x - 5, E.z - 3, -Math.PI / 2);
   sim.placeStructure('floodlight', ENEMY, E.x - 5, E.z + 3, -Math.PI / 2);
   sim.placeStructure('floodlight', ENEMY, E.x + 5, E.z, Math.PI / 2);

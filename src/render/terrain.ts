@@ -98,7 +98,7 @@ export function buildWater(map: GameMap): THREE.Group {
   return g;
 }
 
-/** Rocks on rock tiles, palms around oases, sparse scrub on sand. All instanced. */
+/** Rocks on rock tiles and sparse scrub on sand. All instanced. (Trees are sim objects: see TreeRenderer.) */
 export function buildScatter(map: GameMap): THREE.Group {
   const g = new THREE.Group();
   const m4 = new THREE.Matrix4();
@@ -109,19 +109,18 @@ export function buildScatter(map: GameMap): THREE.Group {
 
   type Item = { x: number; z: number; h: number };
   const rocks: Item[] = [];
-  const palms: Item[] = [];
   const scrub: Item[] = [];
   for (let tz = 0; tz < map.height; tz++) {
     for (let tx = 0; tx < map.width; tx++) {
       const t = map.tileAt(tx, tz);
       const h = hash2(tx, tz, map.seed + 17);
       if (t === Tile.Rock) rocks.push({ x: tx + 0.5, z: tz + 0.5, h });
-      else if (t === Tile.Fertile && h < 0.16 && map.isWalkableTile(tx, tz)) palms.push({ x: tx + 0.5, z: tz + 0.5, h });
-      else if (t === Tile.Sand && h < 0.012 && map.isWalkableTile(tx, tz)) scrub.push({ x: tx + 0.5, z: tz + 0.5, h });
+      else if (t === Tile.Sand && h > 0.988 && map.isWalkableTile(tx, tz) && map.treeAt[map.idx(tx, tz)] < 0) {
+        scrub.push({ x: tx + 0.5, z: tz + 0.5, h });
+      }
     }
   }
 
-  // Rocks
   const rockGeo = paint(new THREE.IcosahedronGeometry(0.7, 0), 0xffffff);
   const rockMat = new THREE.MeshLambertMaterial({ color: COLORS.rockMesh, flatShading: true });
   const rockMesh = new THREE.InstancedMesh(rockGeo, rockMat, rocks.length);
@@ -138,34 +137,8 @@ export function buildScatter(map: GameMap): THREE.Group {
   rockMesh.receiveShadow = true;
   g.add(rockMesh);
 
-  // Palms: trunk + crown
-  const trunkGeo = new THREE.CylinderGeometry(0.06, 0.1, 1.8, 5);
-  trunkGeo.translate(0, 0.9, 0);
-  const crownGeo = new THREE.ConeGeometry(0.9, 0.45, 7);
-  crownGeo.translate(0, 1.85, 0);
-  const trunk = new THREE.InstancedMesh(trunkGeo, new THREE.MeshLambertMaterial({ color: COLORS.palmTrunk }), palms.length);
-  const crown = new THREE.InstancedMesh(
-    crownGeo,
-    new THREE.MeshLambertMaterial({ color: COLORS.palmCrown, flatShading: true }),
-    palms.length,
-  );
-  palms.forEach((p, i) => {
-    const k = 0.8 + p.h * 2.2;
-    e.set((p.h - 0.08) * 1.2, p.h * 40, (p.h - 0.08) * 0.8);
-    q.setFromEuler(e);
-    s.set(k, k, k);
-    v.set(p.x, map.heightAt(p.x, p.z) - 0.05, p.z);
-    m4.compose(v, q, s);
-    trunk.setMatrixAt(i, m4);
-    crown.setMatrixAt(i, m4);
-  });
-  trunk.castShadow = crown.castShadow = true;
-  g.add(trunk, crown);
-
-  // Scrub
-  const scrubGeo = new THREE.IcosahedronGeometry(0.28, 0);
   const scrubMesh = new THREE.InstancedMesh(
-    scrubGeo,
+    new THREE.IcosahedronGeometry(0.28, 0),
     new THREE.MeshLambertMaterial({ color: 0x7d7a45, flatShading: true }),
     scrub.length,
   );
@@ -178,4 +151,79 @@ export function buildScatter(map: GameMap): THREE.Group {
   });
   g.add(scrubMesh);
   return g;
+}
+
+/** Palms and acacias driven by the sim tree list; felled trees vanish. */
+export class TreeRenderer {
+  readonly group = new THREE.Group();
+  private meshes: [THREE.InstancedMesh, THREE.InstancedMesh][] = [];
+  /** Per tree: instance slot within its kind's meshes. */
+  private slot: Int32Array;
+  private zero = new THREE.Matrix4().makeScale(0, 0, 0);
+
+  constructor(private map: GameMap) {
+    const palmTrunk = new THREE.CylinderGeometry(0.06, 0.1, 1.8, 5);
+    palmTrunk.translate(0, 0.9, 0);
+    const palmCrown = new THREE.ConeGeometry(0.9, 0.45, 7);
+    palmCrown.translate(0, 1.85, 0);
+    const acTrunk = new THREE.CylinderGeometry(0.07, 0.11, 1.3, 5);
+    acTrunk.translate(0, 0.65, 0);
+    const acCrown = new THREE.CylinderGeometry(0.95, 0.55, 0.38, 7);
+    acCrown.translate(0, 1.42, 0);
+    const trunkMat = new THREE.MeshLambertMaterial({ color: COLORS.palmTrunk });
+    const kinds = [
+      { trunk: palmTrunk, crown: palmCrown, color: COLORS.palmCrown },
+      { trunk: acTrunk, crown: acCrown, color: 0x6f7c38 },
+    ];
+    const counts = [0, 0];
+    for (const t of map.trees) counts[t.kind]++;
+    kinds.forEach((k, i) => {
+      const trunk = new THREE.InstancedMesh(k.trunk, trunkMat, Math.max(1, counts[i]));
+      const crown = new THREE.InstancedMesh(
+        k.crown,
+        new THREE.MeshLambertMaterial({ color: k.color, flatShading: true }),
+        Math.max(1, counts[i]),
+      );
+      trunk.count = crown.count = counts[i];
+      trunk.castShadow = crown.castShadow = true;
+      this.meshes.push([trunk, crown]);
+      this.group.add(trunk, crown);
+    });
+
+    this.slot = new Int32Array(map.trees.length);
+    const next = [0, 0];
+    const m4 = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    const sc = new THREE.Vector3();
+    const v = new THREE.Vector3();
+    map.trees.forEach((t, i) => {
+      const h = hash2(Math.floor(t.x * 7), Math.floor(t.z * 7), map.seed + 5);
+      const k = t.kind === 0 ? 0.8 + h * 0.9 : 0.75 + h * 0.6;
+      e.set((h - 0.5) * 0.25, h * 40, (h - 0.5) * 0.2);
+      q.setFromEuler(e);
+      sc.set(k, k, k);
+      v.set(t.x, map.heightAt(t.x, t.z) - 0.05, t.z);
+      m4.compose(v, q, sc);
+      const s = next[t.kind]++;
+      this.slot[i] = s;
+      const [trunk, crown] = this.meshes[t.kind];
+      trunk.setMatrixAt(s, m4);
+      crown.setMatrixAt(s, m4);
+      if (t.wood <= 0) {
+        trunk.setMatrixAt(s, this.zero);
+        crown.setMatrixAt(s, this.zero);
+      }
+    });
+  }
+
+  fell(index: number): void {
+    const t = this.map.trees[index];
+    if (!t) return;
+    const [trunk, crown] = this.meshes[t.kind];
+    trunk.setMatrixAt(this.slot[index], this.zero);
+    crown.setMatrixAt(this.slot[index], this.zero);
+    trunk.instanceMatrix.needsUpdate = true;
+    crown.instanceMatrix.needsUpdate = true;
+  }
 }

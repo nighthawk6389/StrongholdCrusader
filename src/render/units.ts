@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { Sim } from '../sim/sim';
 import { UNIT_TYPES, UnitKind } from '../sim/unitTypes';
-import { MAX_UNITS } from '../sim/units';
+import { CARRY_LOG, MAX_UNITS } from '../sim/units';
+import { Res, type StructureKind } from '../sim/structures';
 import { box, merge } from './geometry';
 import { COLORS, COMMANDER_TINT, TEAM_COLORS } from './palette';
 
@@ -29,6 +30,36 @@ function soldierParts(): { team: THREE.BufferGeometry; gear: THREE.BufferGeometr
   return { team, gear, leg };
 }
 
+/** Civilian: shirt (tinted per job), head + hair. Legs are shared with soldiers. */
+function civilianParts(): { shirt: THREE.BufferGeometry; head: THREE.BufferGeometry } {
+  const shirt = merge([
+    box(0.32, 0.38, 0.2, 0, 0.64, 0, 0xffffff),
+    box(0.08, 0.32, 0.09, -0.2, 0.62, 0.02, 0xf0f0f0),
+    box(0.08, 0.32, 0.09, 0.2, 0.62, 0.02, 0xf0f0f0),
+  ]);
+  const head = merge([
+    box(0.17, 0.17, 0.17, 0, 0.92, 0, COLORS.skin),
+    box(0.19, 0.06, 0.19, 0, 1.02, -0.01, 0x3b2a1e),
+  ]);
+  return { shirt, head };
+}
+
+const JOB_COLORS: Partial<Record<StructureKind, number>> = {
+  lumber: 0x8a5a2b,
+  quarry: 0x7d8288,
+  orchard: 0x5f8a3a,
+  ranch: 0xa0522d,
+};
+const IDLE_COLOR = 0xd8cfb8;
+
+const CARGO_COLORS: Record<number, number> = {
+  [Res.Timber]: 0xc8a06a,
+  [Res.Concrete]: 0xb9b4a8,
+  [Res.Produce]: 0xe08a2c,
+  [Res.Meat]: 0xb5524a,
+  [CARRY_LOG]: 0x6b4a2b,
+};
+
 export interface UnitDrawState {
   alpha: number;
   dt: number;
@@ -42,6 +73,9 @@ export class UnitRenderer {
   private gear: THREE.InstancedMesh;
   private legL: THREE.InstancedMesh;
   private legR: THREE.InstancedMesh;
+  private civShirt: THREE.InstancedMesh;
+  private civHead: THREE.InstancedMesh;
+  private cargo: THREE.InstancedMesh;
   private rings: THREE.InstancedMesh;
   private barBg: THREE.InstancedMesh;
   private barFg: THREE.InstancedMesh;
@@ -76,6 +110,23 @@ export class UnitRenderer {
     }
     // Instance colours for team tint (initialise so the attribute exists).
     for (let i = 0; i < cap; i++) this.team.setColorAt(i, this.col.setHex(0xffffff));
+
+    const civ = civilianParts();
+    this.civShirt = new THREE.InstancedMesh(civ.shirt, mat, cap);
+    this.civHead = new THREE.InstancedMesh(civ.head, mat, cap);
+    const cargoGeo = new THREE.BoxGeometry(0.3, 0.22, 0.24);
+    this.cargo = new THREE.InstancedMesh(cargoGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), cap);
+    for (const im of [this.civShirt, this.civHead, this.cargo]) {
+      im.frustumCulled = false;
+      im.castShadow = castShadows;
+      im.count = 0;
+      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      this.group.add(im);
+    }
+    for (let i = 0; i < cap; i++) {
+      this.civShirt.setColorAt(i, this.col.setHex(IDLE_COLOR));
+      this.cargo.setColorAt(i, this.col.setHex(0xffffff));
+    }
 
     const ringGeo = new THREE.RingGeometry(0.34, 0.44, 24);
     ringGeo.rotateX(-Math.PI / 2);
@@ -118,7 +169,10 @@ export class UnitRenderer {
   update(s: UnitDrawState): void {
     const u = this.sim.units;
     const map = this.sim.map;
-    let n = 0;
+    let n = 0; // soldiers
+    let c = 0; // civilians
+    let legs = 0;
+    let cargo = 0;
     let rings = 0;
     let bars = 0;
     for (let i = 0; i < u.count; i++) {
@@ -137,25 +191,45 @@ export class UnitRenderer {
       const swing = Math.sin(this.phase[i]) * 0.65 * moving;
       const bob = Math.abs(Math.cos(this.phase[i])) * 0.035 * moving;
 
-      const isCmd = u.kind[i] === UnitKind.Commander;
-      const k = isCmd ? 1.15 : 1;
+      const kind = u.kind[i];
+      const isCiv = kind === UnitKind.Civilian;
+      const isCmd = kind === UnitKind.Commander;
+      const k = isCmd ? 1.15 : isCiv ? 0.95 : 1;
       this.pos.set(x, y + bob, z);
       this.quat.setFromAxisAngle(this.yAxis, heading);
       this.scl.set(k, k, k);
       this.m.compose(this.pos, this.quat, this.scl);
-      this.team.setMatrixAt(n, this.m);
-      this.gear.setMatrixAt(n, this.m);
+
+      const owner = u.owner[i];
+      if (isCiv) {
+        this.civShirt.setMatrixAt(c, this.m);
+        this.civHead.setMatrixAt(c, this.m);
+        const job = u.job[i] >= 0 ? this.sim.structureById(u.job[i]) : undefined;
+        this.civShirt.setColorAt(c, this.col.setHex((job && JOB_COLORS[job.kind]) ?? IDLE_COLOR));
+        c++;
+        const carry = u.carry[i];
+        if (carry >= 0) {
+          const log = carry === CARRY_LOG;
+          this.local.makeTranslation(0, 0.62, 0.2);
+          if (log) this.local.multiply(this.tmp.makeScale(0.6, 0.8, 2.6));
+          this.cargo.setMatrixAt(cargo, this.tmp.multiplyMatrices(this.m, this.local));
+          this.cargo.setColorAt(cargo, this.col.setHex(CARGO_COLORS[carry] ?? 0xffffff));
+          cargo++;
+        }
+      } else {
+        this.team.setMatrixAt(n, this.m);
+        this.gear.setMatrixAt(n, this.m);
+        this.team.setColorAt(n, this.col.setHex(isCmd ? COMMANDER_TINT[owner] : TEAM_COLORS[owner] ?? 0xffffff));
+        n++;
+      }
 
       this.local.makeRotationX(swing).setPosition(-HIP_X, HIP_Y, 0);
       this.tmp.multiplyMatrices(this.m, this.local);
-      this.legL.setMatrixAt(n, this.tmp);
+      this.legL.setMatrixAt(legs, this.tmp);
       this.local.makeRotationX(-swing).setPosition(HIP_X, HIP_Y, 0);
       this.tmp.multiplyMatrices(this.m, this.local);
-      this.legR.setMatrixAt(n, this.tmp);
-
-      const owner = u.owner[i];
-      this.team.setColorAt(n, this.col.setHex(isCmd ? COMMANDER_TINT[owner] : TEAM_COLORS[owner] ?? 0xffffff));
-      n++;
+      this.legR.setMatrixAt(legs, this.tmp);
+      legs++;
 
       const selected = s.selected.has(i);
       if (selected) {
@@ -166,7 +240,7 @@ export class UnitRenderer {
         this.rings.setMatrixAt(rings++, this.m);
       }
 
-      const maxHp = UNIT_TYPES[u.kind[i]].hp;
+      const maxHp = UNIT_TYPES[kind].hp;
       const frac = u.hp[i] / maxHp;
       if (selected || frac < 0.999) {
         this.pos.set(x, y + 1.32 * k, z);
@@ -180,11 +254,14 @@ export class UnitRenderer {
         bars++;
       }
     }
-    for (const im of [this.team, this.gear, this.legL, this.legR]) {
-      im.count = n;
+    this.team.count = this.gear.count = n;
+    this.civShirt.count = this.civHead.count = c;
+    this.legL.count = this.legR.count = legs;
+    this.cargo.count = cargo;
+    for (const im of [this.team, this.gear, this.legL, this.legR, this.civShirt, this.civHead, this.cargo]) {
       im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
     }
-    if (this.team.instanceColor) this.team.instanceColor.needsUpdate = true;
     this.rings.count = rings;
     this.rings.instanceMatrix.needsUpdate = true;
     this.barBg.count = this.barFg.count = bars;

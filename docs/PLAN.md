@@ -109,6 +109,20 @@ pathfinding. It's a static site on Vercel with no backend.
 
 ### 3.2 Economy
 
+> **Implemented in M1** (numbers live in `src/sim/structures.ts` and `src/sim/economy.ts`):
+> - **Morale:** changes by (sum of factors) / 20 per second.
+>   - Rations: −8 / −3 / +2 / +5 / +8.
+>   - Food variety: +2 per extra food type.
+>   - Taxes: +5 bribe … −9 extortionate.
+>   - Overcrowding: −4.
+> - **Arrivals:** every 10 s at morale 50, speeding up to every 3 s at 100.
+> - **Daytime throughput** with a store nearby (`tests/balance.test.ts`), per building:
+>   - Lumber camp: ~10 timber/min.
+>   - Quarry: ~8 concrete/min.
+>   - Orchard: ~7 produce/min.
+>   - Goat ranch: ~4 meat/min.
+> - **Consumption:** 24 people on normal rations eat 12 food/min.
+
 **Population & housing.** Civilians arrive at the **Arrivals Hub** (the
 campfire analog). Housing blocks raise the cap. Idle civilians become workers
 or recruits.
@@ -480,7 +494,7 @@ docs/
 | # | Milestone | Playable result |
 |---|---|---|
 | **M0** | **Foundations + spikes** ✅ | A procedural desert map (dunes, oases, rock ridges, oil) and walled outposts. RTS camera with mouse and touch. Select squads and move them with flow-field pathing and formations. Live 8-minute day/night with floodlights and lit windows. Basic auto-engage combat. Over-the-shoulder take-control with a phone joystick. |
-| **M1** | **Economy slice** | HQ, housing, depot, timber, concrete and one food chain. Workers haul. Rations and taxes drive morale. |
+| **M1** | **Economy slice** ✅ | Arrivals hub, housing, depots and ration stores. Lumber camps fell depletable trees. Quarries must touch rock, orchards need fertile ground, plus goat ranches. Civilians physically haul goods to the nearest store. Rations, food variety and taxes drive morale, which drives arrivals and departures. Night slows work to ~35%. Build menu and placement ghost (mouse + touch confirm), building panel (status, pause, demolish), morale panel. |
 | **M2** | **Fortifications & combat** | Walls with walkable tops, towers, gates, stairs. Armory-equipped riflemen, MGs, marksmen and engineers. A "Hold the Line" wave scenario. |
 | **M3** | **Skirmish AI v1** | A full 1v1 against _Old Sarge_. **First real game moment.** |
 | **M4** | **Night & stealth** | Light grid, power grid, searchlights, sensors, dogs, flares, SF operators, noise pings, night shifts |
@@ -508,10 +522,12 @@ docs/
 
 1. ~~**M0**: scaffold, map, camera, selection and movement, day/night,
    the take-control spike.~~ Done.
-2. **You:** import the repo into Vercel (Add New → Project → pick the repo →
+2. ~~**M1** economy slice.~~ Done.
+3. **You:** import the repo into Vercel (Add New → Project → pick the repo →
    Framework "Vite" is auto-detected). From then on, every push gets a preview
    URL.
-3. M1 economy slice.
+4. **M2** fortifications & combat: player-built walls/towers/gates/stairs, armory + barracks recruiting
+   (civilian + gear + funds), riflemen/MGs/marksmen/engineers, "Hold the Line" scenario.
 
 ---
 

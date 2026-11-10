@@ -15,26 +15,36 @@ export function paint(geo: THREE.BufferGeometry, hex: number): THREE.BufferGeome
   return geo;
 }
 
-/** An axis-aligned coloured box centred at (x, y, z). */
-export function box(w: number, h: number, d: number, x: number, y: number, z: number, hex: number): THREE.BufferGeometry {
-  const g = new THREE.BoxGeometry(w, h, d);
+interface Rot {
+  rx?: number;
+  ry?: number;
+  rz?: number;
+}
+
+function place(g: THREE.BufferGeometry, x: number, y: number, z: number, hex: number, rot?: Rot): THREE.BufferGeometry {
+  if (rot?.rx) g.rotateX(rot.rx);
+  if (rot?.rz) g.rotateZ(rot.rz);
+  if (rot?.ry) g.rotateY(rot.ry);
   g.translate(x, y, z);
   return paint(g, hex);
 }
 
-export function cylinder(
-  rt: number,
-  rb: number,
-  h: number,
-  x: number,
-  y: number,
-  z: number,
-  hex: number,
-  seg = 6,
-): THREE.BufferGeometry {
-  const g = new THREE.CylinderGeometry(rt, rb, h, seg);
-  g.translate(x, y, z);
-  return paint(g, hex);
+/** An axis-aligned (optionally rotated) coloured box centred at (x, y, z). */
+export function box(w: number, h: number, d: number, x: number, y: number, z: number, hex: number, rot?: Rot) {
+  return place(new THREE.BoxGeometry(w, h, d), x, y, z, hex, rot);
+}
+
+export function cylinder(rt: number, rb: number, h: number, x: number, y: number, z: number, hex: number, seg = 6, rot?: Rot) {
+  return place(new THREE.CylinderGeometry(rt, rb, h, seg), x, y, z, hex, rot);
+}
+
+export function cone(r: number, h: number, x: number, y: number, z: number, hex: number, seg = 6, rot?: Rot) {
+  return place(new THREE.ConeGeometry(r, h, seg), x, y, z, hex, rot);
+}
+
+/** Low-poly sphere (indexed, so it can merge with boxes). */
+export function sphere(r: number, x: number, y: number, z: number, hex: number, wSeg = 6, hSeg = 4) {
+  return place(new THREE.SphereGeometry(r, wSeg, hSeg), x, y, z, hex);
 }
 
 /** Merge coloured parts into one geometry (all parts must be indexed BufferGeometries with uv). */

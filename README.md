@@ -10,7 +10,7 @@ soldiers.
 > name is a placeholder.
 
 - **Design & technical plan:** [docs/PLAN.md](docs/PLAN.md)
-- **Status:** Milestone **M0 (foundations + spikes)** is playable.
+- **Status:** **M0** (foundations) and **M1** (economy) are playable. Next up is **M2** (fortifications and combat).
 
 ## Play locally
 
@@ -22,10 +22,25 @@ npm run dev        # http://localhost:5173
 URL options: `?debug=1` shows FPS and sim timing. `?quality=low|high` forces
 the render preset. `?seed=123` picks a different map.
 
-## Controls (M0)
+## How to play (M1)
+
+Grow your outpost:
+- **Arrivals:** civilians arrive while **morale** is above 50 and there's free housing.
+- **Production:** build lumber camps (near trees), a quarry (touching rock), orchards (on fertile ground by
+  oases) and goat ranches.
+- **Hauling:** workers physically carry goods to the nearest depot or ration store, so build stores near your
+  producers.
+- **Morale:** set **rations** and **taxes** from the morale panel. Food variety boosts morale, and running out
+  of food or taxing hard drives people away.
+- **Night:** work slows to about a third.
+
+## Controls
 
 | | Desktop | Phone (landscape) |
 |---|---|---|
+| Build | **B** or **Build**, pick a building, click to place (repeats), right-click/Esc to stop | **Build**, pick, tap the ground to position, **✓ Place** |
+| Buildings | Click one for status, pause/resume, demolish (50% refund) | Tap one (with no soldiers selected) |
+| Morale | Click the **Morale** pill: breakdown, rations, taxes | Tap the morale number |
 | Select | Click, or drag a box. Double-click selects the same type. | Tap. Double-tap selects the same type. **▢ Box** toggles drag-select. |
 | Move | Right-click the ground | Tap the ground |
 | Camera | WASD / screen edges pan, wheel zooms, Q/E or right/middle-drag rotate | Drag pans, pinch zooms, twist rotates |

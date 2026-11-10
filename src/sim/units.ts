@@ -9,6 +9,21 @@ export const Order = {
   Control: 2,
 } as const;
 
+/** Civilian work-cycle states (see Economy). */
+export const Task = {
+  Idle: 0,
+  ToWork: 1,
+  Working: 2,
+  ToTree: 3,
+  Chopping: 4,
+  ToStore: 5,
+  Wait: 6,
+} as const;
+
+/** `carry` value for an unsawn log (not a stockpiled resource). */
+export const CARRY_LOG = 100;
+export const CARRY_NONE = -1;
+
 /** Structure-of-arrays unit storage. A unit id is its slot index. */
 export class UnitStore {
   /** High-water mark: iterate 0..count-1 and check `alive`. */
@@ -38,6 +53,19 @@ export class UnitStore {
   /** Tick of the last shot fired (for muzzle-flash rendering). */
   readonly lastShot = new Int32Array(MAX_UNITS).fill(-1000);
 
+  // --- civilian work state
+  /** Workplace structure id, -1 if idle. */
+  readonly job = new Int32Array(MAX_UNITS).fill(-1);
+  readonly task = new Uint8Array(MAX_UNITS);
+  readonly taskTimer = new Float32Array(MAX_UNITS);
+  /** Destination: storage structure id (ToStore) or tree index (ToTree). */
+  readonly dest = new Int32Array(MAX_UNITS).fill(-1);
+  /** Carried resource id, CARRY_LOG, or CARRY_NONE. */
+  readonly carry = new Int16Array(MAX_UNITS).fill(CARRY_NONE);
+  readonly carryAmt = new Uint8Array(MAX_UNITS);
+  /** Path retries for the current leg. */
+  readonly retries = new Uint8Array(MAX_UNITS);
+
   spawn(kind: number, owner: number, x: number, z: number, heading: number): number {
     let id = -1;
     for (let i = 0; i < this.count; i++) {
@@ -66,6 +94,13 @@ export class UnitStore {
     this.cooldown[id] = 0;
     this.target[id] = -1;
     this.lastShot[id] = -1000;
+    this.job[id] = -1;
+    this.task[id] = Task.Idle;
+    this.taskTimer[id] = 0;
+    this.dest[id] = -1;
+    this.carry[id] = CARRY_NONE;
+    this.carryAmt[id] = 0;
+    this.retries[id] = 0;
     return id;
   }
 
@@ -74,6 +109,8 @@ export class UnitStore {
     this.order[id] = Order.Idle;
     this.field[id] = -1;
     this.target[id] = -1;
+    this.job[id] = -1;
+    this.carry[id] = CARRY_NONE;
   }
 
   isAlive(id: number): boolean {

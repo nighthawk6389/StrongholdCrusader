@@ -25,6 +25,16 @@ export interface Oasis {
   level: number;
 }
 
+/** A tree that lumber workers can fell. Trees are walkable but block construction. */
+export interface Tree {
+  x: number;
+  z: number;
+  /** Logs left; the tree disappears at 0. */
+  wood: number;
+  /** 0 = date palm (oases), 1 = acacia (groves). */
+  kind: 0 | 1;
+}
+
 export interface Clearing {
   x: number;
   z: number;
@@ -40,6 +50,9 @@ export class GameMap {
   readonly blocked: Uint8Array;
   readonly heights: Float32Array;
   readonly oases: Oasis[] = [];
+  readonly trees: Tree[] = [];
+  /** Tree index per tile, -1 if none. */
+  readonly treeAt: Int32Array;
   /** Incremented whenever passability changes (flow-field caches key off this). */
   version = 0;
 
@@ -51,6 +64,23 @@ export class GameMap {
     this.tiles = new Uint8Array(width * height);
     this.blocked = new Uint8Array(width * height);
     this.heights = new Float32Array((width + 1) * (height + 1));
+    this.treeAt = new Int32Array(width * height).fill(-1);
+  }
+
+  addTree(tx: number, tz: number, kind: 0 | 1, wood: number, jitter: number): void {
+    const i = this.idx(tx, tz);
+    if (this.treeAt[i] >= 0) return;
+    this.treeAt[i] = this.trees.length;
+    this.trees.push({ x: tx + 0.5 + (jitter - 0.5) * 0.4, z: tz + 0.5 + (jitter * 7.3 - Math.floor(jitter * 7.3) - 0.5) * 0.4, wood, kind });
+  }
+
+  /** Remove a depleted tree from its tile (the record stays so indices remain stable). */
+  clearTree(index: number): void {
+    const t = this.trees[index];
+    if (!t) return;
+    t.wood = 0;
+    const i = this.idx(Math.floor(t.x), Math.floor(t.z));
+    if (this.treeAt[i] === index) this.treeAt[i] = -1;
   }
 
   idx(tx: number, tz: number): number {
@@ -169,6 +199,8 @@ export interface DesertMapSpec {
   oases: { x: number; z: number; r: number }[];
   extraOases?: number;
   oilPatches?: number;
+  /** Guaranteed acacia groves (timber sources). */
+  groves?: { x: number; z: number; r: number }[];
 }
 
 function smoothstep(e0: number, e1: number, x: number): number {
@@ -302,6 +334,31 @@ export function generateDesertMap(spec: DesertMapSpec): GameMap {
     const t = map.tiles[i];
     map.blocked[i] = t === Tile.Rock || t === Tile.Water ? Block.Terrain : Block.Free;
   }
+
+  // 8. Trees: palms on fertile ground, acacia groves on sand.
+  const inClearing = (x: number, z: number, pad: number): boolean =>
+    spec.clearings.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + pad);
+  for (let tz = 0; tz < height; tz++) {
+    for (let tx = 0; tx < width; tx++) {
+      const i = tz * width + tx;
+      if (map.blocked[i] !== Block.Free) continue;
+      const t = map.tiles[i];
+      const h = hash2(tx, tz, seed + 17);
+      const cx = tx + 0.5;
+      const cz = tz + 0.5;
+      if (t === Tile.Fertile) {
+        if (h < 0.16) map.addTree(tx, tz, 0, 3, h * 6.1);
+        continue;
+      }
+      if (t !== Tile.Sand || inClearing(cx, cz, 2)) continue;
+      const grove = (spec.groves ?? []).some(
+        (g) => Math.hypot(g.x - cx, g.z - cz) + (fbm(cx * 0.4, cz * 0.4, seed + 3, 2) - 0.5) * 2 < g.r,
+      );
+      const wild = fbm(cx * 0.07, cz * 0.07, seed + 77, 3) > 0.69;
+      if ((grove && h < 0.5) || (wild && h < 0.22)) map.addTree(tx, tz, 1, 2, h * 2.3);
+    }
+  }
+
   map.version++;
   return map;
 }

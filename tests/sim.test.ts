@@ -118,7 +118,9 @@ describe('movement', () => {
   it('paths around walls via the gate in the M0 scenario', () => {
     const { sim } = createM0Scenario(1337);
     const ids: number[] = [];
-    for (let i = 0; i < sim.units.count; i++) if (sim.units.owner[i] === PLAYER) ids.push(i);
+    for (let i = 0; i < sim.units.count; i++) {
+      if (sim.units.owner[i] === PLAYER && sim.units.kind[i] !== UnitKind.Civilian) ids.push(i);
+    }
     expect(ids.length).toBe(19);
     // A point just west of the base, outside the walls (the gate is on the east side).
     sim.enqueue({ type: 'move', owner: PLAYER, ids: ids.slice(0, 4), x: 12.5, z: 64.5 });

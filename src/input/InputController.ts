@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Game } from '../game/Game';
+import { UNIT_TYPES } from '../sim/unitTypes';
 import { setHud, useHud } from '../ui/store';
 
 interface Ptr {
@@ -14,7 +15,10 @@ interface Ptr {
   moved: number;
 }
 
-const TAP_MS = 400;
+/** Max press duration that still counts as a tap (generous for laggy phones). */
+const TAP_MS = 600;
+/** Max gap between taps/clicks for a double-tap. */
+const DOUBLE_TAP_MS = 400;
 const TAP_PX = 12;
 const DRAG_PX = 7;
 
@@ -239,6 +243,10 @@ export class InputController {
       this.mouse.y = e.clientY;
       this.mouse.inside = true;
     }
+    if (e.pointerType === 'mouse' && this.mode === 'rts' && this.game.placing && !this.rotatingMouse) {
+      const g = this.game.renderer.pickGround(e.clientX, e.clientY);
+      if (g) this.game.previewPlacementAt(g.x, g.z);
+    }
     const p = this.ptrs.get(e.pointerId);
     if (!p) return;
     const dx = e.clientX - p.x;
@@ -258,7 +266,7 @@ export class InputController {
         this.rts.rotate(-dx * 0.006);
         return;
       }
-      if (p.button === 0 && p.moved > DRAG_PX) this.updateBox(p);
+      if (p.button === 0 && p.moved > DRAG_PX && !this.game.placing) this.updateBox(p);
       return;
     }
 
@@ -297,9 +305,19 @@ export class InputController {
       if (e.button === 1) this.rotatingMouse = false;
       if (cancelled) return;
       if (e.button === 0) {
-        if (this.boxing) this.finishBox(p, e.shiftKey);
+        if (this.game.placing) {
+          const g = this.game.renderer.pickGround(p.x, p.y);
+          if (g) {
+            this.game.previewPlacementAt(g.x, g.z);
+            this.game.confirmPlacing();
+          }
+        } else if (this.boxing) this.finishBox(p, e.shiftKey);
         else this.clickSelect(p.x, p.y, e.shiftKey, e.ctrlKey || e.metaKey, 22);
       } else if (e.button === 2 && p.moved <= DRAG_PX) {
+        if (this.game.placing) {
+          this.game.cancelPlacing();
+          return;
+        }
         const g = this.game.renderer.pickGround(p.x, p.y);
         if (g) this.game.issueMove(g.x, g.z);
       }
@@ -374,7 +392,7 @@ export class InputController {
     const u = this.game.sim.units;
     const r = this.game.renderer;
     for (let i = 0; i < u.count; i++) {
-      if (!u.alive[i] || u.owner[i] !== this.game.player) continue;
+      if (!u.alive[i] || u.owner[i] !== this.game.player || !UNIT_TYPES[u.kind[i]].selectable) continue;
       const v = this.game.unitScreenAnchor(i, this.tmpV);
       if (r.toScreen(v.x, v.y, v.z, this.scr)) fn(i, this.scr.x, this.scr.y);
     }
@@ -388,6 +406,8 @@ export class InputController {
     let bestD = radius * radius;
     for (let i = 0; i < u.count; i++) {
       if (!u.alive[i]) continue;
+      // Your civilians work on their own; clicks should go to soldiers (or the ground/building).
+      if (u.owner[i] === this.game.player && !UNIT_TYPES[u.kind[i]].selectable) continue;
       const v = this.game.unitScreenAnchor(i, this.tmpV);
       if (!r.toScreen(v.x, v.y, v.z, this.scr)) continue;
       const d = (this.scr.x - x) ** 2 + (this.scr.y - y) ** 2;
@@ -417,15 +437,21 @@ export class InputController {
     const u = this.game.sim.units;
     if (id >= 0 && u.owner[id] === this.game.player) {
       const now = performance.now();
-      if (sameKind || (this.lastTap.unit === id && now - this.lastTap.t < TAP_MS)) this.selectSameKindOnScreen(id);
+      if (sameKind || (this.lastTap.unit === id && now - this.lastTap.t < DOUBLE_TAP_MS)) this.selectSameKindOnScreen(id);
       else this.game.select([id], additive);
       this.lastTap = { t: now, unit: id };
     } else if (!additive) {
       this.game.deselect();
+      this.pickStructure(x, y);
     }
   }
 
   private handleTap(x: number, y: number): void {
+    if (this.game.placing) {
+      const g = this.game.renderer.pickGround(x, y);
+      if (g) this.game.previewPlacementAt(g.x, g.z);
+      return;
+    }
     const id = this.pickUnit(x, y, 34);
     const u = this.game.sim.units;
     if (id >= 0 && u.owner[id] === this.game.player) {
@@ -435,7 +461,22 @@ export class InputController {
     if (this.game.selected.size > 0) {
       const g = this.game.renderer.pickGround(x, y);
       if (g) this.game.issueMove(g.x, g.z);
+      return;
     }
+    this.pickStructure(x, y);
+  }
+
+  /** Select the building under a screen point; returns true if one was found. */
+  private pickStructure(x: number, y: number): boolean {
+    const g = this.game.renderer.pickGround(x, y);
+    if (!g) return false;
+    const s = this.game.sim.structureAt(Math.floor(g.x), Math.floor(g.z));
+    if (!s) {
+      this.game.deselectStructure();
+      return false;
+    }
+    this.game.selectStructure(s.id);
+    return true;
   }
 
   // ------------------------------------------------------------------ control mode
@@ -518,7 +559,13 @@ export class InputController {
         this.game.takeControl();
         break;
       case 'Escape':
-        this.game.deselect();
+        if (this.game.placing) this.game.cancelPlacing();
+        else if (this.game.selectedStructure >= 0) this.game.deselectStructure();
+        else this.game.deselect();
+        setHud({ buildOpen: false, moraleOpen: false });
+        break;
+      case 'KeyB':
+        this.game.setBuildOpen(!useHud.getState().buildOpen);
         break;
       case 'KeyH':
         this.game.centerOnBase();

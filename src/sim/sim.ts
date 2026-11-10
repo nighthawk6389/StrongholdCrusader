@@ -1,8 +1,9 @@
 import { CYCLE_SEC, TICK_SEC, cycleInfo, phaseStartSec, type CycleInfo, type PhaseName } from './clock';
 import { AT_GOAL, DIR_X, DIR_Z, FlowFieldCache } from './flowfield';
 import { Block, type GameMap } from './map';
+import { Economy } from './economy';
 import { Rng } from './rng';
-import { STRUCTURE_DEFS, type Structure, type StructureKind } from './structures';
+import { STRUCTURE_DEFS, type ResId, type Structure, type StructureKind } from './structures';
 import { UNIT_TYPES } from './unitTypes';
 import { Order, UnitStore } from './units';
 
@@ -21,11 +22,23 @@ export type Command =
       fire: boolean;
       aim: boolean;
     }
-  | { type: 'release'; owner: number; id: number };
+  | { type: 'release'; owner: number; id: number }
+  | { type: 'build'; owner: number; kind: StructureKind; tx: number; tz: number }
+  | { type: 'demolish'; owner: number; id: number }
+  | { type: 'setActive'; owner: number; id: number; active: boolean }
+  | { type: 'setRations'; owner: number; level: number }
+  | { type: 'setTax'; owner: number; level: number };
 
 export type SimEvent =
   | { type: 'shot'; unit: number; owner: number; fromX: number; fromZ: number; toX: number; toZ: number; hit: boolean }
-  | { type: 'death'; unit: number; owner: number; x: number; z: number };
+  | { type: 'death'; unit: number; owner: number; x: number; z: number }
+  | { type: 'structureAdded'; id: number }
+  | { type: 'structureRemoved'; id: number }
+  | { type: 'buildFailed'; owner: number; reason: string }
+  | { type: 'treeFelled'; index: number }
+  | { type: 'delivered'; owner: number; res: ResId; amount: number; x: number; z: number }
+  | { type: 'arrived'; owner: number; unit: number }
+  | { type: 'departed'; owner: number; x: number; z: number };
 
 export interface SimInit {
   map: GameMap;
@@ -47,12 +60,14 @@ export class Sim {
   readonly structures: Structure[] = [];
   readonly flow: FlowFieldCache;
   readonly rng: Rng;
+  readonly economy: Economy;
   tick = 0;
   startSec: number;
 
   private queue: Command[] = [];
   private events: SimEvent[] = [];
   private nextStructureId = 1;
+  private readonly structById = new Map<number, Structure>();
   private readonly cellHead: Int32Array;
   private readonly cellNext: Int32Array;
 
@@ -60,7 +75,8 @@ export class Sim {
     this.map = init.map;
     this.rng = new Rng(init.seed);
     this.startSec = init.startSec;
-    this.flow = new FlowFieldCache(this.map);
+    this.flow = new FlowFieldCache(this.map, 64);
+    this.economy = new Economy(this);
     this.cellHead = new Int32Array(this.map.width * this.map.height).fill(-1);
     this.cellNext = new Int32Array(this.units.alive.length).fill(-1);
   }
@@ -75,6 +91,10 @@ export class Sim {
 
   enqueue(cmd: Command): void {
     this.queue.push(cmd);
+  }
+
+  emit(e: SimEvent): void {
+    this.events.push(e);
   }
 
   /** Returns and clears events produced since the last call. */
@@ -93,6 +113,7 @@ export class Sim {
     this.startSec += target - now;
   }
 
+  /** Place a structure without validation or cost (scenario setup, or after Economy.build checks). */
   placeStructure(kind: StructureKind, owner: number, tx: number, tz: number, rot = 0): Structure | null {
     const def = STRUCTURE_DEFS[kind];
     for (let z = tz; z < tz + def.h; z++) {
@@ -100,14 +121,78 @@ export class Sim {
         if (!this.map.isWalkableTile(x, z)) return null;
       }
     }
-    const s: Structure = { id: this.nextStructureId++, kind, owner, tx, tz, w: def.w, h: def.h, hp: def.hp, rot };
+    const s: Structure = {
+      id: this.nextStructureId++,
+      kind,
+      owner,
+      tx,
+      tz,
+      w: def.w,
+      h: def.h,
+      hp: def.hp,
+      rot,
+      doorX: tx + def.w / 2,
+      doorZ: tz + def.h + 0.5,
+      workers: [],
+      active: true,
+      status: def.jobs ? 'noWorker' : 'ok',
+    };
     if (def.blocks) {
       for (let z = tz; z < tz + def.h; z++) {
         for (let x = tx; x < tx + def.w; x++) this.map.setBlocked(x, z, Block.Structure);
       }
     }
+    const door = this.economy.findDoor(tx, tz, def.w, def.h, owner);
+    if (door) {
+      s.doorX = door.x;
+      s.doorZ = door.z;
+    }
     this.structures.push(s);
+    this.structById.set(s.id, s);
+    this.emit({ type: 'structureAdded', id: s.id });
     return s;
+  }
+
+  removeStructure(s: Structure): void {
+    const def = STRUCTURE_DEFS[s.kind];
+    if (def.blocks) {
+      for (let z = s.tz; z < s.tz + s.h; z++) {
+        for (let x = s.tx; x < s.tx + s.w; x++) this.map.setBlocked(x, z, Block.Free);
+      }
+    }
+    const i = this.structures.indexOf(s);
+    if (i >= 0) this.structures.splice(i, 1);
+    this.structById.delete(s.id);
+    this.emit({ type: 'structureRemoved', id: s.id });
+  }
+
+  structureById(id: number): Structure | undefined {
+    return this.structById.get(id);
+  }
+
+  /** Structure covering tile (tx, tz), if any. */
+  structureAt(tx: number, tz: number): Structure | undefined {
+    for (const s of this.structures) {
+      if (tx >= s.tx && tz >= s.tz && tx < s.tx + s.w && tz < s.tz + s.h) return s;
+    }
+    return undefined;
+  }
+
+  /** Send one unit to a point (no formation). */
+  goTo(i: number, x: number, z: number): void {
+    const map = this.map;
+    const u = this.units;
+    const goalTile = map.nearestWalkable(Math.floor(x), Math.floor(z), 6);
+    if (goalTile < 0) {
+      u.order[i] = Order.Idle;
+      return;
+    }
+    const walk = map.isWalkable(x, z);
+    u.goalX[i] = walk ? x : (goalTile % map.width) + 0.5;
+    u.goalZ[i] = walk ? z : Math.floor(goalTile / map.width) + 0.5;
+    u.field[i] = goalTile;
+    u.order[i] = Order.Move;
+    u.stuck[i] = 0;
   }
 
   spawnUnit(kind: number, owner: number, x: number, z: number, heading = 0): number {
@@ -129,6 +214,7 @@ export class Sim {
     this.updateMovement();
     this.resolveOverlaps();
     this.updateCombat();
+    this.economy.update();
     this.tick++;
   }
 
@@ -139,10 +225,28 @@ export class Sim {
     switch (c.type) {
       case 'move':
         this.issueMove(
-          c.ids.filter((id) => u.isAlive(id) && u.owner[id] === c.owner),
+          c.ids.filter((id) => u.isAlive(id) && u.owner[id] === c.owner && UNIT_TYPES[u.kind[id]].selectable),
           c.x,
           c.z,
         );
+        break;
+      case 'build': {
+        const check = this.economy.canPlace(c.owner, c.kind, c.tx, c.tz);
+        if (!check.ok) this.emit({ type: 'buildFailed', owner: c.owner, reason: check.reason ?? 'Cannot build' });
+        else this.economy.build(c.owner, c.kind, c.tx, c.tz);
+        break;
+      }
+      case 'demolish':
+        this.economy.demolish(c.owner, c.id);
+        break;
+      case 'setActive':
+        this.economy.setActive(c.owner, c.id, c.active);
+        break;
+      case 'setRations':
+        this.economy.player(c.owner).rationLevel = Math.max(0, Math.min(4, Math.round(c.level)));
+        break;
+      case 'setTax':
+        this.economy.player(c.owner).taxLevel = Math.max(0, Math.min(5, Math.round(c.level)));
         break;
       case 'stop':
         for (const id of c.ids) {
@@ -433,8 +537,9 @@ export class Sim {
     const u = this.units;
     for (let i = 0; i < u.count; i++) {
       if (!u.alive[i] || u.order[i] === Order.Control) continue;
-      if (u.cooldown[i] > 0) u.cooldown[i]--;
       const type = UNIT_TYPES[u.kind[i]];
+      if (!type.armed) continue;
+      if (u.cooldown[i] > 0) u.cooldown[i]--;
       const engageRange = type.range * 0.6;
 
       // Re-scan for targets on a staggered schedule.
@@ -534,8 +639,9 @@ export class Sim {
     u.hp[hit] -= damage * crit;
     if (u.hp[hit] <= 0) {
       this.events.push({ type: 'death', unit: hit, owner: u.owner[hit], x: u.x[hit], z: u.z[hit] });
+      this.economy.onUnitRemoved(hit);
       u.kill(hit);
-    } else if (u.order[hit] === Order.Idle && u.target[hit] < 0) {
+    } else if (u.order[hit] === Order.Idle && u.target[hit] < 0 && UNIT_TYPES[u.kind[hit]].armed) {
       u.target[hit] = i; // return fire
     }
   }
@@ -559,6 +665,12 @@ export class Sim {
     const f32 = new Float32Array(1);
     const u32 = new Uint32Array(f32.buffer);
     mix(this.tick);
+    for (const p of this.economy.players.values()) {
+      mix(Math.round(p.funds * 100));
+      mix(Math.round(p.morale * 100));
+      for (const v of p.stock) mix(Math.round(v * 100));
+    }
+    mix(this.structures.length);
     for (let i = 0; i < u.count; i++) {
       if (!u.alive[i]) continue;
       mix(i);

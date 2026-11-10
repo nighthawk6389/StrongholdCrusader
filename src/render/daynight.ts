@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { CycleInfo } from '../sim/clock';
-import type { StructureVisuals } from './structures';
+import type { StructureRenderer } from './structures';
 
 const DAY_SKY = new THREE.Color(0xdcccab);
 const DUSK_SKY = new THREE.Color(0xd98a5c);
@@ -25,7 +25,7 @@ export class DayNight {
 
   constructor(
     private scene: THREE.Scene,
-    private structures: StructureVisuals,
+    private structures: StructureRenderer,
     shadows: boolean,
   ) {
     this.hemi = new THREE.HemisphereLight(HEMI_SKY_DAY, HEMI_GROUND_DAY, 1.2);
