@@ -1,0 +1,11 @@
+{
+  "name": "Siege RTS (working title)",
+  "short_name": "Siege RTS",
+  "description": "Modern castle-siege RTS with day/night stealth.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#1b1712",
+  "theme_color": "#1b1712",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

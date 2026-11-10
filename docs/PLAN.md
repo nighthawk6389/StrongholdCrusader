@@ -1,7 +1,7 @@
 # Modern Castle-Siege RTS: Game Design & Technical Plan
 
-> **Status:** Draft v0.1, for discussion. Nothing here is final. Every open
-> decision is listed in [§9 Questions & Options](#9-questions--options-for-you).
+> **Status:** v0.2. Core decisions are locked (see [§0.1](#01-decision-log)).
+> Still open: the final name and the asset budget (see [§9](#9-open-questions)).
 >
 > **Working title:** _TBD_ (see [§2.1](#21-name-ip-and-originality)). This doc
 > says "the game" for now.
@@ -10,46 +10,55 @@
 
 ## 0. TL;DR
 
-A browser-based 3D real-time strategy game deployed on Vercel. It keeps the core
-loop of the classic castle-sim RTS genre: grow a population, keep it happy, run
-production chains, arm your troops and build a fortress, then break the enemy's
-fortress. The setting is **modern / near-future military**, and the game adds
-three new pillars:
+A **single-player** browser 3D real-time strategy game, playable on **desktop
+and phones** and deployed on Vercel. It keeps the core loop of the classic
+castle-sim RTS genre: grow a population, keep it happy, run production chains,
+arm your troops and build a fortress, then break the enemy's fortress. The
+setting is **present-day military**, with fictional factions and places. On
+top of that core loop it adds three pillars:
 
-1. **Faster pacing.** Matches target 25–35 minutes instead of 60+, through
-   shorter chains, haul trucks and quality-of-life automation.
-2. **Day/night cycle with real stealth.** Light, noise and sensors decide what
-   each side can see. Night raids with special forces, searchlights, flares,
-   power-grid sabotage.
-3. **Jump into first person.** Possess a special-forces operator, sniper,
-   wall-mounted gun, tank or drone and fight directly while the rest of your
-   army keeps following orders.
+1. **Faster pacing.** Matches target **about 20 minutes**.
+2. **Day/night with real stealth.** An **8-minute cycle**. Light, noise and
+   sensors decide what each side can see. Night slows the economy unless you
+   run powered night shifts.
+3. **Take direct control.** Possess a unit and fight it yourself in an
+   **over-the-shoulder** third-person view while the rest of your army keeps
+   following orders.
 
-**Recommended stack:** TypeScript, Vite, React (HUD only), Three.js
-(WebGPU with WebGL2 fallback), a deterministic simulation with an ECS in a Web
-Worker, fixed-point math, and flow-field pathfinding. Vercel hosts the client
-and a small API. Multiplayer, added later, uses deterministic lockstep relayed
-through a Cloudflare Durable Object. The reason for that split is in §5.6.
+**Stack:** TypeScript, Vite, React (HUD only), Three.js (WebGL2), and a
+fixed-tick, command-driven simulation in plain TypeScript with flow-field
+pathfinding. It's a static site on Vercel with no backend.
 
-**Recommended order:** single-player skirmish vs AI first. Prove the core loop
-is fun, then add night/stealth, then first person, then online multiplayer.
+### 0.1 Decision log
+
+| # | Topic | Decision |
+|---|---|---|
+| 1 | Setting | **Present day.** Fictional factions, places and commanders. Generic gear names (no real brands). |
+| 2 | Art style | **Stylized low-poly 3D.** Procedural code-built placeholders now. Final asset source still open (Q-A). |
+| 3 | Unit control | **Direct control, over-the-shoulder camera, single-player.** |
+| 4 | Multiplayer | **None.** Single-player vs AI only. No servers, relay or accounts. |
+| 5 | Economy | **Faithful but trimmed.** About 10 resources, workers physically haul, trucks help. |
+| 6 | Match length | **About 20 minutes.** |
+| 7 | Air | **Drones only.** No helicopters or aircraft. |
+| 8 | Day/night | **8-minute full cycle.** Night slows the economy unless buildings are powered with night shifts on. |
+| 9 | Platform | **Desktop and phones.** Touch is a first-class input, not an afterthought. |
+| 10 | Budget/assets | Open. Free vs paid examples are in §4.1. |
+| 11 | Process | **Claude drives end to end.** Each milestone is pushed to the branch, and Vercel preview URLs are used for playtesting. |
 
 ---
 
 ## 1. What made the original great (the pillars to keep)
 
-These carry over. Everything else is up for modernization.
-
-| Pillar | Why it mattered | Keep / adapt |
+| Pillar | Why it mattered | Our version |
 |---|---|---|
-| **Popularity economy** | Peasants arrive or leave based on popularity (rations, food variety, taxes, ale, religion, "fear factor"). Every decision trades happiness against output. | Keep. Rename to **Morale** with modern drivers (§3.2). |
-| **Physical logistics** | Workers walk goods from producer to stockpile to processor. Base layout matters, and raiding supply lines works. | Keep, but add **haul trucks** and **depots** to speed it up. |
-| **Equip-to-recruit** | Troops need produced weapons plus gold plus a peasant. Your weapon industry decides your army. | Keep as is. It is the strategic heart. |
-| **Fortifications with height** | Walls and towers are walkable. Units on top get range and protection. Gates, moats, pitch ditches, killing pits. | Keep. Concrete walls, towers, checkpoints, AT ditches, minefields, fuel trenches. |
-| **Siege as a puzzle** | Rams, trebuchets, siege towers, ladders, tunnellers and engineers each solve a different defensive problem. | Keep, with modern equivalents (§3.4). |
-| **The Lord dies, you lose** | One vulnerable leader creates dramatic assassinations and last stands. | Keep: **Commander** unit and HQ. |
-| **AI personalities** | Memorable AI rivals with distinct castle styles, attack styles and taunts. | Keep, with **original** characters (§3.8). |
-| **Desert / oasis maps** | Scarce fertile land creates map control and a reason to expand. | Keep: scarce water and fertile zones, plus oil fields. |
+| **Popularity economy** | Peasants arrive or leave based on popularity (rations, food variety, taxes, ale, religion, "fear factor"). Every decision trades happiness against output. | **Morale** with modern drivers (§3.2) |
+| **Physical logistics** | Workers walk goods to the stockpile and processors. Base layout matters, and raiding supply lines works. | Kept, plus **haul trucks** and **forward depots** |
+| **Equip-to-recruit** | Troops need produced weapons plus gold plus a peasant. Your industry decides your army. | Kept as is. It is the strategic heart. |
+| **Fortifications with height** | Walkable walls and towers give range and protection. Gates, moats, pitch ditches, killing pits. | Concrete walls, towers, checkpoints, AT ditches, minefields, fuel trenches |
+| **Siege as a puzzle** | Rams, trebuchets, siege towers, ladders and tunnellers each solve a different problem. | Modern equivalents (§3.4) |
+| **The Lord dies, you lose** | Assassinations and last stands | **Commander** unit and HQ |
+| **AI personalities** | Memorable rivals with distinct castles and taunts | **Original** characters (§3.8) |
+| **Desert / oasis maps** | Scarce fertile land creates map control | Scarce water and fertile land, plus oil fields |
 
 ---
 
@@ -57,494 +66,427 @@ These carry over. Everything else is up for modernization.
 
 ### 2.1 Name, IP and originality
 
-- The game needs **its own name, characters, art, audio and maps**. "Stronghold"
-  is a trademark of its publisher, so we can't use the name, its AI lords, its
-  assets or its maps. Genre mechanics (castle building, popularity, siege) are
-  fine to share. Every game in the genre does.
-- The repo can stay named `StrongholdCrusader` while private. Rename it before
-  any public launch.
-- Working-title ideas to react to: **Bastion Protocol**, **Nightwall**,
+- The game needs **its own name, characters, art, audio and maps**.
+  "Stronghold" is a trademark of its publisher. We share genre mechanics only,
+  never its name, AI lords, assets or maps.
+- The repo can keep its name while private. Rename it before any public launch.
+- Working-title ideas: **Bastion Protocol**, **Nightwall**,
   **Hold the Line: Night Ops**, **Fortline**, **Garrison Zero**,
-  **Iron Perimeter**. Availability still needs checking.
+  **Iron Perimeter**.
 
-### 2.2 Setting options (decision needed: Q1)
+### 2.2 Setting (decided: present day)
 
-| Option | Pros | Cons |
-|---|---|---|
-| **A. Fictional near-future (≈2040s)** (recommended) | Free to invent factions, gear, drones and EW. Avoids depicting real-world conflicts. Plausible "why are they building walls" story (collapse, resource wars over water and oil). | Less "real". |
-| B. Present-day realistic | Instantly recognizable gear. | Real-world conflict sensitivity. Pressure for realism. Walled bases feel less natural. |
-| C. Alt-history (e.g., 1980s Cold War gone hot) | Distinct style and fun retro tech. Fewer drones. | Night-vision and drone tech are more limited, which weakens the stealth pillar. |
-
-Proposed premise (option A): water and fuel are scarce. Independent commanders
-hold **fortified enclaves** around oases, aquifers and oil fields. Fictional
-factions only.
+- Present-day hardware (assault rifles, MBTs, quadcopter drones, NVGs,
+  thermal optics) with **generic names**.
+- **Fictional region and factions**: rival commanders holding fortified
+  enclaves around oases, aquifers and oil fields in a lawless desert
+  borderland. No real countries, conflicts or insignia.
+- Tone: tense but not gory (T-rated feel), with dry humour in AI commander
+  taunts.
 
 ---
 
 ## 3. Core gameplay design
 
-### 3.1 Match flow & "slightly faster" pacing
+### 3.1 Match flow & pacing (target ≈20 min)
 
-Target **25–35 minute** skirmishes (the original's often ran 60–90).
+| Phase | Time | What happens |
+|---|---|---|
+| Opening | 0–4 min (day 1) | Expand the economy from a pre-built core, claim fertile and oil tiles, first walls |
+| Build-up | 4–8 min (night 1 ≈ 4:30–7:30) | First raids. Scouting with drones. Night shifts or rest. |
+| Mid-game | 8–14 min (day 2 → night 2) | Armies clash. First real siege attempts. Night stealth raids on power and supply. |
+| Climax | 14–20 min (day 3) | Decisive siege, or the Commander is killed |
 
 | Lever | Change vs. the classic formula |
 |---|---|
-| Start state | Start with a small pre-built core (HQ, depot, 2 housing blocks, a few civilians). No empty-field opening. |
-| Population inflow | Civilians arrive in small groups, not one at a time. Rate still scales with morale. |
-| Production chains | 2 steps max for most goods (the original had up to 3–4). E.g. ore → steel mill → **steel**. Steel → small-arms factory → **rifles**. |
-| Hauling | Workers carry larger loads. **Haul trucks** run between depots and far-off producers. Forward depots shorten walks. |
-| Build/recruit times | About 40–60% of classic timings. Global game-speed slider (0.5×–2×) in single-player. |
-| QoL automation | Build queues, rally points, control groups, auto-repair toggle, wall/blueprint templates (save and stamp a fortress design), "auto-buy missing input from market" toggle, smart alerts. |
-| Day/night rhythm | A natural build-by-day / strike-by-night beat compresses decisions (§3.6). |
+| Start state | A pre-built core: HQ, depot, ration store, 2 housing blocks, 8 civilians and starting stock |
+| Population inflow | Civilians arrive in groups of 2–4. The rate scales with morale. |
+| Chains | At most 2 steps (ore → steel mill → **steel**; steel → small-arms factory → **rifles**) |
+| Hauling | Larger loads. **Haul trucks** for remote producers. Forward depots. |
+| Timings | Build and recruit times are about 30–40% of the classic ones. Single-player speed control from 0.5× to 3×. |
+| Scale | Smaller maps (≈128×128 tiles for 1v1, up to 192×192 for 4 players). Population caps around 120 per side. |
+| QoL | Build queues, rally points, control groups, auto-repair, **wall blueprints** (save and stamp designs), auto-buy missing inputs |
 
 ### 3.2 Economy
 
-**Population & housing.** Civilians arrive at the **Arrivals Hub** (like the
-campfire). Housing blocks raise the cap. Idle civilians become workers or
-recruits.
+**Population & housing.** Civilians arrive at the **Arrivals Hub** (the
+campfire analog). Housing blocks raise the cap. Idle civilians become workers
+or recruits.
 
-**Morale (popularity), range 0–100.** Above 50, people arrive. Below 50, they
-leave.
+**Morale (0–100).** Above 50, people arrive. Below 50, they leave.
 
 | Driver | Mechanic |
 |---|---|
-| Rations | None / Half / Normal / Extra / Double. Each level costs more food and gives more morale. |
-| Food variety | Each distinct food type in the ration store adds morale (bread, meat, produce, plus hydroponics later). |
-| Taxes | Bribe (negative tax) … Normal … Extortionate. Funds versus morale. |
-| Coffee (ale/inn analog) | Coffee farm → roastery → **canteens**. Coverage gives morale. |
-| Civic (religion analog) | Community hall and **broadcast station** coverage give morale. A broadcast station later unlocks propaganda. |
-| **Security posture vs. perks** (fear-factor analog) | **Strict** (CCTV, curfews, checkpoints, posters): +worker productivity, −morale, −troop combat effectiveness. **Perks** (parks, gyms, memorials): +morale, +troop combat effectiveness, −productivity. Shown as a −5…+5 dial, like the original's fear-factor scale. |
-| Night shifts | Toggle. Production continues at night if the building is powered and lit, at a morale cost (§3.6). |
-| Events | Fire, power outage, disease (the clinic reduces it), raids on housing. |
+| Rations | None / Half / Normal / Extra / Double. Each step up uses more food and gives more morale. |
+| Food variety | +morale per distinct food type in the ration store (bread, meat, produce) |
+| Taxes | Bribe … Normal … Extortionate. Funds versus morale. |
+| Coffee (ale/inn analog) | Coffee farm → roastery → **canteen** coverage |
+| Civic (religion analog) | Community hall and broadcast station coverage |
+| **Security posture vs perks** (fear-factor analog) | **Strict** (CCTV, curfews, checkpoints): +productivity, −morale, −troop effectiveness. **Perks** (parks, gyms, memorials): +morale, +troop effectiveness, −productivity. A −5…+5 dial. |
+| Night shifts | Powered and lit buildings keep producing at night, at a morale cost |
+| Events | Fire, power outage, disease (clinic), raids on housing |
 
-**Resources.** About 10 types, down from roughly 20.
+**Resources (≈10):**
 
 | Category | Resources | Chain |
 |---|---|---|
-| Raw → material | **Timber**, **Concrete**, **Steel**, **Fuel**, **Components** | Lumber camp → timber. Quarry → cement plant → concrete. Ore mine → steel mill → steel. Oil derrick → refinery → fuel. Salvage yard / import → components (rare). |
-| Food | Bread, Meat, Produce, (Hydroponic greens) | Grain farm → mill → bakery. Ranch. Orchard. Hydroponics (needs power and water). Fertile land only near water. |
-| Morale goods | Coffee | Coffee farm → roastery → canteen. |
-| Energy | **Power** (a flow, not a stockpile, plus batteries) | Diesel generator (burns fuel), **solar (daytime only)**, battery bank. Powers lights, sensors, turrets, labs, hydroponics. |
-| Currency | **Funds** | Taxes, market sales. |
+| Materials | Timber, Concrete, Steel, Fuel, Components | Lumber camp. Quarry → cement plant. Ore mine → steel mill. Oil derrick → refinery. Salvage yard / market (components). |
+| Food | Bread, Meat, Produce | Grain farm → mill → bakery. Ranch. Orchard. Fertile land only near water. |
+| Morale goods | Coffee | Coffee farm → roastery → canteen |
+| Energy | **Power** (a flow) + batteries | Diesel generator (burns fuel), **solar (daytime only)**, battery bank, substations |
+| Currency | Funds | Taxes, market |
 | Gear | Rifles, MGs, Launchers, Body armor, NV kits, Explosives | §3.4 |
 
-The **Market / trade terminal** buys and sells everything at a spread, the same
-way the original's market does.
-
-**Building mapping (classic → modern):**
-
-| Classic | Modern |
-|---|---|
-| Keep + Lord | Command HQ + **Commander** |
-| Campfire | Arrivals Hub |
-| Hovel | Housing block (prefab) |
-| Stockpile / Granary | Supply depot / Ration store |
-| Woodcutter / Quarry / Iron mine / Pitch rig | Lumber camp / Quarry + cement plant / Ore mine + steel mill / Oil derrick + refinery |
-| Wheat farm, Mill, Bakery, Dairy, Orchard, Hunter | Grain farm, Mill, Bakery, Ranch, Orchard, Hydroponics |
-| Hops farm, Brewery, Inn | Coffee farm, Roastery, Canteen |
-| Chapel/Church | Community hall, Broadcast station |
-| Apothecary / Well | Clinic / Fire station |
-| Fletcher, Poleturner, Blacksmith, Tanner, Armourer | Small-arms factory, Ordnance plant, Armor works, Electronics lab, Vehicle plant |
-| Armoury / Barracks | Armory / Barracks |
-| Mercenary post | **PMC Contracts Office** (instant hires for funds) |
-| Engineer's guild, Tunneller's guild, Siege tent | Engineering corps, Motor pool / Vehicle bay |
-| Dog cage | K9 kennel |
-| Good / bad things | Perks / Security structures |
-| — (new) | Power plant, Solar field, Battery bank, Substation, Radar, Sensor posts, Floodlights |
+**Building mapping (classic → ours):** Keep → Command HQ. Campfire → Arrivals
+Hub. Hovel → Housing block. Stockpile/Granary → Supply depot / Ration store.
+Woodcutter/Quarry/Iron mine/Pitch rig → Lumber camp / Quarry + cement plant /
+Ore mine + steel mill / Oil derrick + refinery. Hops/Brewery/Inn → Coffee
+farm / Roastery / Canteen. Chapel → Community hall. Apothecary → Clinic.
+Weapon workshops → Small-arms factory, Ordnance plant, Armor works,
+Electronics lab, Vehicle plant. Armoury/Barracks → Armory/Barracks. Mercenary
+post → **PMC Contracts Office**. Siege tent → Motor pool. Dog cage → K9
+kennel. New: power plant, solar field, battery bank, substation, radar,
+sensor posts, floodlights.
 
 ### 3.3 Fortifications
 
-Everything sits on a **tile grid** with **height levels**, as in the original.
+Everything sits on a **tile grid** with **height levels**.
 
-- **Walls:** sandbag line (cheap, low, no walkway), concrete wall (walkable
-  top), thick concrete wall, HESCO barrier line. Reaching a wall top needs
-  **stairs or an access tower**.
-- **Towers:** watchtower, bunker/pillbox, **fortified tower** with a mounted
-  emplacement: HMG, mortar, AT launcher or AA gun. These are the
-  mangonel/ballista-on-tower analogs.
-- **Gates:** checkpoint gates (small and large). They open for friendlies and
-  lock when enemies are near.
-- **Ground obstacles:**
-  - Anti-tank ditch (moat analog). Engineers dig it and enemy engineers can
-    fill it.
+- **Walls:**
+  - Sandbag line (low, no walkway).
+  - Concrete wall (walkable top).
+  - Thick concrete wall.
+  - HESCO line.
+  - **Stairs / access towers** to reach wall tops.
+- **Towers:**
+  - Watchtower.
+  - Bunker.
+  - **Fortified tower** with an HMG, mortar, AT launcher or AA gun emplacement.
+- **Gates:** small and large checkpoint gates. They auto-lock when enemies
+  are near.
+- **Obstacles:**
+  - AT ditch (moat analog). Engineers dig it and enemy engineers can fill it.
   - Tank traps.
-  - Razor wire (slows infantry).
+  - Razor wire.
 - **Traps:**
-  - Minefields (killing-pit analog). Hidden unless detected by engineers or
-    dogs.
-  - **Fuel trench** (pitch-ditch analog). Ignite it with an incendiary round or
-    flare.
-  - Claymore lines.
-- **Detection & light (new, for the night pillar):**
+  - Minefields (killing-pit analog). Hidden until detected.
+  - **Fuel trench** (pitch-ditch analog). Ignite it with incendiaries or
+    flares.
+  - Claymores.
+- **Detection & light:**
   - Floodlights.
-  - **Rotating searchlight towers.** Anything caught in the beam is revealed.
-  - Motion sensors, thermal cameras, CCTV (also a security-posture item).
-  - Radar (detects drones and air).
-  - K9 kennel (dogs sniff out stealth units and mines).
-- **Defensive automation (powered):** auto-turrets and CIWS. Strong but
-  power-hungry, so a blackout disables them.
+  - **Rotating searchlights**, which reveal anything in the beam.
+  - Motion sensors, thermal cameras, CCTV.
+  - Radar (detects drones).
+  - K9 kennel.
+- **Powered defenses:** auto-turrets and counter-drone guns. A blackout
+  disables them.
 
 ### 3.4 Military roster
 
-Every unit needs **civilian + gear + funds**, recruited at the barracks or
-built at the motor pool. Counters are deliberate (rock-paper-scissors+).
+Every unit needs **civilian + gear + funds**.
 
 **Infantry (Barracks)**
 
-| Unit | Role | Classic analog | Strong vs. | Weak vs. | Gear |
-|---|---|---|---|---|---|
-| Militia | Cheap filler, digs/fills ditches | Spearman / slave | Nothing | Everything | none (surplus) |
-| Rifleman | Backbone | Archer / maceman | Infantry | MGs, armor | Rifle |
-| Machine gunner | **Suppression** (enemy accuracy and speed −) | Archer volleys | Massed infantry | Snipers, mortars | MG |
-| Marksman | Long range, high damage, slow | Crossbowman | Wall defenders, officers | Rushes | Rifle + optics (components) |
-| AT specialist | Anti-vehicle, anti-structure | — | Tanks, gates, bunkers | Infantry | Launcher |
-| Grenadier | Area denial, clears wall tops | Fire thrower-ish | Clumped / entrenched troops | Range | Explosives |
-| Heavy assault | Armored breacher, slow | Swordsman / pikeman | Close quarters, gates | AT, snipers | Armor + MG |
-| Combat engineer | Ladders/breach charges, dig/fill ditches, clear mines, field repair | Engineer + ladderman + tunneller | Obstacles | Everything in a fight | Explosives |
-| Medic | Heals nearby infantry | — (new) | — | — | — |
+| Unit | Role | Classic analog | Strong vs | Weak vs |
+|---|---|---|---|---|
+| Militia | Cheap filler, digs/fills ditches | Spearman / slave | — | Everything |
+| Rifleman | Backbone | Archer / maceman | Infantry | MGs, armor |
+| Machine gunner | **Suppression** | Archer volleys | Massed infantry | Snipers, mortars |
+| Marksman | Long range, high damage | Crossbowman | Wall defenders | Rushes |
+| AT specialist | Anti-vehicle, anti-structure | — | Tanks, gates, bunkers | Infantry |
+| Grenadier | Area denial, clears wall tops | Fire thrower | Entrenched troops | Range |
+| Heavy assault | Armored breacher | Swordsman / pikeman | Close quarters, gates | AT, snipers |
+| Combat engineer | Ladders/breach charges, ditches, mines, repair | Engineer + ladderman + tunneller | Obstacles | Combat |
+| Medic | Heals infantry | — | — | — |
 
-**Special Forces (SF Compound, expensive, capped at e.g. 6–10)**
+**Special Forces (SF Compound, capped at about 6)**
 
-The direct analog of the original's assassins, who stayed hidden until close and
-scaled walls with grappling hooks.
+The analog of the original's wall-climbing, hidden assassins.
 
 | Unit | Role |
 |---|---|
-| **SF operator** | NVG, suppressed weapons (no noise ping). **Climbs walls** with grapnels. Plants C4 on gates, generators and turrets. Stealthed in darkness unless lit or sensed. |
-| **Ghillie sniper team** | Invisible when stationary and unlit. Huge range at night with thermals. |
-| **EW specialist** | Jams sensors, radar, drones and powered turrets in a radius for a duration. |
-| **K9 handler** | Detects stealthed units and mines. Fast pursuit. |
-| **Drone operator** | Deploys a recon quadcopter (FPV-flyable) or a one-shot loitering munition. Countered by EW, AA and radar. |
+| **SF operator** | NVG, suppressed weapons (no noise ping). **Climbs walls.** Plants C4 on gates, generators and turrets. Stealthed in the dark. |
+| **Ghillie sniper** | Invisible when stationary and unlit. Thermal optic. |
+| **EW specialist** | Jams sensors, radar, drones and turrets in a radius |
+| **K9 handler** | Detects stealth units and mines |
+| **Drone operator** | Recon quadcopter (directly flyable) or a one-shot loitering munition. Countered by EW, radar, counter-drone guns and AA. |
 
-**Vehicles (Motor pool / Vehicle plant, need steel + fuel)**
+**Vehicles (Motor pool, need steel + fuel)**
 
-| Vehicle | Classic analog | Notes |
-|---|---|---|
-| Haul truck | — | Economy logistics |
-| Armored recon car | Horse archer | Fast scouting / raiding |
-| APC | — | Carries a squad, protects it |
-| **Breaching vehicle** | Siege tower | Deploys an assault ramp onto a wall, plows mines, fills ditches |
-| Main battle tank | Battering ram + knight | Smashes gates and walls. Vulnerable to AT, mines and ditches |
-| Mortar carrier | Catapult | Mobile indirect fire |
-| Towed howitzer | Trebuchet | Must deploy. Very long range. Wall-buster |
-| Armored dozer / shield team | Portable shield (mantlet) | Absorbs fire for advancing infantry |
-| AA vehicle | — | Counters drones and helicopters |
-| _(optional)_ Transport helicopter | — | See Q7: air power can trivialize walls |
+| Vehicle | Classic analog |
+|---|---|
+| Haul truck | — (logistics) |
+| Armored recon car | Horse archer |
+| APC | — (carries a squad) |
+| **Breaching vehicle** (wall ramp, mine plow, ditch filler) | Siege tower |
+| Main battle tank | Battering ram + knight |
+| Mortar carrier | Catapult |
+| Towed howitzer (must deploy) | Trebuchet |
+| Armored dozer / shield team | Mantlet |
+| Counter-drone / AA vehicle | — |
 
-**Commander (the Lord analog).** A strong hero unit. If the Commander dies, the
-match is lost, which leaves the HQ as a last bastion. Optional limited
-abilities: rally (morale burst), call a flare barrage, and one scripted
-off-map strike per match.
+**No helicopters or aircraft.** Drones are the only air units, and they are
+fragile and counterable, so walls stay meaningful.
 
-**PMC Contracts Office (mercenary analog).** Hire a separate roster instantly
-for funds. Expensive, with different strengths. An economic shortcut, like
-Arabian mercenaries in the original.
+**Commander.** A strong hero unit. If the Commander dies, you lose. Abilities:
+rally, a flare barrage, and one off-map strike per match.
 
-### 3.5 Combat model (simulation level)
+**PMC Contracts Office.** Instant hires for funds (the mercenary analog).
 
-- **Line of sight** on the grid. Walls and buildings block it, and height gives
-  vision and range bonuses.
-- **Cover:** units next to sandbags, walls or rubble take reduced damage.
-  Units on wall tops get strong cover.
-- **Suppression:** sustained fire lowers accuracy and speed. Pinned infantry
-  can't advance. This makes MGs the archer-volley equivalent.
-- **Projectiles:** small arms are resolved as near-instant traces. Mortars and
-  artillery are ballistic with travel time and a scatter radius. Fire spreads
-  on flammable tiles (fuel trenches, wooden buildings).
-- **Morale in combat:** perks vs. security posture modifies troop
-  effectiveness, as in the original.
+### 3.5 Combat model
 
-### 3.6 Day/night & stealth (new pillar)
+- **Line of sight** on the grid. Walls block it, and height grants range and
+  vision bonuses.
+- **Cover:** sandbags, walls and rubble reduce damage. Wall tops give strong
+  cover.
+- **Suppression:** sustained fire lowers accuracy and speed, and pinned
+  infantry can't advance.
+- **Projectiles:** small arms resolve as near-instant traces. Mortars and
+  howitzers are ballistic with travel time and scatter. Fire spreads on
+  flammable tiles.
+- **Morale in combat:** the security-posture dial modifies troop
+  effectiveness.
 
-**Cycle (configurable per match):** e.g. day 6 min → dusk 1 min → night 4 min →
-dawn 1 min. Options: no cycle, eternal night, or a map-scripted cycle.
+### 3.6 Day/night & stealth
 
-**Visibility model.** Deterministic and grid-based, the same for players and AI.
-No cheating.
+**Cycle: 8 minutes.** Day 4:30 → dusk 0:30 → night 2:30 → dawn 0:30. A 20-minute
+match therefore sees about 2.5 cycles and two full nights. Per-match options:
+cycle on/off, start time, eternal night.
 
-- Each tile has a **light level**, computed in the simulation from the sun plus
-  light sources: floodlights, searchlight cones, fires, flares, muzzle flashes
-  and vehicle headlights.
-- Each unit has **sight**: daylight range, reduced to about 35% in darkness
-  unless it has **NVG** (full range) or **thermal** (full range, sees through
-  light smoke, picks up warm vehicles and bodies).
+**Visibility model.** Grid-based, and the same rules for player and AI (no
+cheating).
+
+- Each tile has a **light level**: the sun plus floodlights, searchlight cones,
+  fires, flares, muzzle flashes and headlights.
+- Each unit has **sight**: full range by day, about 35% in darkness unless it
+  has **NVG** or **thermal**.
 - Each unit has **signatures**: visual (lit or unlit, moving or still, camo),
   thermal and noise.
-- **Detection** = observer capability vs. target signature at the target's
-  light level and range. Detected units show to that side for a few seconds.
-- **Noise pings:** unsuppressed gunfire and explosions reveal the shooter's
-  position on the enemy minimap for N seconds. Suppressed SF weapons don't.
-- **Flares and illumination mortar rounds** light an area for about 30 s.
-  Defenders spend them to break stealth.
+- **Detection** is the observer's capability against the target's signature,
+  given the light level and range.
+- **Noise pings:** unsuppressed fire and explosions reveal the shooter on the
+  enemy minimap for a few seconds.
+- **Flares and illumination rounds** light an area for about 30 s.
 
-**Night and the economy.** By default, workers rest at night and production
-drops to about 30%. Powered and lit buildings with **night shifts** on keep
-working at a morale cost. Solar produces nothing at night, so you need fuel
-generators or batteries.
+**Night economy.** Workers rest at night, so production drops to about 30%.
+Powered and lit buildings with **night shifts** on keep working at a morale
+cost. Solar produces nothing at night.
 
-**Emergent play we want:**
-- Cut the enemy's **substation**, and floodlights, turrets and sensors go
-  dark. SF operators then climb the wall and open the gate for the tanks.
-- Build at night with no lights to hide expansion. Use lights to protect
-  production. Lights also make your base visible from afar.
-- Searchlight towers become priority sniper targets.
-- Defenders respond with dogs, flares and thermal cameras.
+**Emergent play:**
+- Cut the substation, and lights, turrets and sensors die. SF climb the wall
+  and open the gate for the tanks.
+- Searchlights become sniper priority targets.
+- Defenders answer with dogs, flares and thermals.
 
-**Rendering approach:** the simulation's tile light grid is uploaded as a
-low-resolution **light texture** that drives terrain and unit shading and the
-fog of war. A handful of **real** dynamic lights (searchlight cones, nearest
-fires, the first-person flashlight) add drama. This avoids hundreds of
-real-time lights, which would be expensive in WebGL2.
+**Rendering:** the simulation's tile light grid becomes a low-resolution
+**light texture** that drives terrain and unit shading and the fog of war.
+Only a handful of real dynamic lights are used (searchlights, the nearest
+fires, the possessed unit's flashlight), which keeps it cheap on phones.
 
-### 3.7 First-person mode (new pillar)
+### 3.7 Direct control (over-the-shoulder)
 
-- Select an eligible unit and press **F** (or click "Take control"). The camera
-  flies into that unit's head or optic, and the mouse is captured with the
-  Pointer Lock API.
-- **Eligible units (proposal):** SF operator, marksman, rifleman, **mounted wall
-  gun / searchlight tower**, tank (gunner sight), recon/FPV drone.
-- **Controls:** WASD + mouse, LMB fire, RMB aim/scope, N toggles NVG/thermal,
-  Tab or Esc returns to the RTS view. A compact HUD shows the minimap, alerts
-  and morale.
-- **The rest of your army keeps executing orders**, and the possessed unit's
+- Select an eligible unit and press **F** (desktop), or tap **Take control**
+  (phone). The camera swoops to an over-the-shoulder view.
+- **Eligible units:** riflemen, marksmen, SF operators, **wall gun /
+  searchlight emplacements**, tanks, recon drones, and the Commander.
+- **Desktop controls:** WASD + mouse (pointer lock), LMB fire, RMB aim/zoom,
+  N for night vision, Esc or Tab to return.
+- **Phone controls:** left virtual stick to move, drag on the right half to
+  aim, on-screen fire, aim, NVG and exit buttons.
+- **The rest of the army keeps executing orders.** The possessed unit's
   squad follows you.
-- **How it stays fair and multiplayer-safe:**
-  - The possessed unit sends "direct-control" inputs each tick: a move vector,
-    an aim angle and a fire flag.
-  - Hits are resolved **in the deterministic simulation**, as a raycast against
-    simplified hitboxes, so skill matters (aim, headshots give a crit) without
-    a separate shooter netcode.
-  - Mouse-look is local and instant. Movement and shots have the lockstep
-    input delay (≈100–150 ms online, none offline).
-- **Balance knobs:** no hidden stat buffs, plus a small cooldown so you can't
-  chain-possess across the map. Single-player can optionally slow time while
-  you're in first person.
-- **Cheaper alternative:** an **over-the-shoulder third-person** camera reuses
-  the RTS unit models and animations, while true first person needs separate
-  arms and weapon models. See Q3.
+- **Hits resolve in the simulation**: a raycast against simplified hitboxes,
+  so aim matters (headshots crit). There are no hidden stat buffs.
+- Single-player, so time can optionally slow to 50% while you're in control
+  (a setting).
 
 ### 3.8 AI opponents (original personalities)
 
-Layered AI:
-- **Strategic layer:** build-order templates plus utility scoring (economy vs.
-  military vs. defense).
-- **Base layout:** hand-authored **fortress blueprints** per personality and
-  start slot. This is how the original's AI lords got their iconic castles.
-- **Tactical layer:** attack waves, siege planning, timing raids for night.
-- **Unit layer:** per-unit behaviors (take cover, retreat when suppressed,
-  focus fire on searchlights).
+The AI is layered:
+- **Strategic:** build-order templates plus utility scoring.
+- **Base layout:** hand-authored **fortress blueprints** per personality.
+- **Tactical:** waves, siege plans, night-timed raids.
+- **Unit:** cover, retreat, focus fire.
 
-Difficulty comes from reaction time, economy efficiency and template quality,
-**not** from vision cheats.
-
-Personality sketches (placeholders):
+Difficulty comes from reaction time, efficiency and template quality, never
+vision cheats.
 
 | Name | Style |
 |---|---|
-| **Old Sarge** | Balanced infantry, beginner-friendly, honest taunts |
+| **Old Sarge** | Balanced infantry, beginner-friendly |
 | **The Quartermaster** | Economic turtle, triple walls, late tank push |
-| **Jackal** | Early militia rushes and recon-car raids on your farms |
-| **Nightshade** | Stealth specialist: SF night raids, EW, kills your power |
-| **The Engineer** | Minefields, fuel trenches, howitzers, never attacks first |
-| **Duchess Varga** | Armor-heavy, breaching vehicles, relentless |
-| **The Broker** | Rich trader who buys PMC armies |
-| **Warden** | Fortress of searchlights and turrets, punishes night attacks |
+| **Jackal** | Early rushes and raids on farms |
+| **Nightshade** | SF night raids, EW, kills your power |
+| **The Engineer** | Minefields, fuel trenches, howitzers |
+| **Duchess Varga** | Armor-heavy, relentless breaching |
+| **The Broker** | Trader who buys PMC armies |
+| **Warden** | Searchlight-and-turret fortress |
 
-### 3.9 Game modes
+### 3.9 Game modes (single-player)
 
-1. **Skirmish** vs. AI: up to 6–8 commanders, teams, map choice, start
-   resources, day/night settings.
-2. **Siege scenarios:** attack or defend a pre-built base. These are great
-   showcases for night ops and first person.
-3. **Commander's Trail:** a ladder of escalating skirmish challenges against
-   AI personalities (our own take on the "trail" format).
+1. **Skirmish** vs 1–5 AI commanders (teams, map, start resources, day/night
+   options).
+2. **Siege scenarios:** attack or defend a pre-built base.
+3. **Commander's Trail:** an escalating ladder of AI challenges.
 4. **Free build** sandbox.
-5. **Online multiplayer** (later milestone): 1v1, FFA, teams, co-op vs. AI.
-6. _(later)_ Map editor and blueprint sharing.
+5. _(later)_ Map editor and blueprint import/export as files.
 
 ---
 
-## 4. Art, audio & UX direction
+## 4. Art, audio & UX
 
-- **Recommended art: stylized low-poly 3D**, a clean, readable,
-  "premium-indie" look. It's cheap to render, consistent to source or produce,
-  and holds up in both the RTS view and first person. Night scenes look great
-  with bloom on lights.
-- **Camera:** RTS camera at a classic high angle with rotation (Q/E) and zoom.
-  Free rotation is needed anyway because the world is 3D for first person.
-- **UI:** a bottom building/unit panel (classic layout), a morale breakdown
-  panel, a resource bar and a minimap with night overlay. React DOM over the
-  canvas.
-- **Audio:** positional SFX through Web Audio, a dynamic music layer (calm day
-  → tense night → combat), and short original voice-line taunts for AI
-  commanders.
-- **Asset sourcing options** (decision: Q11):
-  1. CC0 packs (Kenney, Quaternius, KayKit, Poly Pizza CC0 filter) + Mixamo
-     animations. Free, but military coverage is thin.
-  2. A paid consistent low-poly military pack (tens of dollars). Fast and
-     consistent.
-  3. AI-assisted 3D generation for gaps, plus manual cleanup.
-  4. Commissioned art later for hero assets.
-  In every case: one style family, glTF/GLB with meshopt compression and KTX2
-  textures, and a licence ledger in the repo.
+- **Style:** stylized low-poly 3D with flat-shaded materials and a limited
+  palette. It reads well at RTS zoom and in the over-the-shoulder view, and it
+  is cheap on phones. Bloom on lights at night.
+- **Camera:** a high-angle RTS camera with rotation and zoom.
+- **Desktop input:**
+  - Classic RTS: left-click or drag to select, right-click to order.
+  - WASD/edge pan, wheel zoom, Q/E rotate, middle-drag rotate.
+  - Control groups 1–9.
+- **Phone input (landscape):**
+  - One-finger drag pans.
+  - Pinch zooms, two-finger twist rotates.
+  - Tap selects or orders.
+  - A **Select** toggle turns drag into box-select.
+  - Double-tap selects all of a type.
+  - Long-press opens a context menu.
+  - A bottom sheet holds build menus.
+  - Large hit targets.
+- **Audio:** positional SFX, a dynamic music layer (calm day → tense night →
+  combat), short commander taunts.
+
+### 4.1 Asset options: free vs paid (decision Q-A)
+
+**Free:**
+
+| Source | What you'd get | License notes |
+|---|---|---|
+| **Procedural, code-built** (what M0 uses now) | Clean minimalist soldiers, vehicles and buildings generated in TypeScript. Perfectly consistent, tiny download, ideal for phones. | Ours |
+| **Quaternius:** Toon Shooter Game Kit, Universal Animation Library | Rigged soldiers with ~17 animations, guns, props. A large CC0 animation library. Cartoonier look. | CC0 |
+| **Kenney** (City, Car, Tower Defense, Survival kits; audio packs) | Buildings, vehicles, props, UI and SFX. Little dedicated 3D military. | CC0 (optional $19.95 All-in-1 bundle) |
+| **KayKit / Poly Pizza** | Misc low-poly props | KayKit CC0. Poly Pizza varies per model (CC0 or CC-BY). |
+| **Mixamo** | Hundreds of humanoid animations to retarget onto soldiers | Royalty-free in games. Don't redistribute the raw files. |
+| **Sonniss GDC bundle**, Kenney audio | Many GBs of pro SFX (some weapons and vehicles) | Royalty-free; check each year's terms |
+
+**Paid:**
+
+| Source | What you'd get | Typical cost | License notes |
+|---|---|---|---|
+| **Synty POLYGON Military / War / Battle Royale** | A large, consistent low-poly modern-military set: soldiers, vehicles, bases, walls, props. The best match for our style. | Roughly $50–150 per pack, often discounted (check current price) | Commercial games allowed, per-seat. Editing is OK, reselling assets isn't. **Confirm the EULA permits browser games**, where files are downloadable. |
+| CGTrader / itch.io low-poly military packs | Individual soldiers and tanks to fill gaps | $5–50 each | Varies per item |
+| Paid SFX libraries (e.g. Sonniss military/vehicle) | Authentic weapons and vehicles | $30–150 | Royalty-free |
+| Commissioned artist | Bespoke hero units and a unique identity | Hundreds to thousands | Work-for-hire |
+
+**Important if we go paid:** paid asset files **must not be committed to a
+public repo**, because that counts as redistribution. Keep the repo private,
+or store paid assets privately and pull them in at build time.
+
+**Recommendation:**
+1. Keep **procedural placeholders through M2**. They're free, consistent and
+   don't block anything.
+2. Then pick one of two looks:
+   - **Free path:** procedural buildings plus Quaternius CC0 soldiers and
+     Mixamo/UAL animations.
+   - **Small-budget path:** about $100–200 one-off for a Synty military pack,
+     once its EULA is confirmed for web.
 
 ---
 
 ## 5. Technical architecture
 
-### 5.1 Stack (recommended)
+### 5.1 Stack
 
 | Concern | Choice | Why |
 |---|---|---|
-| Language | **TypeScript** everywhere | One language for sim, client, server and tests |
-| Client build | **Vite** + React (HUD/menus only) | Fast dev and a static build that deploys to Vercel trivially. Next.js is optional later for marketing/SEO pages. |
-| 3D rendering | **Three.js**, `WebGPURenderer` with automatic WebGL2 fallback | Largest ecosystem. 2026 guidance recommends the WebGPU renderer for new projects, and the fallback covers older browsers. |
-| Simulation | Custom deterministic sim in a **Web Worker**, ECS (**bitECS**-style typed arrays) | Keeps the main thread free for rendering. Typed arrays make snapshots, saves and hashing cheap. |
-| Math | **Fixed-point** (Q16.16 ints), seeded PRNG, trig lookup tables. No `Math.random` or floats in sim state. | Required for lockstep multiplayer and replays |
-| Pathfinding | Tile grid + **hierarchical flow fields** (sector/portal) + local separation steering | Hundreds of units moving together without per-unit A* traffic jams. Walls and gates update only the affected sectors. |
-| Animation | **Vertex animation textures** (instanced, GPU) for crowds. Skeletal only for the first-person / close-up unit. | Hundreds to 1,000+ animated soldiers at 60 fps |
-| UI state | Zustand | Simple, works with worker messages |
-| Audio | Web Audio (Three `PositionalAudio` or Howler) | — |
-| Persistence | IndexedDB (saves, settings). Replays = seed + command log. | Free with a deterministic sim |
-| Hosting | **Vercel** (static client, preview deploys per PR, small API) | What you asked for |
-| Multiplayer relay (later) | **Cloudflare Durable Objects** (PartyServer/PartyKit), one object per match | See §5.6 |
-| Accounts / DB (later) | Auth (e.g., Auth.js or Clerk) + Postgres via Vercel Marketplace (e.g., Neon) | Profiles, leaderboards, blueprint sharing |
-| Tests | Vitest (sim and determinism), Playwright (smoke and cross-browser determinism), perf benchmarks in CI | — |
+| Language | TypeScript | One language for everything |
+| Build | **Vite** (static output) | Fast dev. Static deploy to Vercel. |
+| UI | **React** (HUD/menus only) + a small store | Rich menus. The 3D loop stays outside React. |
+| 3D | **Three.js `WebGLRenderer` (WebGL2)** | The most robust choice across phones and desktops today. WebGPU can come later as an optional quality tier. |
+| Simulation | Plain TypeScript, **fixed 20 Hz tick**, command-driven, seeded PRNG, typed-array unit store | Testable without a browser. Replays and saves stay deterministic on the same device. |
+| Pathfinding | Tile grid + **flow fields** (cached per destination) + separation steering | Many units moving together cheaply. Hierarchical sectors later. |
+| Threading | The sim runs on the main thread behind a `SimHost` interface | Simplest start. It can move into a Web Worker if profiling on phones demands it. |
+| Animation | Procedural now. **Vertex animation textures** for crowds once skinned assets land. | Phone performance |
+| Persistence | IndexedDB saves and settings. Replays = seed + command log. | No backend |
+| Hosting | **Vercel static** + PWA manifest (installable, fullscreen, landscape) | No servers needed |
+| Tests | Vitest (sim), Playwright (smoke + screenshots) | — |
 
-**Alternatives considered:** Babylon.js (more batteries included, smaller
-ecosystem); PlayCanvas; a Godot 4 web export (great editor, but heavier
-downloads and weaker web integration); Unity WebGL (large builds, licensing).
-2D options (Phaser, Pixi) are **ruled out** because first person needs a real
-3D world.
+**Dropped because there's no multiplayer:** lockstep netcode, fixed-point
+math, relay servers, accounts and the database. That removes a large
+complexity and risk budget.
 
-### 5.2 Process & data flow
+### 5.2 Data flow
 
 ```
-┌──────────────────────── Browser ────────────────────────┐
-│                                                          │
-│  Main thread                         Sim Worker          │
-│  ┌────────────────────┐   commands   ┌─────────────────┐ │
-│  │ Input (RTS / FPV)  │ ───────────▶ │ Deterministic   │ │
-│  │ React HUD          │              │ fixed tick 20Hz │ │
-│  │ Three.js renderer  │ ◀─────────── │ ECS + fixed pt  │ │
-│  │ (interpolates)     │  snapshots / │ flowfields, AI, │ │
-│  └────────────────────┘  deltas      │ light grid, LOS │ │
-│            │                         └─────────────────┘ │
-└────────────┼─────────────────────────────────────────────┘
-             │ (multiplayer only: per-tick command bundles)
-             ▼
-   Relay (Durable Object per match) ◀──▶ other players
-   Vercel API: lobby, auth, profiles, leaderboards
+ Input (mouse/keys/touch) ──► Commands ──► Sim (fixed 20 Hz tick)
+                                              │  map, units, flow fields,
+                                              │  economy, AI, light/vision
+                                              ▼
+ React HUD ◄── UI store ◄── snapshots ──► Three.js renderer (interpolates, 60 fps)
 ```
 
-- The simulation runs at a **fixed 20 Hz** (configurable). The renderer
-  interpolates at display rate (60–144 fps).
-- **All player actions are commands** (`{tick, playerId, type, payload}`):
-  RTS orders, building placement and first-person direct-control inputs. The
-  same path serves single-player, replays and multiplayer.
-- A **state hash** every N ticks gives desync detection online and
-  determinism tests in CI.
+- All actions are **commands** (`move`, `place`, `directControl`, …). The same
+  path drives the player, the AI, replays and tests.
+- The renderer interpolates between ticks and never mutates sim state.
 
-### 5.3 World representation
+### 5.3 World
 
-- Map: about 160×160 to 256×256 tiles. Heightmap plus tile types (sand, rock,
-  fertile, water, oil, road).
-- Structures occupy tiles and carry a height level. Wall tops are walkable
-  nav layers connected by stairs, towers, ladders and breach ramps.
-- The nav grid has multiple layers (ground, wall-top). Flow fields are
-  computed per layer with link edges.
-- The light grid and visibility grid live per tile (and per player for
-  visibility).
+- A tile map (≈128²–192²) with tile types (sand, rock, fertile, water, oil).
+- A smooth visual heightfield (dunes). Gameplay height comes from structure
+  levels.
+- Multi-layer nav: ground plus wall-tops linked by stairs, ladders and ramps
+  (M2).
 
-### 5.4 Performance budgets (targets)
+### 5.4 Performance budgets
 
-| Budget | Target |
+| Device | Target |
 |---|---|
-| Frame rate | 60 fps on a mid-range laptop (integrated GPU) at 1080p with ~1,000 units on screen |
-| Sim tick | < 10 ms at 20 Hz with 1,500 units and 6 AI players |
-| Initial download | < 15 MB to the main menu. Stream map and unit assets. |
-| Memory | < 1 GB |
+| Mid-range laptop (integrated GPU) | 60 fps, ~600 units visible, high preset |
+| Mid-range phone (≈3 years old) | 30–60 fps, ~300 units visible, low/medium preset (no shadows, lower resolution scale) |
+| Sim tick | < 4 ms at 20 Hz with 600 units and 3 AIs on desktop. < 10 ms on phones. |
+| Download | < 8 MB to first playable frame. Assets streamed. |
 
-Techniques: instancing everywhere, LODs, frustum culling, texture atlases, a
-baked terrain lightmap plus a dynamic light texture, and the
-rendering-quality presets low/med/high.
+Techniques: instancing, merged static geometry, LOD, adaptive resolution
+scale, quality auto-detect.
 
-### 5.5 Repository layout (proposed)
+### 5.5 Repository layout
 
 ```
-apps/
-  web/            Vite + React client (deploys to Vercel; /api for small functions)
-  relay/          Cloudflare Durable Object lockstep relay (milestone M7)
-packages/
-  sim/            Deterministic simulation (pure TS, no DOM): ECS, rules, pathing, light/vision
-  ai/             AI commanders (runs inside the sim worker, deterministic)
-  render/         Three.js scene, instancing, VAT animation, FX, cameras (RTS/FPV)
-  content/        Data-driven definitions: units, buildings, chains, AI personalities, maps (JSON/TS)
-  shared/         Fixed-point math, PRNG, command schema, protocol types
-tools/
-  asset-pipeline/ glTF → optimized GLB/KTX2, VAT baking, licence ledger
+src/
+  sim/        Pure TS simulation (no DOM/three): map, units, pathing, economy, AI, clock
+  render/     Three.js scene, terrain, instanced units, lights, cameras (RTS + OTS)
+  input/      Mouse/keyboard/touch → commands; virtual joystick
+  ui/         React HUD and menus
+  content/    Data definitions: units, buildings, chains, AI personalities, maps
+  game/       Wires sim + render + input + UI; main loop
+tests/        Vitest specs for sim
 docs/
 ```
 
-Content is **data-driven** (stats, costs, chains in `packages/content`), so
-balancing doesn't need code changes.
+### 5.6 Engineering practices
 
-### 5.6 Multiplayer & the Vercel constraint
-
-- Vercel is ideal for the **client, preview deployments and short API calls**.
-  Native **WebSocket support in Vercel Functions is only in public beta (since
-  June 2026)**, and connections close when the function hits its maximum
-  duration: 300 s on Hobby, up to 800 s on Pro, with an extended beta ceiling
-  reported at 1,800 s. Clients must reconnect, and fan-out across instances
-  needs an external pub/sub. That's a poor fit for 30-minute matches.
-- **Recommendation:** keep everything on Vercel **except** the match relay,
-  which runs on **Cloudflare Durable Objects** (one object per match, holding
-  WebSockets for the whole match; free tier to about $5/month (Workers paid plan) at
-  hobby scale). The relay is simple because of lockstep: it collects each
-  tick's commands, stamps them and broadcasts them. It never runs the game.
-- **Alternatives:**
-  - WebRTC peer-to-peer data channels, with signaling via Vercel and a TURN
-    fallback. Cheapest bandwidth, but hits NAT headaches.
-  - Colyseus on Fly.io or Railway.
-  - Vercel WebSockets beta plus Redis pub/sub, with forced reconnects every
-    5–30 minutes.
-- **Lockstep details:**
-  - Input delay of about 3 ticks (~150 ms).
-  - Hash check every 2 s.
-  - Reconnect or join-in-progress via snapshot plus command catch-up.
-  - Free replays and spectating.
-  - AI players run on every client in lockstep, which costs no server CPU.
-
-### 5.7 Engineering practices
-
-- **Determinism tests from day 1:** run the same seed and commands twice, and
-  in Chromium, Firefox and WebKit via Playwright, then compare hashes.
-- **Headless sim benchmarks** in CI fail the build on perf regressions.
-- **Debug overlays:** flow fields, light grid, vision, nav layers, AI intent.
-- Vercel Git integration gives every PR a playable **preview URL**.
-- Feature flags for in-progress systems.
+- Sim unit tests, including **determinism tests** (same seed + commands ⇒
+  same state hash).
+- Debug overlays (`?debug=1`): flow fields, tile types, light grid, FPS, sim
+  ms.
+- Playwright screenshots at desktop and phone-landscape sizes for each
+  milestone.
+- Vercel Git integration gives every push a preview URL.
 
 ---
 
-## 6. Roadmap (milestones)
+## 6. Roadmap
 
-Each milestone ends with a **playable build on a Vercel URL** for you to test.
-
-| # | Milestone | What you can do at the end |
+| # | Milestone | Playable result |
 |---|---|---|
-| **M0** | **Foundations + tech spikes** | Open the URL, pan, rotate and zoom over a desert map, select a squad and move it around obstacles. Spikes prove (a) 1,000 animated instanced soldiers at 60 fps, (b) the night light-texture look, (c) a prototype first-person possession. |
-| **M1** | **Economy slice** | Build HQ, housing, depot, timber, concrete and one food chain. Watch workers haul. Set rations and taxes and see morale respond. |
-| **M2** | **Fortifications & combat** | Build walls with walkable tops, towers, gates and stairs. Recruit riflemen, MGs, marksmen and engineers from armory gear. Survive scripted enemy waves in a "Hold the Line" scenario. |
-| **M3** | **Skirmish AI v1** | A full 1v1 skirmish against *Old Sarge*, who builds a fortress from a blueprint and attacks. **First "real game" moment.** |
-| **M4** | **Day/night & stealth** | The full cycle, power grid, floodlights, searchlights, sensors, dogs, flares, SF operators with NVG and wall climbing, noise pings. A night-raid scenario. |
-| **M5** | **First-person mode** | Possess the SF operator, marksman, wall gun, tank and drone, then return to the RTS view seamlessly. |
-| **M6** | **Content & siege depth** | Vehicles, breaching vehicle, howitzers, mines, AT ditches, fuel trenches, PMC office, 4–6 AI personalities, 6+ maps, Commander's Trail. |
-| **M7** | **Online multiplayer** | Lobby, invite link, 1v1 / FFA / co-op vs. AI over the lockstep relay. Replays. |
-| **M8** | **Polish & launch** | Audio and music, VFX, tutorial, settings and accessibility, balance pass, optional accounts and leaderboards, final name and branding. |
-
-The M0 spikes come first deliberately. Night rendering, crowd performance and
-first-person feel are the riskiest technical bets, so we de-risk them before
-building content on top of them.
+| **M0** | **Foundations + spikes** ✅ | A procedural desert map (dunes, oases, rock ridges, oil) and walled outposts. RTS camera with mouse and touch. Select squads and move them with flow-field pathing and formations. Live 8-minute day/night with floodlights and lit windows. Basic auto-engage combat. Over-the-shoulder take-control with a phone joystick. |
+| **M1** | **Economy slice** | HQ, housing, depot, timber, concrete and one food chain. Workers haul. Rations and taxes drive morale. |
+| **M2** | **Fortifications & combat** | Walls with walkable tops, towers, gates, stairs. Armory-equipped riflemen, MGs, marksmen and engineers. A "Hold the Line" wave scenario. |
+| **M3** | **Skirmish AI v1** | A full 1v1 against _Old Sarge_. **First real game moment.** |
+| **M4** | **Night & stealth** | Light grid, power grid, searchlights, sensors, dogs, flares, SF operators, noise pings, night shifts |
+| **M5** | **Direct control, full** | Combat-ready over-the-shoulder control for all eligible units, including drones and wall guns |
+| **M6** | **Content & siege depth** | Vehicles, breaching vehicle, howitzers, mines, ditches, fuel trenches, PMC, 4–6 AI personalities, maps, Commander's Trail |
+| **M7** | **Polish & launch** | Final art/audio, tutorial, settings, saves, PWA polish, phone tuning, balance, final name |
 
 ---
 
@@ -552,87 +494,52 @@ building content on top of them.
 
 | Risk | Mitigation |
 |---|---|
-| **Scope.** RTS is among the hardest genres. | Vertical slices, single-player first, data-driven content, a strict milestone gate. |
-| **Desyncs** in multiplayer | Fixed-point sim, no floats in state, a hash check, cross-browser determinism tests in CI from M0 |
-| **Performance** with many animated units at night | VAT crowds, instancing, a light texture instead of many real-time lights, quality presets |
-| **First person exposes a low-fidelity sim** | Higher-detail local interpolation for the possessed unit, a limited eligible-unit list, an over-the-shoulder fallback |
-| **Air power trivializes walls** | No fixed-wing aircraft. Drones are fragile and countered by EW, AA and radar. Helicopters are optional and limited (Q7). |
-| **Art inconsistency** from mixed asset packs | One style family, an asset pipeline with a shared palette and materials, a licence ledger |
-| **IP / trademark** | Original name, characters, art, audio and maps. Rename the repo before public launch. |
-| **Sensitive themes** (modern warfare) | Fictional factions and setting, no gore by default |
+| Scope | Vertical slices, data-driven content, strict milestone gates |
+| **Phone performance** | Low-poly + instancing, a light texture instead of many lights, adaptive resolution, quality presets. Test phone viewports every milestone. |
+| **RTS on a touchscreen** | Dedicated touch scheme (§4), larger hit targets, a select-mode toggle, smart double-tap, and generous auto-behaviours (auto-repair, auto-buy) |
+| Over-the-shoulder exposes a low-fidelity sim | Higher-detail interpolation and animation for the possessed unit, plus a limited eligible list |
+| Art inconsistency | One style family, procedural placeholders until the asset decision |
+| IP / trademark | Original name, characters, art, audio and maps |
+| Sensitive themes | Fictional factions and places, no gore |
 
 ---
 
-## 8. Immediate next steps (once you answer §9)
+## 8. Next steps
 
-1. Lock the decisions from §9 into this doc (v0.2).
-2. Scaffold the monorepo: Vite + React + Three.js, the sim worker, Vitest,
-   Playwright, lint and format, and the GitHub Actions workflow.
-3. Connect the repo to Vercel. Every push gets a preview URL. **Your action:**
-   import the repo in the Vercel dashboard, because Vercel can't be connected
-   from this environment.
-4. Build M0: terrain, RTS camera, unit selection and move with flow fields, and
-   the three tech spikes.
+1. ~~**M0**: scaffold, map, camera, selection and movement, day/night,
+   the take-control spike.~~ Done.
+2. **You:** import the repo into Vercel (Add New → Project → pick the repo →
+   Framework "Vite" is auto-detected). From then on, every push gets a preview
+   URL.
+3. M1 economy slice.
 
 ---
 
-## 9. Questions & options for you
+## 9. Open questions
 
-**Recommended defaults are in bold.** Answering just the first 6 unblocks M0–M2.
-
-1. **Setting & name.** **A) Fictional near-future** / B) present-day / C)
-   alt-history Cold War. Any name preference, or shall I propose a shortlist?
-2. **Art style.** **Stylized low-poly 3D** / semi-realistic 3D (much costlier) /
-   voxel.
-3. **First-person depth.** A) Cinematic ride-along (view only) / **B) Direct
-   control of selected unit types** / C) Any unit. Also: **true first-person**
-   or **over-the-shoulder third person** (cheaper and reuses models)? Does it
-   need to work in multiplayer, or is single-player enough at first?
-4. **Multiplayer priority.** **Single-player vs. AI first, online later (M7)** /
-   online from the start / single-player only.
-5. **Economy fidelity.** **Faithful but trimmed** (workers physically haul,
-   about 10 resources, trucks) / fully faithful (every chain, about 20
-   resources) / streamlined (harvest-and-refine, Command & Conquer style).
-6. **Match pace.** 15–20 min / **25–35 min** / 45+ min (closer to the
-   original).
-7. **Air power.** **Drones only** / plus limited helicopters / full air
-   including strikes. More air means walls matter less.
-8. **Day/night.** Default cycle length (**≈12 min full cycle**)? Should night
-   slow the economy (**yes, unless night shifts are on and buildings are
-   powered**)?
-9. **Platform.** **Desktop browsers (mouse + keyboard)** / also tablets (touch) /
-   also phones.
-10. **Tech engine.** **Three.js** / Babylon.js / Godot web export. Happy to
-    defer to my recommendation?
-11. **Budget.** Strictly free (CC0 assets, free tiers) / **small budget**
-    (≈$50–200 one-off for an asset pack plus ≈$5/mo for the relay when
-    multiplayer lands) / larger (commissioned art).
-12. **Accounts & persistence.** Local saves only / **local now, accounts later
-    (leaderboards, blueprint sharing)** / accounts from the start.
-13. **Tone.** **No gore, T-rated feel** / grittier. Should AI commanders have
-    humorous taunts like the originals (**yes**)?
-14. **How you want to work.** Should I drive end-to-end, with you playtesting
-    each milestone's Vercel URL? Or do you want to code alongside, in which
-    case I'll favor more explanation and smaller PRs? Should each milestone go
-    up as a PR for review?
+- **Q-A, asset budget:** free path or small-budget path (§4.1)? This isn't
+  needed until after M2.
+- **Q-B, name:** pick from §2.1 or suggest your own. Not needed until M7.
 
 ---
 
 ## 10. Research sources
 
-- Vercel WebSockets public beta & limits:
-  [Vercel KB: Do Vercel Functions support WebSockets?](https://vercel.com/kb/guide/do-vercel-serverless-functions-support-websocket-connections),
-  [Ably: WebSockets on Vercel](https://ably.com/vercel/websockets-on-vercel),
-  [Vercel function duration docs](https://vercel.com/docs/functions/configuring-functions/duration.md)
-- Three.js WebGPU status:
-  [What's new in Three.js (2026)](https://www.utsubo.com/blog/threejs-2026-what-changed),
-  [WebGPU + Three.js migration guide](https://www.utsubo.com/blog/webgpu-threejs-migration-guide)
-- Original mechanics reference:
+- Vercel WebSockets beta & limits (why multiplayer would need another host):
+  [Vercel KB](https://vercel.com/kb/guide/do-vercel-serverless-functions-support-websocket-connections),
+  [Ably: WebSockets on Vercel](https://ably.com/vercel/websockets-on-vercel)
+- Three.js status:
+  [What's new in Three.js (2026)](https://www.utsubo.com/blog/threejs-2026-what-changed)
+- Original mechanics:
   [Stronghold Wiki: Fear Factor](https://stronghold.fandom.com/wiki/Fear_Factor)
-- Durable Objects / PartyKit:
-  [How PartyKit works](https://docs.partykit.io/how-partykit-works/),
-  [Cloudflare acquires PartyKit](https://blog.cloudflare.com/cloudflare-acquires-partykit/)
-- Browser RTS lockstep & flow fields:
-  [RTS devlog: 1000 units bandwidth](https://www.construct.net/en/blogs/ashleys-blog-2/rts-devlog-units-bandwidth-1603),
-  [OpenFrontIO core simulation](https://www.mintlify.com/openfrontio/OpenFrontIO/technical/core-simulation),
-  [Bannermen lockstep RTS (Photon)](https://blog.photonengine.com/?p=3721)
+- Flow fields / large-unit RTS:
+  [RTS devlog: 1000 units](https://www.construct.net/en/blogs/ashleys-blog-2/rts-devlog-units-bandwidth-1603)
+- Assets:
+  [Quaternius Toon Shooter (GameWorldObserver)](https://gameworldobserver.com/2023/01/20/free-game-assets-tutorials-quaternius-indie-developers),
+  [Toon Shooter on GDevelop (CC0)](https://gdevelop.io/asset-store/free/toon-shooter-3d-toon-shooter),
+  [Kenney All-in-1](https://kenney.itch.io/kenney-game-assets),
+  [Synty POLYGON Military Pack](https://syntystore.com/products/polygon-military-pack),
+  [Synty FAQ](https://syntystore.com/community/faq),
+  [Synty one-time purchase licence](https://syntystore.com/pages/one-time-purchase-licence),
+  [Mixamo licensing FAQ (Adobe community)](https://community.adobe.com/t5/mixamo-discussions/mixamo-faq-licensing-royalties-ownership-eula-and-tos/td-p/13234775),
+  [Sonniss GDC 2026 bundle](https://rekkerd.org/sonniss-releases-gdc-2026-game-audio-bundle/)
