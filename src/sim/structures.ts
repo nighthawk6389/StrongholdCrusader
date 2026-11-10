@@ -47,6 +47,19 @@ export const RES_INFO: ResInfo[] = [
   res(Res.Charges, 'charges', 'Breach kits', 'gear'),
 ];
 
+/** Trade Post buying price per unit (selling pays half). */
+export const PRICES: Record<ResId, number> = {
+  [Res.Timber]: 4,
+  [Res.Concrete]: 6,
+  [Res.Produce]: 4,
+  [Res.Meat]: 5,
+  [Res.Steel]: 10,
+  [Res.Rifle]: 30,
+  [Res.MG]: 60,
+  [Res.Scoped]: 50,
+  [Res.Charges]: 40,
+};
+
 export const FOOD_RES: ResId[] = RES_INFO.filter((r) => r.store === 'food').map((r) => r.id);
 export const MATERIAL_RES: ResId[] = RES_INFO.filter((r) => r.store === 'materials').map((r) => r.id);
 export const GEAR_RES: ResId[] = RES_INFO.filter((r) => r.store === 'gear').map((r) => r.id);
@@ -60,6 +73,7 @@ export function resIdsFor(kind: StoreKind): ResId[] {
 export type StructureKind =
   | 'hq'
   | 'hub'
+  | 'market'
   | 'house'
   | 'depot'
   | 'rations'
@@ -173,6 +187,18 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     category: 'core',
     cost: { timber: 8 },
     housing: 8,
+  },
+  market: {
+    kind: 'market',
+    name: 'Trade Post',
+    description: 'Buy what you lack and sell your surplus. Selling pays half the buying price.',
+    w: 3,
+    h: 3,
+    blocks: true,
+    hp: 600,
+    buildable: true,
+    category: 'core',
+    cost: { timber: 20 },
   },
   depot: {
     kind: 'depot',
@@ -326,7 +352,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     hp: 900,
     buildable: true,
     category: 'defense',
-    cost: { concrete: 2 },
+    cost: { concrete: 1 },
     deckH: 1.55,
     armored: true,
   },

@@ -1214,3 +1214,149 @@ kbd {
     font-size: 14px;
   }
 }
+
+/* ---------- M3: skirmish, taunts, trade */
+
+.skirmish-card {
+  grid-column: 1 / -1;
+}
+
+.diff-picker {
+  margin-top: 4px;
+  max-width: 320px;
+}
+
+.start-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+  min-height: 40px;
+  padding: 8px 18px;
+}
+
+.opp-name {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+  margin-left: 4px;
+}
+
+.taunt {
+  position: absolute;
+  top: calc(104px + var(--safe-top));
+  left: calc(8px + var(--safe-left));
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 8px 12px;
+  border-left: 3px solid var(--red);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: none;
+  animation: slidein 0.25s ease-out;
+}
+
+.taunt-name {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--red);
+}
+
+.taunt-text {
+  font-size: 14px;
+  font-style: italic;
+}
+
+@keyframes slidein {
+  from {
+    transform: translateX(-12px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.trade-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 4px 12px;
+  width: 100%;
+  text-align: left;
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.trade-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trade-name {
+  flex: 1;
+  font-size: 13px;
+}
+
+.trade-row .btn {
+  min-height: 30px;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+@media (max-height: 500px) {
+  .taunt {
+    top: calc(52px + var(--safe-top));
+  }
+  .taunt-text {
+    font-size: 12.5px;
+  }
+  .opp-name {
+    display: none;
+  }
+  .trade-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: 46vh;
+  }
+}
+
+/* Menu: scrollable when taller than the screen (centring with margin auto, not align-items). */
+.menu-screen {
+  align-items: flex-start;
+}
+
+.menu-card {
+  margin: auto;
+}
+
+@media (max-height: 500px) {
+  .menu-screen {
+    padding: 8px;
+  }
+  .menu-card {
+    padding: 12px 14px;
+  }
+  .menu-card h1 {
+    font-size: 22px;
+    margin: 2px 0;
+  }
+  .menu-card > p.muted {
+    font-size: 12.5px;
+    margin: 4px 0;
+  }
+  .menu-modes {
+    margin: 8px 0 4px;
+    gap: 6px;
+  }
+  .mode-card {
+    padding: 8px 10px;
+    gap: 3px;
+  }
+  .mode-title {
+    font-size: 15px;
+  }
+  .mode-desc {
+    font-size: 12px;
+  }
+}

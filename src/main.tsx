@@ -14,7 +14,7 @@ const params = new URLSearchParams(location.search);
 const mode = params.get('mode');
 const root = createRoot(hudRoot);
 
-if (mode === 'hold' || mode === 'sandbox') {
+if (mode === 'hold' || mode === 'sandbox' || mode === 'skirmish') {
   const game = new Game(canvas, inputOverlay, mode);
   game.start();
   root.render(
@@ -25,8 +25,9 @@ if (mode === 'hold' || mode === 'sandbox') {
   // Expose for debugging in the console during development.
   (window as unknown as { game: Game }).game = game;
 } else {
-  const start = (m: GameMode): void => {
+  const start = (m: GameMode, difficulty?: string): void => {
     params.set('mode', m);
+    if (difficulty) params.set('difficulty', difficulty);
     location.search = params.toString();
   };
   root.render(

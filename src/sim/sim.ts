@@ -9,6 +9,14 @@ import { UNIT_TYPES } from './unitTypes';
 import { Order, UnitStore } from './units';
 import type { WaveDirector } from './waves';
 
+/** Anything that plays a side from inside the deterministic step (AI commanders). */
+export interface Controller {
+  readonly owner: number;
+  update(sim: Sim): void;
+  /** Sees every event emitted during a step (before the UI drains them). */
+  observe?(sim: Sim, events: readonly SimEvent[]): void;
+}
+
 export type Command =
   | { type: 'move'; owner: number; ids: number[]; x: number; z: number; layer?: number }
   | { type: 'stop'; owner: number; ids: number[] }
@@ -34,8 +42,12 @@ export type Command =
   | { type: 'setTax'; owner: number; level: number }
   | { type: 'setRecipe'; owner: number; id: number; recipe: number }
   | { type: 'recruit'; owner: number; barracks: number; kind: number; count: number }
+  /** Trade Post: buy (amount > 0) or sell (amount < 0). */
+  | { type: 'trade'; owner: number; res: ResId; amount: number }
   | { type: 'attack'; owner: number; ids: number[]; target: number }
-  | { type: 'attackStructure'; owner: number; ids: number[]; structure: number };
+  | { type: 'attackStructure'; owner: number; ids: number[]; structure: number }
+  /** Send units to assault `target`'s HQ (breaching walls on the way). */
+  | { type: 'assault'; owner: number; ids: number[]; target: number };
 
 export type SimEvent =
   | { type: 'shot'; unit: number; owner: number; fromX: number; fromZ: number; fromY: number; toX: number; toZ: number; toY: number; hit: boolean }
@@ -52,7 +64,8 @@ export type SimEvent =
   | { type: 'departed'; owner: number; x: number; z: number }
   | { type: 'recruited'; owner: number; unit: number; kind: number }
   | { type: 'wave'; owner: number; index: number; total: number; size: number }
-  | { type: 'result'; result: 'victory' | 'defeat'; reason: string };
+  | { type: 'result'; result: 'victory' | 'defeat'; reason: string }
+  | { type: 'taunt'; owner: number; name: string; text: string };
 
 export interface SimInit {
   map: GameMap;
@@ -85,8 +98,11 @@ export class Sim {
   readonly economy: Economy;
   readonly combat: Combat;
   director: WaveDirector | null = null;
-  /** Player whose victory/defeat is tracked (Hold the Line). */
+  /** Player whose victory/defeat is tracked. */
   defender = 1;
+  /** Skirmish opponent: lose your HQ or Commander and you lose; take theirs and you win. */
+  opponent = 0;
+  readonly controllers: Controller[] = [];
   result: { result: 'victory' | 'defeat'; reason: string } | null = null;
   tick = 0;
   startSec: number;
@@ -381,6 +397,7 @@ export class Sim {
   }
 
   step(): void {
+    const ev0 = this.events.length;
     const cmds = this.queue;
     this.queue = [];
     for (const c of cmds) this.apply(c);
@@ -399,7 +416,12 @@ export class Sim {
     this.updateElevation();
     this.economy.update();
     if (this.director) this.director.update(this);
+    for (const ctl of this.controllers) ctl.update(this);
     if (this.tick % 20 === 0) this.checkResult();
+    if (this.controllers.length) {
+      const stepEvents = this.events.slice(ev0);
+      for (const ctl of this.controllers) ctl.observe?.(this, stepEvents);
+    }
     this.tick++;
   }
 
@@ -444,6 +466,9 @@ export class Sim {
         }
         break;
       }
+      case 'assault':
+        this.combat.startAssault(c.ids.filter(owned), c.target);
+        break;
       case 'control': {
         const id = c.id;
         if (!u.isAlive(id) || u.owner[id] !== c.owner) return;
@@ -497,6 +522,9 @@ export class Sim {
         break;
       case 'recruit':
         this.economy.recruit(c.owner, c.barracks, c.kind, c.count);
+        break;
+      case 'trade':
+        this.economy.trade(c.owner, c.res, Math.round(c.amount));
         break;
     }
   }
@@ -764,12 +792,16 @@ export class Sim {
   }
 
   private checkResult(): void {
-    if (!this.director || this.result) return;
+    if ((!this.director && !this.opponent) || this.result) return;
     const hq = this.economy.hqOf(this.defender);
     let res: Sim['result'] = null;
     if (!hq) res = { result: 'defeat', reason: 'Your HQ was destroyed.' };
     else if (this.commanderOf(this.defender) < 0) res = { result: 'defeat', reason: 'Your Commander was killed.' };
-    else if (this.director.done) res = { result: 'victory', reason: 'Every wave was beaten back.' };
+    else if (this.director?.done) res = { result: 'victory', reason: 'Every wave was beaten back.' };
+    else if (this.opponent && !this.economy.hqOf(this.opponent)) res = { result: 'victory', reason: 'You destroyed the enemy HQ.' };
+    else if (this.opponent && this.commanderOf(this.opponent) < 0) {
+      res = { result: 'victory', reason: 'The enemy Commander is dead.' };
+    }
     if (res) {
       this.result = res;
       this.emit({ type: 'result', ...res });

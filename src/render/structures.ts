@@ -65,6 +65,22 @@ export function bodyGeometry(kind: StructureKind, owner: number): THREE.BufferGe
           cylinder(0.25, 0.25, 0.5, 0.5, 1.5, -0.4, 0x7d8a8f, 8),
         ]),
       );
+    case 'market':
+      return cached(`market${owner}`, () =>
+        merge([
+          box(2.95, 0.06, 2.95, 0, 0.03, 0, 0xb9a77f),
+          box(0.1, 1.4, 0.1, -1.3, 0.7, -1.3, WOOD),
+          box(0.1, 1.4, 0.1, 1.3, 0.7, -1.3, WOOD),
+          box(0.1, 1.4, 0.1, -1.3, 0.7, 1.3, WOOD),
+          box(0.1, 1.4, 0.1, 1.3, 0.7, 1.3, WOOD),
+          box(2.9, 0.08, 2.9, 0, 1.45, 0, 0xc0603a, { rx: 0.05 }),
+          box(1.2, 0.6, 0.6, -0.6, 0.3, -0.6, COLORS.crate),
+          box(0.6, 0.5, 0.6, 0.7, 0.25, -0.7, 0x5d6e3f),
+          cylinder(0.25, 0.25, 0.6, 0.7, 0.3, 0.6, 0xd18b3c, 8),
+          box(1.0, 0.7, 0.5, -0.5, 0.35, 0.8, 0x9a8f7a),
+          box(0.7, 0.3, 0.03, 0, 1.75, 1.46, team),
+        ]),
+      );
     case 'depot':
       return cached('depot', () =>
         merge([

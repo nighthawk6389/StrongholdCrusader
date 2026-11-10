@@ -10,8 +10,8 @@ soldiers.
 > name is a placeholder.
 
 - **Design & technical plan:** [docs/PLAN.md](docs/PLAN.md)
-- **Status:** **M0** (foundations), **M1** (economy) and **M2** (fortifications & combat) are playable.
-  Next up is **M3** (a skirmish AI opponent that builds its own base).
+- **Status:** **M0** (foundations), **M1** (economy), **M2** (fortifications & combat) and **M3**
+  (skirmish vs an AI commander) are playable. Next up is **M4** (night & stealth).
 
 ## Play locally
 
@@ -25,11 +25,16 @@ the render preset. `?seed=123` picks a different map.
 
 ## Game modes
 
+- **Skirmish vs Old Sarge:** a 1v1 against an AI commander who runs a real economy and builds a walled
+  fortress. He trains a mixed army, mans his walls and launches assaults with engineers. Destroy his HQ or kill
+  his Commander, and protect yours. Easy, Normal and Hard differ in reaction speed, attack timing and size, and
+  a small starting bonus. He never cheats on vision.
 - **Hold the Line:** six escalating waves attack from the east over about 15 minutes, two of them at night.
   Waves with combat engineers blow holes in your walls and gates. Lose your HQ or your Commander and it's over.
 - **Sandbox:** no waves. Build at your own pace and skirmish with the hostile patrol.
 
-The start screen picks the mode. You can also link straight to a mode with `?mode=hold` or `?mode=sandbox`.
+The start screen picks the mode. You can also link straight to a mode with `?mode=skirmish&difficulty=normal`,
+`?mode=hold` or `?mode=sandbox`.
 
 ## How to play
 
@@ -47,6 +52,7 @@ Grow your outpost:
     can climb up.
   - Troops on walls get extra range and take half damage.
   - Gatehouses open for your troops only.
+- **Trade:** a **Trade Post** buys anything at full price and sells your surplus for half.
 - **Arm:** a **Scrap Yard** makes steel, and an **Arms Factory** turns it into rifles, machine guns, scoped rifles
   or breach kits for the **Armory**. The **Barracks** trains idle civilians with those weapons plus funds.
 - **Troop types:**
@@ -79,6 +85,7 @@ Grow your outpost:
 | `npm run build` | Typecheck + production build to `dist/` |
 | `npm test` | Simulation unit tests (Vitest): economy, fortifications, combat, waves, determinism, perf |
 | `HOLD_REPORT=1 npx vitest run tests/hold-report.test.ts --silent=false` | Prints a simulated Hold the Line match for balancing (add `GARRISON=1` to man the walls) |
+| `AI_REPORT=1 DIFF=normal npx vitest run tests/ai-report.test.ts --silent=false` | Prints a 20-minute skirmish timeline of the AI against a passive player |
 | `npm run preview` | Serve the production build |
 
 ## Deploying to Vercel

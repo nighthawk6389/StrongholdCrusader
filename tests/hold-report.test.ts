@@ -26,7 +26,7 @@ it.runIf(!!env.HOLD_REPORT)('Hold the Line simulation report', () => {
       for (let i = 0; i < sim.units.count; i++) {
         if (!sim.units.alive[i] || !UNIT_TYPES[sim.units.kind[i]].armed) continue;
         if (sim.units.owner[i] === PLAYER) { mine++; if (sim.units.layer[i]) onWall++; }
-        if (sim.units.owner[i] === ENEMY && sim.combat.wave[i]) theirs++;
+        if (sim.units.owner[i] === ENEMY && sim.combat.assault[i]) theirs++;
       }
       lines.push(`${sim.elapsed.toFixed(0)}s soldiers ${mine} (on wall ${onWall}) vs attackers ${theirs}, HQ hp ${sim.economy.hqOf(PLAYER)?.hp ?? 0}`);
     }

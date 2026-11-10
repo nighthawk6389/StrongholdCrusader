@@ -1,6 +1,5 @@
 import type { Sim } from './sim';
 import type { Structure } from './structures';
-import { Order } from './units';
 
 export interface WaveGroup {
   kind: number;
@@ -75,9 +74,7 @@ export class WaveDirector {
         const z = Math.floor(t / map.width) + 0.5 + (sim.rng.next() - 0.5) * 0.4;
         const id = sim.spawnUnit(g.kind, this.owner, x, z, -Math.PI / 2);
         if (id < 0) continue;
-        sim.combat.wave[id] = 1;
-        sim.units.order[id] = Order.Assault;
-        sim.units.repath[id] = 0;
+        sim.combat.startAssault([id], this.target);
         this.alive.add(id);
       }
     }

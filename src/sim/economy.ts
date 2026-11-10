@@ -3,6 +3,7 @@ import { Block, Tile } from './map';
 import type { Sim } from './sim';
 import {
   FOOD_RES,
+  PRICES,
   RES_COUNT,
   RES_INFO,
   STRUCTURE_DEFS,
@@ -403,6 +404,33 @@ export class Economy {
       u.x[i] = u.px[i] = (t % map.width) + 0.5;
       u.z[i] = u.pz[i] = Math.floor(t / map.width) + 0.5;
     }
+  }
+
+  // ------------------------------------------------------------------ trade
+
+  hasMarket(owner: number): boolean {
+    return this.sim.structures.some((s) => s.owner === owner && s.kind === 'market');
+  }
+
+  /** Buy (amount > 0) or sell (amount < 0) at a Trade Post. Returns units actually traded. */
+  trade(owner: number, res: ResId, amount: number): number {
+    if (!this.hasMarket(owner) || amount === 0) return 0;
+    const p = this.player(owner);
+    const price = PRICES[res];
+    if (amount > 0) {
+      const kind = RES_INFO[res].store;
+      const room = Math.floor(p.cap(kind) - p.stored(kind));
+      const n = Math.min(amount, room, Math.floor(p.funds / price));
+      if (n <= 0) return 0;
+      p.funds -= n * price;
+      p.stock[res] += n;
+      return n;
+    }
+    const n = Math.min(-amount, Math.floor(p.stock[res]));
+    if (n <= 0) return 0;
+    p.stock[res] -= n;
+    p.funds += n * Math.floor(price / 2);
+    return -n;
   }
 
   // ------------------------------------------------------------------ recruiting

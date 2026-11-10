@@ -25,8 +25,10 @@ const RAID_RADIUS = 36;
  * and the wave "assault" behaviour. Operates on the Sim's unit store.
  */
 export class Combat {
-  /** Units belonging to an attack wave (they resume the assault after breaching). */
-  readonly wave = new Uint8Array(MAX_UNITS);
+  /** Units in an assault group (waves or AI attacks): they resume the assault after breaching. */
+  readonly assault = new Uint8Array(MAX_UNITS);
+  /** Owner whose HQ an assaulting unit is heading for. */
+  readonly assaultTarget = new Uint8Array(MAX_UNITS);
   /** Ticks before a blocked raider looks for another soft target. */
   private raidCooldown = new Uint16Array(MAX_UNITS);
 
@@ -260,7 +262,7 @@ export class Combat {
     if (u.repath[i] === 0) {
       const spot = this.approachTile(i, s);
       if (!spot) return this.finishBreach(i);
-      sim.setDestination(i, spot.x, spot.z, 0, this.wave[i] === 1);
+      sim.setDestination(i, spot.x, spot.z, 0, this.assault[i] === 1);
       u.repath[i] = 30;
     }
     const r = sim.navigate(i);
@@ -301,15 +303,36 @@ export class Combat {
     u.targetStruct[i] = -1;
     u.plantTimer[i] = 0;
     u.repath[i] = 0;
-    u.order[i] = this.wave[i] ? Order.Assault : Order.Idle;
+    u.order[i] = this.assault[i] ? Order.Assault : Order.Idle;
+  }
+
+  /** Where an assault on `owner` is headed: their HQ entrance. */
+  assaultGoal(owner: number): { x: number; z: number; hq: Structure } | null {
+    const hq = this.sim.economy.hqOf(owner);
+    return hq ? { x: hq.doorX, z: hq.doorZ, hq } : null;
+  }
+
+  /** Put units into an assault group against `targetOwner`'s HQ. */
+  startAssault(ids: number[], targetOwner: number): void {
+    const u = this.sim.units;
+    for (const i of ids) {
+      if (!u.alive[i] || !UNIT_TYPES[u.kind[i]].armed) continue;
+      this.assault[i] = 1;
+      this.assaultTarget[i] = targetOwner;
+      u.order[i] = Order.Assault;
+      u.repath[i] = 0;
+      u.target[i] = -1;
+      u.targetStruct[i] = -1;
+    }
   }
 
   private doAssault(i: number): void {
     const sim = this.sim;
     const u = sim.units;
-    const goal = sim.director?.goal(sim);
+    const goal = this.assaultGoal(this.assaultTarget[i]);
     if (!goal) {
       u.order[i] = Order.Idle;
+      this.assault[i] = 0;
       return;
     }
     const engineer = u.charges[i] > 0;
@@ -345,9 +368,9 @@ export class Combat {
         u.order[i] = Order.Breach;
         u.targetStruct[i] = obstacle.id;
         u.repath[i] = 0;
-      } else if (this.raidCooldown[i] === 0 && sim.director) {
+      } else if (this.raidCooldown[i] === 0) {
         // Walls hold us back: raid soft buildings outside them while the engineers work.
-        const raid = this.raidTarget(i, sim.director.target);
+        const raid = this.raidTarget(i, this.assaultTarget[i]);
         if (raid) {
           u.order[i] = Order.Breach;
           u.targetStruct[i] = raid.id;
@@ -516,7 +539,7 @@ export class Combat {
         y: sim.map.heightAt(u.x[j], u.z[j]) + u.elev[j],
       });
       sim.economy.onUnitRemoved(j);
-      this.wave[j] = 0;
+      this.assault[j] = 0;
       u.kill(j);
     } else if (u.order[j] === Order.Idle && u.target[j] < 0 && UNIT_TYPES[u.kind[j]].armed && attacker >= 0) {
       u.target[j] = attacker; // return fire

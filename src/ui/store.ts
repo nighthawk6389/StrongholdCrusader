@@ -72,6 +72,16 @@ export interface BuildingInfo {
   enemy: boolean;
   recipes: { options: string[]; selected: number } | null;
   recruit: RecruitOption[] | null;
+  /** Trade Post rows (null for other buildings). */
+  trade: TradeRow[] | null;
+}
+
+export interface TradeRow {
+  res: number;
+  name: string;
+  stock: number;
+  buy: number;
+  sell: number;
 }
 
 export interface WaveInfo {
@@ -97,6 +107,10 @@ export interface HudState {
   gameMode: GameMode;
   wave: WaveInfo | null;
   result: { result: 'victory' | 'defeat'; reason: string } | null;
+  /** Skirmish opponent. */
+  opponent: { name: string; difficulty: string } | null;
+  /** Latest radio message from the opponent. */
+  taunt: { name: string; text: string } | null;
   controlledHp: number;
   controlledName: string;
   aiming: boolean;
@@ -131,6 +145,8 @@ export const useHud = create<HudState>(() => ({
   gameMode: 'sandbox',
   wave: null,
   result: null,
+  opponent: null,
+  taunt: null,
   controlledHp: 1,
   controlledName: '',
   aiming: false,

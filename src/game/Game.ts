@@ -3,7 +3,8 @@ import { TICK_SEC, formatHour, type PhaseName } from '../sim/clock';
 import { TAX_LEVELS } from '../sim/economy';
 import { createScenario, ENEMY, type GameMode } from '../sim/scenario';
 import type { Sim, SimEvent } from '../sim/sim';
-import { RES_INFO, Res, STRUCTURE_DEFS, costText, footprint, type StructureKind } from '../sim/structures';
+import { PRICES, RES_INFO, Res, STRUCTURE_DEFS, costText, footprint, type ResId, type StructureKind } from '../sim/structures';
+import type { Difficulty } from '../sim/ai';
 import { RECRUITABLE, UNIT_TYPES } from '../sim/unitTypes';
 import { GameRenderer, detectQuality } from '../render/GameRenderer';
 import { InputController } from '../input/InputController';
@@ -43,6 +44,7 @@ export interface GameActions {
   setMoraleOpen(open: boolean): void;
   recruit(kind: number, count: number): void;
   setRecipe(index: number): void;
+  trade(res: number, amount: number): void;
   restart(mode?: GameMode): void;
 }
 
@@ -100,11 +102,14 @@ export class Game implements GameActions {
   private simMsAcc = 0;
   private simSteps = 0;
   private toastTimer = 0;
+  private tauntTimer = 0;
   private readonly basePos: { x: number; z: number };
 
   constructor(canvas: HTMLCanvasElement, overlay: HTMLElement, mode: GameMode) {
     const params = new URLSearchParams(location.search);
-    const scenario = createScenario(mode, Number(params.get('seed')) || 1337);
+    const diffParam = params.get('difficulty');
+    const difficulty: Difficulty = diffParam === 'easy' || diffParam === 'hard' ? diffParam : 'normal';
+    const scenario = createScenario(mode, Number(params.get('seed')) || 1337, difficulty);
     this.sim = scenario.sim;
     this.mode = mode;
     this.player = scenario.player;
@@ -121,9 +126,11 @@ export class Game implements GameActions {
     } catch {
       /* storage unavailable */
     }
+    const label = { easy: 'Easy', normal: 'Normal', hard: 'Hard' }[difficulty];
     setHud({
       isTouch,
       gameMode: mode,
+      opponent: scenario.ai ? { name: scenario.ai.personality.name, difficulty: label } : null,
       quality: quality.name,
       debug: params.has('debug'),
       showHelp: !seenHelp,
@@ -189,6 +196,10 @@ export class Game implements GameActions {
     if (this.toastTimer > 0) {
       this.toastTimer -= dt;
       if (this.toastTimer <= 0) setHud({ toast: null });
+    }
+    if (this.tauntTimer > 0) {
+      this.tauntTimer -= dt;
+      if (this.tauntTimer <= 0) setHud({ taunt: null });
     }
     if (this.hudTimer > 0.2) {
       this.hudTimer = 0;
@@ -290,6 +301,10 @@ export class Game implements GameActions {
         case 'result':
           setHud({ result: { result: e.result, reason: e.reason } });
           break;
+        case 'taunt':
+          setHud({ taunt: { name: e.name, text: e.text } });
+          this.tauntTimer = 6;
+          break;
       }
     }
   }
@@ -361,6 +376,18 @@ export class Game implements GameActions {
       recipes: def.recipes
         ? { options: def.recipes.map((r) => `${RES_INFO[r.output].name} (${r.inputAmount} steel)`), selected: s.recipe }
         : null,
+      trade:
+        s.kind === 'market' && mine
+          ? ([Res.Timber, Res.Concrete, Res.Steel, Res.Produce, Res.Meat, Res.Rifle, Res.MG, Res.Scoped, Res.Charges] as ResId[]).map(
+              (r) => ({
+                res: r,
+                name: RES_INFO[r].name,
+                stock: Math.floor(p.stock[r]),
+                buy: PRICES[r],
+                sell: Math.floor(PRICES[r] / 2),
+              }),
+            )
+          : null,
       recruit:
         s.kind === 'barracks' && mine
           ? RECRUITABLE.map((k) => {
@@ -602,6 +629,11 @@ export class Game implements GameActions {
     setTimeout(() => this.pushHud(), 120);
   }
 
+  trade(res: number, amount: number): void {
+    this.sim.enqueue({ type: 'trade', owner: this.player, res: res as ResId, amount });
+    setTimeout(() => this.pushHud(), 120);
+  }
+
   setRecipe(index: number): void {
     const s = this.sim.structureById(this.selectedStructure);
     if (!s) return;
@@ -709,7 +741,10 @@ export class Game implements GameActions {
   restart(mode?: GameMode): void {
     const params = new URLSearchParams(location.search);
     if (mode) params.set('mode', mode);
-    else params.delete('mode');
+    else {
+      params.delete('mode');
+      params.delete('difficulty');
+    }
     location.search = params.toString();
   }
 

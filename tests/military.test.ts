@@ -187,7 +187,7 @@ describe('Hold the Line', () => {
     expect(sim.director).not.toBeNull();
     runSec(sim, 151);
     let attackers = 0;
-    for (let i = 0; i < sim.units.count; i++) if (sim.units.alive[i] && sim.combat.wave[i]) attackers++;
+    for (let i = 0; i < sim.units.count; i++) if (sim.units.alive[i] && sim.combat.assault[i]) attackers++;
     expect(attackers).toBe(6);
     const hq = sim.economy.hqOf(PLAYER)!;
     const w = [...sim.director!.alive][0];

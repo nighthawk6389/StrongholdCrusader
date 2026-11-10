@@ -496,7 +496,7 @@ docs/
 | **M0** | **Foundations + spikes** ✅ | A procedural desert map (dunes, oases, rock ridges, oil) and walled outposts. RTS camera with mouse and touch. Select squads and move them with flow-field pathing and formations. Live 8-minute day/night with floodlights and lit windows. Basic auto-engage combat. Over-the-shoulder take-control with a phone joystick. |
 | **M1** | **Economy slice** ✅ | Arrivals hub, housing, depots and ration stores. Lumber camps fell depletable trees. Quarries must touch rock, orchards need fertile ground, plus goat ranches. Civilians physically haul goods to the nearest store. Rations, food variety and taxes drive morale, which drives arrivals and departures. Night slows work to ~35%. Build menu and placement ghost (mouse + touch confirm), building panel (status, pause, demolish), morale panel. |
 | **M2** | **Fortifications & combat** ✅ | Wall lines (drag), watchtowers, gatehouses (only your troops pass, rotatable), stairs. Two-layer navigation (ground + wall tops) with a height range bonus and 50% cover. Scrap yard → steel → arms factory (selectable recipes) → armory → barracks recruiting (civilian + weapon + funds). Riflemen, machine gunners (suppression), marksmen, combat engineers (breach charges). Attack orders, building damage and destruction. "Hold the Line": 6 waves with breach-and-raid AI, victory/defeat, start menu. |
-| **M3** | **Skirmish AI v1** | A full 1v1 against _Old Sarge_. **First real game moment.** |
+| **M3** | **Skirmish AI v1** ✅ | 1v1 on a mirrored map against **Old Sarge**: a personality-driven build order with automatic rebuilding and resource-aware placement. He builds a blueprint fortress (front wall first, then the full ring with towers, gatehouses and stairs). He manages morale (food capacity, moderate taxes) and trades surplus at a new **Trade Post**. He picks weapons to match his army mix, recruits, garrisons the front wall, defends his base and launches growing assaults with engineers. He sends radio taunts. Easy/Normal/Hard. Against a passive player Normal wins in ~12 min; Hard in ~10. |
 | **M4** | **Night & stealth** | Light grid, power grid, searchlights, sensors, dogs, flares, SF operators, noise pings, night shifts |
 | **M5** | **Direct control, full** | Combat-ready over-the-shoulder control for all eligible units, including drones and wall guns |
 | **M6** | **Content & siege depth** | Vehicles, breaching vehicle, howitzers, mines, ditches, fuel trenches, PMC, 4–6 AI personalities, maps, Commander's Trail |
@@ -527,8 +527,9 @@ docs/
    Framework "Vite" is auto-detected). From then on, every push gets a preview
    URL.
 4. ~~**M2** fortifications & combat.~~ Done.
-5. **M3** skirmish AI: an opposing commander with its own economy that builds a fortress from a blueprint,
-   recruits, scouts and attacks (reusing the wave assault/breach behaviour).
+5. ~~**M3** skirmish AI.~~ Done.
+6. **M4** night & stealth: light grid and visibility, power grid, searchlights, sensors, dogs, flares,
+   SF operators, noise pings, night shifts.
 
 ---
 

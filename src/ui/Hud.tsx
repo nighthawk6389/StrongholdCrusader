@@ -148,10 +148,11 @@ function TopBar({ game }: { game: GameActions }) {
       <ResourceBar game={game} />
       <WavePill />
       <div className="spacer" />
-      <div className="panel forces" title="Your soldiers vs hostile soldiers">
+      <div className="panel forces" title={s.opponent ? `Your soldiers vs ${s.opponent.name} (${s.opponent.difficulty})` : 'Your soldiers vs hostile soldiers'}>
         <span className="dot blue" /> {s.playerUnits}
         <span className="vs">vs</span>
         <span className="dot red" /> {s.enemyUnits}
+        {s.opponent && <span className="opp-name">{s.opponent.name}</span>}
       </div>
       <div className="panel menu">
         <div className="dropdown time-dropdown">
@@ -433,7 +434,7 @@ function BuildingPanel({ game }: { game: GameActions }) {
   const hpFrac = b.maxHp ? b.hp / b.maxHp : 1;
   return (
     <div className="bottombar">
-      <div className={`panel selection building-panel ${b.recruit || b.recipes ? 'wide' : ''}`}>
+      <div className={`panel selection building-panel ${b.recruit || b.recipes || b.trade ? 'wide' : ''}`}>
         <div className="sel-label">
           <strong>{b.name}</strong>
           {b.enemy && <span className="badge bad">Hostile</span>}
@@ -449,7 +450,7 @@ function BuildingPanel({ game }: { game: GameActions }) {
             {b.hp}/{b.maxHp}
           </span>
         </div>
-        {!b.recruit && <div className="muted small">{b.description}</div>}
+        {!b.recruit && !b.trade && <div className="muted small">{b.description}</div>}
         {b.jobs > 0 && !b.enemy && (
           <div className="small">
             Workers {b.workers}/{b.jobs}
@@ -469,6 +470,23 @@ function BuildingPanel({ game }: { game: GameActions }) {
               value={b.recipes.selected}
               onChange={(i) => game.setRecipe(i)}
             />
+          </div>
+        )}
+        {b.trade && (
+          <div className="trade-grid">
+            {b.trade.map((r) => (
+              <div key={r.res} className="trade-row">
+                <span className="trade-name">
+                  {r.name} <span className="muted">({r.stock})</span>
+                </span>
+                <Btn onClick={() => game.trade(r.res, 5)} disabled={eco.funds < r.buy * 5} title={`Buy 5 for $${r.buy * 5}`}>
+                  Buy 5 <span className="muted">${r.buy * 5}</span>
+                </Btn>
+                <Btn onClick={() => game.trade(r.res, -5)} disabled={r.stock < 5} title={`Sell 5 for $${r.sell * 5}`}>
+                  Sell 5 <span className="muted">+${r.sell * 5}</span>
+                </Btn>
+              </div>
+            ))}
           </div>
         )}
         {b.recruit && (
@@ -654,6 +672,17 @@ function WavePill() {
   );
 }
 
+function TauntRadio() {
+  const taunt = useHud((s) => s.taunt);
+  if (!taunt) return null;
+  return (
+    <div className="panel taunt" role="status">
+      <span className="taunt-name">📻 {taunt.name}</span>
+      <span className="taunt-text">“{taunt.text}”</span>
+    </div>
+  );
+}
+
 function ResultOverlay({ game }: { game: GameActions }) {
   const result = useHud((s) => s.result)!;
   const mode = useHud((s) => s.gameMode);
@@ -681,11 +710,13 @@ function Help({ game }: { game: GameActions }) {
   return (
     <div className="modal-backdrop" onClick={() => game.dismissHelp()}>
       <div className="panel modal" onClick={(e) => e.stopPropagation()}>
-        <h2>{s.gameMode === 'hold' ? 'Hold the Line' : 'Sandbox'}</h2>
+        <h2>{s.gameMode === 'hold' ? 'Hold the Line' : s.gameMode === 'skirmish' ? `Skirmish vs ${s.opponent?.name ?? 'AI'}` : 'Sandbox'}</h2>
         <p className="muted">
           {s.gameMode === 'hold'
             ? 'Six waves will attack from the east, two of them at night. Keep your HQ and Commander alive. '
-            : 'No waves: build at your own pace. '}
+            : s.gameMode === 'skirmish'
+              ? `${s.opponent?.name} is building a fortress in the east and will attack once his army is ready. Destroy his HQ or kill his Commander, and protect yours. A Trade Post lets you sell surplus for funds. `
+              : 'No waves: build at your own pace. '}
           Put troops <b>on the walls</b>: they get range and cover. Engineers can blow holes in walls and gates.
           To train more soldiers, idle civilians, weapons from the <b>Armory</b> and funds are needed. Weapons are made at an{' '}
           <b>Arms Factory</b> from steel (<b>Scrap Yard</b>).
@@ -787,6 +818,7 @@ export function Hud({ game }: { game: GameActions }) {
         <ControlOverlay game={game} />
       )}
       {toast && <div className="toast panel">{toast}</div>}
+      <TauntRadio />
       {showHelp && <Help game={game} />}
       {result && <ResultOverlay game={game} />}
       <PortraitHint />
