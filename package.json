@@ -1,9 +1,9 @@
 {
-  "name": "modern-siege-rts",
+  "name": "garrison-zero",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Single-player modern-military castle-siege RTS for the browser (working title TBD).",
+  "description": "Garrison Zero: a single-player, present-day castle-siege RTS for the browser.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",

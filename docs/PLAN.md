@@ -1,10 +1,9 @@
-# Modern Castle-Siege RTS: Game Design & Technical Plan
+# Garrison Zero: Game Design & Technical Plan
 
 > **Status:** v0.2. Core decisions are locked (see [§0.1](#01-decision-log)).
-> Still open: the final name and the asset budget (see [§9](#9-open-questions)).
+> Still open: the asset budget (see [§9](#9-open-questions)).
 >
-> **Working title:** _TBD_ (see [§2.1](#21-name-ip-and-originality)). This doc
-> says "the game" for now.
+> **Name:** **Garrison Zero** (decided in M7; see [§2.1](#21-name-ip-and-originality)).
 
 ---
 
@@ -70,9 +69,9 @@ pathfinding. It's a static site on Vercel with no backend.
   "Stronghold" is a trademark of its publisher. We share genre mechanics only,
   never its name, AI lords, assets or maps.
 - The repo can keep its name while private. Rename it before any public launch.
-- Working-title ideas: **Bastion Protocol**, **Nightwall**,
-  **Hold the Line: Night Ops**, **Fortline**, **Garrison Zero**,
-  **Iron Perimeter**.
+- **Decided: Garrison Zero.** (Other candidates were Bastion Protocol, Nightwall,
+  Hold the Line: Night Ops, Fortline and Iron Perimeter.) Before launch, run a
+  trademark and app-store search on the name.
 
 ### 2.2 Setting (decided: present day)
 
@@ -539,7 +538,7 @@ docs/
 9. ~~**M6b** variety.~~ Done.
 10. ~~**M7a** sound, settings, offline.~~ Done.
 11. ~~**M7b** onboarding and rivals.~~ Done.
-12. **M7c** launch: final name (Q-B), art pass, release.
+12. **M7c** launch: name applied (Garrison Zero); art pass, release checklist, repo rename.
 
 ---
 
@@ -547,7 +546,7 @@ docs/
 
 - **Q-A, asset budget:** free path or small-budget path (§4.1)? This isn't
   needed until after M2.
-- **Q-B, name:** pick from §2.1 or suggest your own. Not needed until M7.
+- ~~**Q-B, name:**~~ Decided: **Garrison Zero**.
 
 ---
 

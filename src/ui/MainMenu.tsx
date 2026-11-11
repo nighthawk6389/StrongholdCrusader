@@ -58,7 +58,7 @@ export function MainMenu({
             ⚙ Settings
           </button>
         </div>
-        <h1>Siege RTS</h1>
+        <h1>Garrison Zero</h1>
         <p className="muted">
           Build an outpost in the desert, wall it in, arm your people, and take the fight to a rival commander, by
           day and by night. Take direct control of any soldier when it counts.

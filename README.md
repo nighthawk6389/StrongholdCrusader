@@ -1,4 +1,4 @@
-# StrongholdCrusader (working repo name)
+# Garrison Zero
 
 An original, single-player, browser-based 3D castle-siege RTS with a present-day
 military setting. It plays on desktop and phones. It is inspired by the classic
@@ -6,8 +6,8 @@ castle-builder RTS genre and adds faster ~20-minute matches, an 8-minute
 day/night cycle with stealth, and over-the-shoulder direct control of your
 soldiers.
 
-> The final game will ship under its own original name and assets. This repo
-> name is a placeholder.
+> The game is called **Garrison Zero**. The repository keeps its old working name
+> (StrongholdCrusader) for now; rename it on GitHub before any public launch.
 
 - **Design & technical plan:** [docs/PLAN.md](docs/PLAN.md)
 - **Status:** **M0** (foundations), **M1** (economy), **M2** (fortifications & combat), **M3**
