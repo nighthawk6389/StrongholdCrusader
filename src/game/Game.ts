@@ -5,14 +5,19 @@ import { createScenario, ENEMY, type GameMode } from '../sim/scenario';
 import type { Sim, SimEvent } from '../sim/sim';
 import { PRICES, RES_INFO, Res, STRUCTURE_DEFS, costText, footprint, type ResId, type StructureKind } from '../sim/structures';
 import type { Difficulty } from '../sim/ai';
-import { RECRUITABLE, UNIT_TYPES } from '../sim/unitTypes';
+import { DRONE_KINDS, RECRUITABLE, UNIT_TYPES, UnitKind } from '../sim/unitTypes';
+import { DRONE_COST } from '../sim/drones';
+import { Order } from '../sim/units';
 import { GameRenderer, detectQuality } from '../render/GameRenderer';
 import { InputController } from '../input/InputController';
-import { setHud, type BuildingInfo, type PlacingInfo } from '../ui/store';
+import { setHud, type BuildingInfo, type ControlInfo as HudControl, type PlacingInfo } from '../ui/store';
 
 const MAX_STEPS_PER_FRAME = 8;
 const NO_SELECTION: ReadonlySet<number> = new Set();
-const HELP_KEY = 'm4-help-seen';
+const HELP_KEY = 'm5-help-seen';
+const SLOWMO_KEY = 'slowmo';
+/** Structures you can take direct control of. */
+const CONTROLLABLE_STRUCTURES: StructureKind[] = ['guntower', 'searchlight'];
 /** Buildings whose facing matters (lights): auto-aimed away from the HQ, R turns them. */
 const AIMABLE: StructureKind[] = ['floodlight', 'searchlight'];
 
@@ -51,6 +56,12 @@ export interface GameActions {
   startFlare(): void;
   cancelTargeting(): void;
   restart(mode?: GameMode): void;
+  reload(): void;
+  plantCharge(): void;
+  toggleNvg(): void;
+  toggleSlowMo(): void;
+  flareAtCrosshair(): void;
+  launchDrone(kind: number): void;
 }
 
 /** Bresenham line between two tiles (inclusive). */
@@ -87,6 +98,14 @@ export class Game implements GameActions {
   readonly input: InputController;
   readonly selected = new Set<number>();
   controlled = -1;
+  /** Gun tower or searchlight being aimed by hand (-1 = none). */
+  controlledStruct = -1;
+  /** Kind of the possessed unit (to tell a strike drone's hit from a death). */
+  private controlledKind = -1;
+  /** Squad members told to follow the possessed unit. */
+  private followers: number[] = [];
+  private slowMo = false;
+  private lastHit = { unit: -1, at: 0 };
   /** Building being placed, its rotation, and the footprint origin currently previewed. */
   placing: StructureKind | null = null;
   placeRot = 0;
@@ -131,6 +150,7 @@ export class Game implements GameActions {
     const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
     let seenHelp = false;
     try {
+      this.slowMo = localStorage.getItem(SLOWMO_KEY) === '1';
       seenHelp = localStorage.getItem(HELP_KEY) === '1';
     } catch {
       /* storage unavailable */
@@ -143,6 +163,7 @@ export class Game implements GameActions {
       quality: quality.name,
       debug: params.has('debug'),
       showHelp: !seenHelp,
+      slowMo: this.slowMo,
     });
     window.addEventListener('resize', () => this.renderer.resize());
   }
@@ -159,7 +180,8 @@ export class Game implements GameActions {
   private frame(now: number): void {
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
-    if (!this.paused) this.acc += dt * this.speed;
+    const slow = this.slowMo && (this.controlled >= 0 || this.controlledStruct >= 0) ? 0.5 : 1;
+    if (!this.paused) this.acc += dt * this.speed * slow;
 
     this.input.update(dt);
 
@@ -168,7 +190,20 @@ export class Game implements GameActions {
     while (this.acc >= TICK_SEC && steps < MAX_STEPS_PER_FRAME) {
       if (this.controlled >= 0) {
         const c = this.input.controlIntent();
-        this.sim.enqueue({ type: 'control', owner: this.player, id: this.controlled, ...c });
+        const aim = this.renderer.aimRay();
+        this.sim.enqueue({ type: 'control', owner: this.player, id: this.controlled, ...c, ...aim });
+      } else if (this.controlledStruct >= 0) {
+        const c = this.input.controlIntent();
+        const aim = this.renderer.aimRay();
+        this.sim.enqueue({
+          type: 'controlStructure',
+          owner: this.player,
+          id: this.controlledStruct,
+          ...aim,
+          fire: c.fire,
+          aim: c.aim,
+          reload: c.reload,
+        });
       }
       this.sim.step();
       this.acc -= TICK_SEC;
@@ -184,9 +219,10 @@ export class Game implements GameActions {
     const u = this.sim.units;
     for (const id of this.selected) if (!u.isAlive(id) || u.owner[id] !== this.player) this.selected.delete(id);
     if (this.controlled >= 0 && !u.isAlive(this.controlled)) {
-      this.toast('Your unit was killed');
+      this.toast(this.controlledKind === UnitKind.StrikeDrone ? 'Strike drone hit' : 'Your unit was killed');
       this.exitControl();
     }
+    if (this.controlledStruct >= 0 && !this.sim.structureById(this.controlledStruct)) this.exitControl();
 
     const events = this.sim.drainEvents();
     this.handleEvents(events);
@@ -194,8 +230,9 @@ export class Game implements GameActions {
     this.renderer.render({
       alpha: this.paused ? 1 : this.acc / TICK_SEC,
       dt,
-      selected: this.controlled >= 0 ? NO_SELECTION : this.selected,
+      selected: this.controlled >= 0 || this.controlledStruct >= 0 ? NO_SELECTION : this.selected,
       controlled: this.controlled,
+      controlledStruct: this.controlledStruct,
       events,
     });
 
@@ -289,8 +326,65 @@ export class Game implements GameActions {
       enemyUnits: theirs,
       controlledHp: c >= 0 ? u.hp[c] / UNIT_TYPES[u.kind[c]].hp : 1,
       controlledName: c >= 0 ? UNIT_TYPES[u.kind[c]].name : '',
+      control: this.controlInfo(),
       aiming: this.renderer.ots.aiming,
     });
+  }
+
+  private controlInfo(): HudControl | null {
+    const u = this.sim.units;
+    const c = this.controlled;
+    const base = {
+      ammo: 0,
+      mag: 0,
+      reload: null,
+      charges: 0,
+      plant: null,
+      battery: null,
+      batterySec: 0,
+      strike: false,
+      diving: false,
+      crewed: false,
+      nvgAvailable: false,
+      nvgOn: this.renderer.nvgEnabled,
+      scope: false,
+      squad: 0,
+    };
+    if (c >= 0 && u.isAlive(c)) {
+      const t = UNIT_TYPES[u.kind[c]];
+      return {
+        ...base,
+        kind: t.fly ? 'drone' : 'soldier',
+        name: t.name,
+        hp: u.hp[c] / t.hp,
+        ammo: u.ammo[c],
+        mag: t.mag,
+        reload: u.reload[c] > 0 ? 1 - u.reload[c] / t.reloadSec : null,
+        charges: u.charges[c],
+        plant: u.plantTimer[c] > 0 ? 1 - u.plantTimer[c] / t.plantSec : null,
+        battery: t.fly ? Math.max(0, u.battery[c] / t.battery) : null,
+        batterySec: Math.max(0, Math.round(u.battery[c])),
+        strike: !!t.blast,
+        diving: u.order[c] === Order.Dive,
+        nvgAvailable: t.nightVision >= 0.8,
+        scope: t.zoom >= 3,
+        squad: this.followers.filter((id) => u.isAlive(id) && u.order[id] === Order.Follow).length,
+      };
+    }
+    const s = this.controlledStruct >= 0 ? this.sim.structureById(this.controlledStruct) : undefined;
+    if (!s) return null;
+    const def = STRUCTURE_DEFS[s.kind];
+    const spec = def.turret;
+    return {
+      ...base,
+      kind: spec ? 'turret' : 'light',
+      name: def.name,
+      hp: s.hp / def.hp,
+      ammo: s.ammo,
+      mag: spec?.mag ?? 0,
+      reload: spec && s.reload > 0 ? 1 - s.reload / spec.reloadSec : null,
+      crewed: spec ? this.sim.combat.crewed(s) : true,
+    };
   }
 
   private handleEvents(events: SimEvent[]): void {
@@ -318,8 +412,45 @@ export class Game implements GameActions {
           setHud({ taunt: { name: e.name, text: e.text } });
           this.tauntTimer = 6;
           break;
+        case 'notice':
+          if (e.owner === this.player) this.toast(e.text);
+          break;
+        case 'launched':
+          if (e.owner === this.player) this.toast(`${UNIT_TYPES[e.kind].name} launched`);
+          break;
+        case 'shot':
+          this.onShot(e);
+          break;
+        case 'death':
+          if (e.unit === this.lastHit.unit && performance.now() - this.lastHit.at < 400) {
+            setHud({ hitMarker: { kind: 'kill', t: performance.now() } });
+          }
+          break;
       }
     }
+  }
+
+  /** Hit markers for your own aimed shots; a damage indicator when you're the one hit. */
+  private onShot(e: Extract<SimEvent, { type: 'shot' }>): void {
+    const mine =
+      (this.controlled >= 0 && e.unit === this.controlled) ||
+      (this.controlledStruct >= 0 && e.unit === -1 && e.owner === this.player && this.nearControlledStruct(e.fromX, e.fromZ));
+    if (mine && e.hit && e.target !== undefined && e.target >= 0) {
+      this.lastHit = { unit: e.target, at: performance.now() };
+      setHud({ hitMarker: { kind: e.head ? 'head' : 'hit', t: performance.now() } });
+    }
+    if (this.controlled >= 0 && e.hit && e.target === this.controlled) {
+      const u = this.sim.units;
+      const from = Math.atan2(e.fromX - u.x[this.controlled], e.fromZ - u.z[this.controlled]);
+      let rel = this.renderer.ots.yaw - from;
+      rel = Math.atan2(Math.sin(rel), Math.cos(rel));
+      setHud({ damage: { angle: rel, t: performance.now() } });
+    }
+  }
+
+  private nearControlledStruct(x: number, z: number): boolean {
+    const s = this.sim.structureById(this.controlledStruct);
+    return !!s && Math.hypot(x - (s.tx + s.w / 2), z - (s.tz + s.h / 2)) < 1.6;
   }
 
   private placingInfo(): PlacingInfo | null {
@@ -407,6 +538,26 @@ export class Game implements GameActions {
               }),
             )
           : null,
+      drones:
+        s.kind === 'dronebay' && mine
+          ? {
+              options: DRONE_KINDS.map((k) => {
+                const cost = DRONE_COST[k];
+                const t = UNIT_TYPES[k];
+                return {
+                  kind: k,
+                  name: t.name,
+                  blurb: t.blurb,
+                  cost: `$${cost.funds} · ${cost.steel} steel${cost.gear !== undefined ? ` · 1 ${RES_INFO[cost.gear].name.toLowerCase().replace(/s$/, '')}` : ''}`,
+                  blocker: this.sim.drones.launchBlocker(this.player, s.id, k),
+                };
+              }),
+              count: this.sim.drones.countAt(s),
+              cap: def.bay?.capacity ?? 0,
+            }
+          : null,
+      turret: def.turret && mine ? { crewed: this.sim.combat.crewed(s), ammo: s.ammo, mag: def.turret.mag } : null,
+      controllable: mine && CONTROLLABLE_STRUCTURES.includes(s.kind),
       recruit:
         s.kind === 'barracks' && mine
           ? RECRUITABLE.map((k) => {
@@ -442,8 +593,9 @@ export class Game implements GameActions {
     }
     if (enemyStructure >= 0) {
       const s = this.sim.structureById(enemyStructure);
-      if (s && STRUCTURE_DEFS[s.kind].armored && ids.every((id) => this.sim.units.charges[id] === 0)) {
-        this.toast('Only combat engineers can breach walls and gates');
+      const canBreach = (id: number): boolean => this.sim.units.charges[id] > 0 || !!UNIT_TYPES[this.sim.units.kind[id]].blast;
+      if (s && STRUCTURE_DEFS[s.kind].armored && !ids.some(canBreach)) {
+        this.toast('Only combat engineers, operators and strike drones can breach walls and gates');
         return;
       }
       this.sim.enqueue({ type: 'attackStructure', owner: this.player, ids, structure: enemyStructure });
@@ -722,8 +874,13 @@ export class Game implements GameActions {
   // ---------------------------------------------------------------- direct control
 
   takeControl(): void {
-    if (this.controlled >= 0) return;
+    if (this.controlled >= 0 || this.controlledStruct >= 0) return;
     if (this.placing) this.cancelPlacing();
+    const st = this.selectedStructure >= 0 ? this.sim.structureById(this.selectedStructure) : undefined;
+    if (st && st.owner === this.player && CONTROLLABLE_STRUCTURES.includes(st.kind)) {
+      this.takeStructure(st.id);
+      return;
+    }
     const u = this.sim.units;
     let pick = -1;
     for (const id of this.selected) {
@@ -737,6 +894,10 @@ export class Game implements GameActions {
       return;
     }
     this.controlled = pick;
+    this.controlledKind = u.kind[pick];
+    // The rest of the selection follows you as a squad.
+    this.followers = [...this.selected].filter((id) => id !== pick && u.isAlive(id));
+    if (this.followers.length) this.sim.enqueue({ type: 'follow', owner: this.player, ids: this.followers, leader: pick });
     this.selected.clear();
     this.selected.add(pick);
     // Face "up the screen" from the RTS view so the player keeps their bearings.
@@ -749,17 +910,89 @@ export class Game implements GameActions {
     this.pushHud();
   }
 
+  /** Aim a gun tower or searchlight yourself. */
+  private takeStructure(id: number): void {
+    const s = this.sim.structureById(id);
+    if (!s) return;
+    this.controlledStruct = id;
+    this.renderer.ots.yaw = s.aim;
+    this.renderer.ots.pitch = -0.1;
+    this.renderer.ots.aiming = false;
+    this.renderer.director.startSwoop();
+    this.input.enterControl();
+    if (s.kind === 'guntower' && !this.sim.combat.crewed(s)) this.toast('Put a soldier on the tower to fire the gun', 3);
+    setHud({ view: 'control' });
+    this.pushHud();
+  }
+
   exitControl(): void {
-    if (this.controlled < 0) return;
-    const id = this.controlled;
-    this.sim.enqueue({ type: 'release', owner: this.player, id });
-    this.controlled = -1;
-    const u = this.sim.units;
-    if (u.isAlive(id)) this.renderer.rts.lookAtSoft(u.x[id], u.z[id]);
+    if (this.controlledStruct >= 0) {
+      const s = this.sim.structureById(this.controlledStruct);
+      this.controlledStruct = -1;
+      if (s) this.renderer.rts.lookAtSoft(s.tx + s.w / 2, s.tz + s.h / 2);
+    } else if (this.controlled >= 0) {
+      const id = this.controlled;
+      this.sim.enqueue({ type: 'release', owner: this.player, id });
+      this.controlled = -1;
+      const u = this.sim.units;
+      if (this.followers.length) this.sim.enqueue({ type: 'stop', owner: this.player, ids: this.followers });
+      this.followers = [];
+      if (u.isAlive(id)) this.renderer.rts.lookAtSoft(u.x[id], u.z[id]);
+    } else {
+      return;
+    }
     this.renderer.director.startSwoop();
     this.renderer.ots.aiming = false;
     this.input.exitControl();
-    setHud({ view: 'rts', aiming: false });
+    setHud({ view: 'rts', aiming: false, control: null, hitMarker: null, damage: null });
+  }
+
+  reload(): void {
+    this.input.reloadReq = true;
+  }
+
+  plantCharge(): void {
+    this.input.plantReq = true;
+  }
+
+  toggleNvg(): void {
+    const c = this.controlled;
+    if (c < 0 || UNIT_TYPES[this.sim.units.kind[c]].nightVision < 0.8) return;
+    this.renderer.nvgEnabled = !this.renderer.nvgEnabled;
+    this.pushHud();
+  }
+
+  toggleSlowMo(): void {
+    this.slowMo = !this.slowMo;
+    try {
+      localStorage.setItem(SLOWMO_KEY, this.slowMo ? '1' : '0');
+    } catch {
+      /* storage unavailable */
+    }
+    setHud({ slowMo: this.slowMo });
+    this.toast(this.slowMo ? 'Slow motion on while in direct control' : 'Slow motion off');
+  }
+
+  /** Fire an illumination flare where the crosshair meets the ground. */
+  flareAtCrosshair(): void {
+    const r = this.renderer.canvas.getBoundingClientRect();
+    const g = this.renderer.pickGround(r.left + r.width / 2, r.top + r.height / 2);
+    if (!g) {
+      this.toast('Aim at the ground to fire a flare');
+      return;
+    }
+    this.sim.enqueue({ type: 'flare', owner: this.player, x: g.x, z: g.z });
+  }
+
+  launchDrone(kind: number): void {
+    const s = this.sim.structureById(this.selectedStructure);
+    if (!s || s.kind !== 'dronebay') return;
+    const why = this.sim.drones.launchBlocker(this.player, s.id, kind);
+    if (why) {
+      this.toast(why);
+      return;
+    }
+    this.sim.enqueue({ type: 'launchDrone', owner: this.player, bay: s.id, kind });
   }
 
   setFire(on: boolean): void {

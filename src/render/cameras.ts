@@ -78,17 +78,20 @@ export class RtsCameraRig {
   }
 }
 
-/** Over-the-shoulder camera for a possessed unit. */
+/** Over-the-shoulder camera for a possessed unit (or a chase camera behind a drone). */
 export class OtsCameraRig {
   yaw = 0;
   pitch = -0.08;
   aiming = false;
+  /** 'drone': centred chase camera that can look steeply down (to pick a dive target). */
+  mode: 'soldier' | 'drone' | 'turret' = 'soldier';
 
   constructor(private map: GameMap) {}
 
   addLook(dYaw: number, dPitch: number): void {
     this.yaw += dYaw;
-    this.pitch = Math.min(0.55, Math.max(-0.6, this.pitch + dPitch));
+    const min = this.mode === 'drone' ? -1.25 : -0.6;
+    this.pitch = Math.min(0.55, Math.max(min, this.pitch + dPitch));
   }
 
   forward(out: THREE.Vector3): THREE.Vector3 {
@@ -100,9 +103,11 @@ export class OtsCameraRig {
     const fz = Math.cos(this.yaw);
     const rx = -fz;
     const rz = fx;
-    const back = this.aiming ? 1.25 : 2.3;
-    const side = this.aiming ? 0.42 : 0.6;
-    const up = this.aiming ? 1.15 : 1.3;
+    const drone = this.mode === 'drone';
+    const turret = this.mode === 'turret';
+    const back = turret ? (this.aiming ? 0.7 : 1.0) : drone ? (this.aiming ? 1.4 : 2.8) : this.aiming ? 1.25 : 2.3;
+    const side = drone || turret ? 0 : this.aiming ? 0.42 : 0.6;
+    const up = turret ? 0.9 : drone ? 1.25 : this.aiming ? 1.15 : 1.3;
     // Camera boom: shorten it if a wall/building/rock sits between the unit and the camera.
     // (Units up on a wall or tower already look over everything around them.)
     const ex = -fx * back + rx * side;

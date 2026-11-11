@@ -75,6 +75,52 @@ export interface BuildingInfo {
   recruit: RecruitOption[] | null;
   /** Trade Post rows (null for other buildings). */
   trade: TradeRow[] | null;
+  /** Drone Bay: what it can launch and how many drones are up. */
+  drones: { options: DroneOption[]; count: number; cap: number } | null;
+  /** Gun tower status. */
+  turret: { crewed: boolean; ammo: number; mag: number } | null;
+  /** You can take direct control of it (gun towers, searchlights). */
+  controllable: boolean;
+}
+
+export interface DroneOption {
+  kind: number;
+  name: string;
+  blurb: string;
+  cost: string;
+  /** Why it can't launch right now (null = it can). */
+  blocker: string | null;
+}
+
+/** What you're possessing: a soldier, a drone, a gun tower or a searchlight. */
+export interface ControlInfo {
+  kind: 'soldier' | 'drone' | 'turret' | 'light';
+  name: string;
+  /** Health 0..1. */
+  hp: number;
+  /** Rounds in the magazine / belt and its size (mag 0 = no gun). */
+  ammo: number;
+  mag: number;
+  /** Reload progress 0..1 while reloading, else null. */
+  reload: number | null;
+  /** Breach charges carried. */
+  charges: number;
+  /** Charge-plant progress 0..1, else null. */
+  plant: number | null;
+  /** Drone battery 0..1 and seconds left (null for non-drones). */
+  battery: number | null;
+  batterySec: number;
+  /** Strike drone: fire = dive. */
+  strike: boolean;
+  diving: boolean;
+  /** Gun tower: a soldier is up top (it can fire). */
+  crewed: boolean;
+  nvgAvailable: boolean;
+  nvgOn: boolean;
+  /** Aiming through a real scope (big zoom). */
+  scope: boolean;
+  /** Soldiers following you. */
+  squad: number;
 }
 
 export interface TradeRow {
@@ -119,6 +165,13 @@ export interface HudState {
   targeting: 'flare' | null;
   controlledHp: number;
   controlledName: string;
+  control: ControlInfo | null;
+  /** Latest hit you scored (for the crosshair hit marker); `t` keys the animation. */
+  hitMarker: { kind: 'hit' | 'head' | 'kill'; t: number } | null;
+  /** Direction you were last hit from, relative to where you're looking (radians, 0 = ahead). */
+  damage: { angle: number; t: number } | null;
+  /** Slow time to half speed while in direct control. */
+  slowMo: boolean;
   aiming: boolean;
   pointerLocked: boolean;
   selectMode: boolean;
@@ -159,6 +212,10 @@ export const useHud = create<HudState>(() => ({
   targeting: null,
   controlledHp: 1,
   controlledName: '',
+  control: null,
+  hitMarker: null,
+  damage: null,
+  slowMo: false,
   aiming: false,
   pointerLocked: false,
   selectMode: false,

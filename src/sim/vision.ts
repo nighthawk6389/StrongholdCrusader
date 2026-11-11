@@ -1,6 +1,6 @@
 import { TICK_SEC } from './clock';
 import type { Sim } from './sim';
-import { STRUCTURE_DEFS } from './structures';
+import { STRUCTURE_DEFS, type Structure } from './structures';
 import { UNIT_TYPES } from './unitTypes';
 import { MAX_UNITS } from './units';
 
@@ -76,9 +76,10 @@ export class Vision {
     return Math.max(this.sim.cycle.daylight, art);
   }
 
-  /** Current beam heading of a searchlight (deterministic from sim time). */
-  beamAngle(rot: number, id: number): number {
-    return rot + Math.sin(((this.sim.elapsed + id * 1.7) * Math.PI * 2) / SWEEP_PERIOD) * SWEEP_AMP;
+  /** Current beam heading of a searchlight: where you point it, else a sweep (deterministic from sim time). */
+  beamAngle(s: Structure): number {
+    if (this.sim.tick < s.manualUntil) return s.aim;
+    return s.rot + Math.sin(((this.sim.elapsed + s.id * 1.7) * Math.PI * 2) / SWEEP_PERIOD) * SWEEP_AMP;
   }
 
   addFlare(x: number, z: number, owner: number): void {
@@ -93,7 +94,11 @@ export class Vision {
     }
     const u = this.sim.units;
     for (let i = 0; i < u.count; i++) if (this.reveal[i] > 0) this.reveal[i] = Math.max(0, this.reveal[i] - TICK_SEC);
-    if (this.timer-- > 0) return;
+    if (this.timer-- > 0) {
+      // A searchlight you're aiming by hand: keep its beam on the ground in step with you.
+      if (this.sim.structures.some((s) => s.manualUntil > this.sim.tick && STRUCTURE_DEFS[s.kind].light)) this.computeLight();
+      return;
+    }
     this.timer = VISION_TICKS - 1;
     this.computeLight();
     this.computeDetection();
@@ -149,7 +154,7 @@ export class Vision {
       if (!def.light || !s.powered) continue;
       if (def.light.kind === 'area') disc(cx, cz, def.light.range, 0.75);
       else if (def.light.kind === 'flood') cone(cx, cz, s.rot, FLOOD_COS, def.light.range, 1);
-      else cone(cx, cz, this.beamAngle(s.rot, s.id), Math.cos(BEAM_HALF), def.light.range, 1);
+      else cone(cx, cz, this.beamAngle(s), Math.cos(BEAM_HALF), def.light.range, 1);
     }
     for (const f of this.flares) disc(f.x, f.z, FLARE_RANGE, Math.min(1, f.ttl / 4));
   }
@@ -176,7 +181,7 @@ export class Vision {
       for (let i = 0; i < u.count; i++) {
         if (!u.alive[i] || u.owner[i] !== team) continue;
         const t = UNIT_TYPES[u.kind[i]];
-        observers.push({ x: u.x[i], z: u.z[i], sight: t.sight * (1 + 0.12 * u.elev[i]), nv: t.nightVision });
+        observers.push({ x: u.x[i], z: u.z[i], sight: t.sight * (1 + 0.12 * Math.min(u.elev[i], 3)), nv: t.nightVision });
       }
       for (const s of sim.structures) {
         if (s.owner !== team) continue;

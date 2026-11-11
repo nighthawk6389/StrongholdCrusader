@@ -469,7 +469,7 @@ function BuildingPanel({ game }: { game: GameActions }) {
   const hpFrac = b.maxHp ? b.hp / b.maxHp : 1;
   return (
     <div className="bottombar">
-      <div className={`panel selection building-panel ${b.recruit || b.recipes || b.trade ? 'wide' : ''}`}>
+      <div className={`panel selection building-panel ${b.recruit || b.recipes || b.trade || b.drones ? 'wide' : ''}`}>
         <div className="sel-label">
           <strong>{b.name}</strong>
           {b.enemy && <span className="badge bad">Hostile</span>}
@@ -486,7 +486,7 @@ function BuildingPanel({ game }: { game: GameActions }) {
             {b.hp}/{b.maxHp}
           </span>
         </div>
-        {!b.recruit && !b.trade && <div className="muted small">{b.description}</div>}
+        {!b.recruit && !b.trade && !b.drones && <div className="muted small">{b.description}</div>}
         {b.jobs > 0 && !b.enemy && (
           <div className="small">
             Workers {b.workers}/{b.jobs}
@@ -546,10 +546,41 @@ function BuildingPanel({ game }: { game: GameActions }) {
             ))}
           </div>
         )}
+        {b.turret && (
+          <div className="small">
+            {b.turret.crewed ? '✓ Crewed: the gun fires on its own' : '✗ No crew: send a soldier up the tower (via stairs and walls)'} · belt {b.turret.ammo}/
+            {b.turret.mag}
+          </div>
+        )}
+        {b.drones && (
+          <>
+            <div className="small">
+              Drones up {b.drones.count}/{b.drones.cap}
+              {!b.powered && <span className="muted"> · needs power to launch and recharge</span>}
+            </div>
+            <div className="recruit-grid">
+              {b.drones.options.map((d) => (
+                <div key={d.kind} className={`recruit-card ${d.blocker ? 'cant' : ''}`} title={d.blocker ?? d.blurb}>
+                  <div className="recruit-name">{d.name}</div>
+                  <div className="recruit-cost">{d.cost}</div>
+                  <div className="muted small drone-blurb">{d.blurb}</div>
+                  <Btn className="primary" disabled={!!d.blocker} onClick={() => game.launchDrone(d.kind)}>
+                    Launch
+                  </Btn>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
         {b.recruit && b.recruit.every((r) => r.blocker) && (
           <div className="muted small">{b.recruit[0].blocker}: weapons come from an Arms Factory (needs steel).</div>
         )}
         <div className="row">
+          {b.controllable && (
+            <Btn className="primary" onClick={() => game.takeControl()} title="Aim it yourself (F)">
+              Take control{!useHud.getState().isTouch && <kbd>F</kbd>}
+            </Btn>
+          )}
           {b.jobs > 0 && !b.enemy && <Btn onClick={() => game.toggleSelectedActive()}>{b.active ? '❚❚ Pause' : '▶ Resume'}</Btn>}
           {b.canDemolish && (
             <Btn className="danger" onClick={() => game.demolishSelected()} title={`Refund: ${b.refund}`}>
@@ -649,48 +680,122 @@ function RtsPanel({ game }: { game: GameActions }) {
 
 function ControlOverlay({ game }: { game: GameActions }) {
   const s = useHud();
+  const c = s.control;
   const hold = (on: boolean) => (e: ReactPointerEvent) => {
     e.preventDefault();
     game.setFire(on);
   };
+  const scoped = !!c?.scope && s.aiming;
+  const canFire = c ? (c.kind === 'drone' ? c.strike && !c.diving : c.mag > 0) : false;
+  const fireLabel = c?.kind === 'drone' ? 'Dive' : 'Fire';
+  const hint = (): string => {
+    if (!c) return '';
+    switch (c.kind) {
+      case 'drone':
+        return c.strike ? 'WASD fly · mouse look · LMB dive on the crosshair · Esc exit' : 'WASD fly · mouse look · spot for your troops · Esc exit';
+      case 'turret':
+        return 'Mouse aim · LMB fire · RMB zoom · R reload · Esc exit';
+      case 'light':
+        return 'Mouse to point the beam · Esc exit';
+      default:
+        return `WASD move · LMB fire · RMB aim · R reload${c.charges ? ' · G plant charge' : ''} · V flare${c.nvgAvailable ? ' · N night vision' : ''} · T slow-mo · Esc exit`;
+    }
+  };
   return (
     <>
-      <div className={`crosshair ${s.aiming ? 'aiming' : ''}`} />
+      {scoped ? <div className="scope" /> : <div className={`crosshair ${s.aiming ? 'aiming' : ''} ${c?.kind === 'light' ? 'light' : ''}`} />}
+      {s.hitMarker && <div key={s.hitMarker.t} className={`hitmarker ${s.hitMarker.kind}`} />}
+      {s.damage && (
+        <div key={s.damage.t} className="damage-dir" style={{ transform: `rotate(${s.damage.angle}rad)` }}>
+          <div className="damage-arc" />
+        </div>
+      )}
+      {c && c.hp < 0.35 && c.kind !== 'light' && <div className="hurt-vignette" style={{ opacity: 0.35 + (0.35 - c.hp) * 1.5 }} />}
       <div className="control-top">
         <div className="panel control-status">
-          <span className="muted">Controlling</span> <strong>{s.controlledName}</strong>
+          <span className="muted">Controlling</span> <strong>{c?.name ?? s.controlledName}</strong>
+          {c && c.squad > 0 && <span className="muted small"> · squad {c.squad}</span>}
           <div className="hpbar">
-            <div className="hpfill" style={{ width: `${Math.max(0, s.controlledHp) * 100}%` }} />
+            <div className="hpfill" style={{ width: `${Math.max(0, c?.hp ?? s.controlledHp) * 100}%` }} />
           </div>
+          {c?.battery !== null && c?.battery !== undefined && (
+            <div className={`battery ${c.battery < 0.2 ? 'low' : ''}`}>
+              <span>🔋 {c.batterySec}s</span>
+              <div className="hpbar">
+                <div className="hpfill battery-fill" style={{ width: `${c.battery * 100}%` }} />
+              </div>
+            </div>
+          )}
+          {c?.kind === 'turret' && !c.crewed && <div className="badge bad">Needs a soldier up top to fire</div>}
         </div>
         <Btn onClick={() => game.exitControl()} className="exit" title="Return to command view (Esc)">
           ✕ Exit
         </Btn>
       </div>
+      {c && c.mag > 0 && (
+        <div className={`panel ammo ${s.isTouch ? 'touch' : ''}`}>
+          <span className={`ammo-count ${c.ammo <= Math.max(1, c.mag * 0.2) ? 'low' : ''}`}>{c.reload !== null ? '··' : c.ammo}</span>
+          <span className="muted">/ {c.mag}</span>
+          {c.charges > 0 && <span className="charges" title="Breach charges">💣 {c.charges}</span>}
+          {c.reload !== null && (
+            <div className="reload-bar">
+              <div style={{ width: `${c.reload * 100}%` }} />
+            </div>
+          )}
+        </div>
+      )}
+      {c?.plant !== null && c?.plant !== undefined && (
+        <div className="panel plant-progress">
+          Planting charge…
+          <div className="reload-bar">
+            <div style={{ width: `${c.plant * 100}%` }} />
+          </div>
+        </div>
+      )}
+      {c?.diving && <div className="panel plant-progress">Diving…</div>}
       {s.isTouch ? (
         <div className="touch-controls">
-          <div className="move-hint">Drag here to move</div>
+          {c?.kind !== 'turret' && c?.kind !== 'light' && <div className="move-hint">Drag here to move</div>}
           <div className="action-btns">
-            <Btn onClick={() => game.toggleAim()} active={s.aiming} className="round aim">
-              Aim
-            </Btn>
-            <button
-              type="button"
-              className="btn round fire"
-              onPointerDown={hold(true)}
-              onPointerUp={hold(false)}
-              onPointerLeave={hold(false)}
-              onPointerCancel={hold(false)}
-            >
-              Fire
-            </button>
+            <div className="side-btns">
+              {c && c.mag > 0 && (
+                <Btn onClick={() => game.reload()} className="round small-round">
+                  Reload
+                </Btn>
+              )}
+              {c && c.charges > 0 && c.kind === 'soldier' && (
+                <Btn onClick={() => game.plantCharge()} className="round small-round">
+                  Charge
+                </Btn>
+              )}
+              {c?.nvgAvailable && (
+                <Btn onClick={() => game.toggleNvg()} active={c.nvgOn} className="round small-round">
+                  NVG
+                </Btn>
+              )}
+            </div>
+            {c?.kind !== 'light' && (
+              <Btn onClick={() => game.toggleAim()} active={s.aiming} className="round aim">
+                {c?.kind === 'drone' ? 'Zoom' : 'Aim'}
+              </Btn>
+            )}
+            {canFire && (
+              <button
+                type="button"
+                className="btn round fire"
+                onPointerDown={hold(true)}
+                onPointerUp={hold(false)}
+                onPointerLeave={hold(false)}
+                onPointerCancel={hold(false)}
+              >
+                {fireLabel}
+              </button>
+            )}
           </div>
         </div>
       ) : (
         <>
-          <div className="panel control-hint">
-            WASD move · mouse look · <b>LMB</b> fire · <b>RMB</b> aim · <b>Esc</b> exit
-          </div>
+          <div className="panel control-hint">{hint()}</div>
           {!s.pointerLocked && (
             <button type="button" className="panel lock-prompt" onClick={() => game.requestPointerLock()}>
               Click to aim with the mouse
@@ -788,6 +893,12 @@ function Help({ game }: { game: GameActions }) {
           dogs catch sneaking troops. <b>SF Operators</b> (night-ops kits) see in the dark, fire silenced, climb walls
           and carry a demolition charge. Destroy the enemy's generators and their lights go dark.
         </p>
+        <p className="muted">
+          <b>Direct control:</b> take over any soldier and the rest of the selection follows you. Aim for the head: it
+          does double damage (triple through a Marksman's scope). <b>Gun Towers</b> fire on their own while a soldier is
+          up top, or aim them yourself. A <b>Drone Bay</b> launches recon drones (thermal eyes in the sky) and strike
+          drones that dive onto a target.
+        </p>
         {s.isTouch ? (
           <ul>
             <li>
@@ -801,7 +912,8 @@ function Help({ game }: { game: GameActions }) {
               <b>enemy</b> to attack.
             </li>
             <li>
-              <b>Take control</b> of a soldier: left thumb moves, right thumb aims, hold <b>Fire</b>.
+              <b>Take control</b> of a soldier, drone, gun tower or searchlight: left thumb moves, right thumb aims, hold{' '}
+              <b>Fire</b>. Side buttons reload, plant charges and switch night vision.
             </li>
           </ul>
         ) : (
@@ -816,7 +928,9 @@ function Help({ game }: { game: GameActions }) {
               Drag to select soldiers. <b>Right-click</b>: ground = move, wall top = man it, enemy = attack.
             </li>
             <li>
-              <b>F</b> takes direct control: WASD + mouse, <b>LMB</b> fire, <b>RMB</b> aim, <b>Esc</b> exit. <b>P</b> pauses.
+              <b>F</b> takes direct control of a soldier, drone, gun tower or searchlight: WASD + mouse, <b>LMB</b> fire,{' '}
+              <b>RMB</b> aim, <b>R</b> reload, <b>G</b> plant a charge, <b>V</b> flare, <b>N</b> night vision, <b>T</b>{' '}
+              slow motion, <b>Esc</b> exit. <b>P</b> pauses.
             </li>
           </ul>
         )}
@@ -884,7 +998,7 @@ export function Hud({ game }: { game: GameActions }) {
       ) : (
         <ControlOverlay game={game} />
       )}
-      {toast && <div className="toast panel">{toast}</div>}
+      {toast && <div className={`toast panel ${view === 'control' ? 'low' : ''}`}>{toast}</div>}
       <NvgOverlay />
       <TauntRadio />
       {showHelp && <Help game={game} />}

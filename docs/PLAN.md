@@ -498,7 +498,7 @@ docs/
 | **M2** | **Fortifications & combat** ✅ | Wall lines (drag), watchtowers, gatehouses (only your troops pass, rotatable), stairs. Two-layer navigation (ground + wall tops) with a height range bonus and 50% cover. Scrap yard → steel → arms factory (selectable recipes) → armory → barracks recruiting (civilian + weapon + funds). Riflemen, machine gunners (suppression), marksmen, combat engineers (breach charges). Attack orders, building damage and destruction. "Hold the Line": 6 waves with breach-and-raid AI, victory/defeat, start menu. |
 | **M3** | **Skirmish AI v1** ✅ | 1v1 on a mirrored map against **Old Sarge**: a personality-driven build order with automatic rebuilding and resource-aware placement. He builds a blueprint fortress (front wall first, then the full ring with towers, gatehouses and stairs). He manages morale (food capacity, moderate taxes) and trades surplus at a new **Trade Post**. He picks weapons to match his army mix, recruits, garrisons the front wall, defends his base and launches growing assaults with engineers. He sends radio taunts. Easy/Normal/Hard. Against a passive player Normal wins in ~12 min; Hard in ~10. |
 | **M4** | **Night & stealth** ✅ | Per-team detection with the same rules for the AI. By day lookouts see the whole map. At night sight shrinks unless the target is lit, or the observer has night vision. Unseen enemies are hidden and can't be targeted. A sim light grid (floodlight cones you aim, sweeping searchlights, HQ lamps, burning buildings, $15 flares) drives smooth light pools on the ground. A power grid: the HQ plus staffed generators feed lights and sensors, oldest first, shown in a power gauge. Motion sensors catch movers; K9 kennels catch everyone. Unsilenced fire gives the shooter away for 3 s. Night shifts keep work at full speed for a morale cost. SF operators need a night-ops kit from the arms factory: night vision, stealth (harder still to spot when still), silenced rifles, wall climbing and a fast demolition charge. Night-vision optics when you take control of one. Old Sarge builds a night kit (floodlights, a searchlight, a sensor) and fires flares at intruders, and Hold the Line's night waves bring operators. |
-| **M5** | **Direct control, full** | Combat-ready over-the-shoulder control for all eligible units, including drones and wall guns |
+| **M5** | **Direct control, full** ✅ | Aimed fire is a 3D ray from the camera through the crosshair, against body and head hitboxes. Head hits ×2 (×3 through a scope). Walls, rocks and buildings stop rounds by height, so parapets cover bodies but not heads. Magazines and reloads, aim bloom, and a moving penalty. Charges planted by hand; operators climb walls by walking into them; anyone takes stairs both ways. The rest of the selection follows as a squad. **Gun Tower**: a crewed HMG that fires on its own and can be aimed by hand. Searchlights can be swept by hand. **Drone Bay**: recon drones (thermal, fly over walls) and strike drones (dive and explode) on batteries that recharge at the bay. HUD: hit, headshot and kill markers, damage direction, ammo, reload, battery, scope, optional slow motion; phone buttons for every action. Old Sarge builds gun towers and a drone bay and sends strike drones during assaults. |
 | **M6** | **Content & siege depth** | Vehicles, breaching vehicle, howitzers, mines, ditches, fuel trenches, PMC, 4–6 AI personalities, maps, Commander's Trail |
 | **M7** | **Polish & launch** | Final art/audio, tutorial, settings, saves, PWA polish, phone tuning, balance, final name |
 
@@ -529,8 +529,9 @@ docs/
 4. ~~**M2** fortifications & combat.~~ Done.
 5. ~~**M3** skirmish AI.~~ Done.
 6. ~~**M4** night & stealth.~~ Done.
-7. **M5** full direct control: combat-ready over-the-shoulder control for all eligible units, including
-   drones and wall guns.
+7. ~~**M5** full direct control.~~ Done.
+8. **M6** content & siege depth: vehicles, a breaching vehicle, howitzers, mines, ditches and fuel trenches, PMC
+   hires, more AI personalities and maps.
 
 ---
 

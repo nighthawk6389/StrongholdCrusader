@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { UNIT_TYPES } from '../sim/unitTypes';
 import type { GameMap } from '../sim/map';
 import type { SimEvent } from '../sim/sim';
 import type { Flare } from '../sim/vision';
@@ -117,7 +118,8 @@ export class Fx {
     }
   }
 
-  handle(events: SimEvent[], controlled: number): void {
+  /** `turret`: centre of the gun tower you're aiming by hand (its shots get the muzzle flash). */
+  handle(events: SimEvent[], controlled: number, turret: { x: number; z: number } | null = null): void {
     for (const e of events) {
       switch (e.type) {
         case 'shot': {
@@ -131,13 +133,22 @@ export class Fx {
           t.mesh.visible = true;
           t.life = t.max;
           if (!e.hit) this.puff(e.toX, e.toY - 0.3, e.toZ, 0xcdbb98, 0.35, 0.6);
-          if (e.unit === controlled) {
+          const mine =
+            (controlled >= 0 && e.unit === controlled) ||
+            (turret !== null && e.unit === -1 && Math.hypot(e.fromX - turret.x, e.fromZ - turret.z) < 1.6);
+          if (mine) {
             this.muzzleLight.position.set(e.fromX, e.fromY + 0.1, e.fromZ);
             this.muzzleLife = 0.05;
           }
           break;
         }
         case 'death':
+          if (UNIT_TYPES[e.kind]?.fly) {
+            // A drone shot down: a puff of smoke where it was, then it drops out of the sky.
+            this.puff(e.x, e.y, e.z, 0x3a3a3a, 0.7, 0.8);
+            this.blast(e.x, e.z);
+            break;
+          }
           this.puff(e.x, e.y + 0.4, e.z, 0x9c8f7a, 0.6, 0.6);
           this.addBody(e.x, e.z, e.y, e.owner, e.unit);
           break;

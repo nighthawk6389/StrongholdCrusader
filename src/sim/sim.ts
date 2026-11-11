@@ -1,5 +1,6 @@
 import { CYCLE_SEC, TICK_SEC, cycleInfo, phaseStartSec, type CycleInfo, type PhaseName } from './clock';
 import { Combat } from './combat';
+import { Drones } from './drones';
 import { Economy } from './economy';
 import { AT_GOAL, CLIMB_BASE, DIR_X, DIR_Z, FlowFieldCache, SWITCH_LAYER, fieldKey } from './flowfield';
 import { Vision } from './vision';
@@ -32,7 +33,32 @@ export type Command =
       yaw: number;
       fire: boolean;
       aim: boolean;
+      /** Aim pitch (radians, + up). With the camera position (ex, ey, ez) it defines the crosshair ray. */
+      pitch?: number;
+      ex?: number;
+      ey?: number;
+      ez?: number;
+      reload?: boolean;
+      /** Plant a breach charge on the enemy structure you're standing against. */
+      plant?: boolean;
     }
+  /** Aim a gun tower (fire needs a soldier up top) or a searchlight yourself. */
+  | {
+      type: 'controlStructure';
+      owner: number;
+      id: number;
+      yaw: number;
+      pitch?: number;
+      ex?: number;
+      ey?: number;
+      ez?: number;
+      fire: boolean;
+      aim: boolean;
+      reload?: boolean;
+    }
+  /** Keep these units close to `leader` (your squad while you possess one of them). */
+  | { type: 'follow'; owner: number; ids: number[]; leader: number }
+  | { type: 'launchDrone'; owner: number; bay: number; kind: number }
   | { type: 'release'; owner: number; id: number }
   | { type: 'build'; owner: number; kind: StructureKind; tx: number; tz: number; rot?: number }
   /** Wall line: flat [tx0, tz0, tx1, tz1, ...]. */
@@ -54,8 +80,23 @@ export type Command =
   | { type: 'assault'; owner: number; ids: number[]; target: number };
 
 export type SimEvent =
-  | { type: 'shot'; unit: number; owner: number; fromX: number; fromZ: number; fromY: number; toX: number; toZ: number; toY: number; hit: boolean }
-  | { type: 'death'; unit: number; owner: number; x: number; z: number; y: number }
+  | {
+      type: 'shot';
+      /** Firing unit, or -1 for a gun tower. */
+      unit: number;
+      owner: number;
+      fromX: number;
+      fromZ: number;
+      fromY: number;
+      toX: number;
+      toZ: number;
+      toY: number;
+      hit: boolean;
+      /** Unit hit (-1 = none) and whether it was a head hit (aimed fire). */
+      target?: number;
+      head?: boolean;
+    }
+  | { type: 'death'; unit: number; owner: number; x: number; z: number; y: number; kind: number }
   | { type: 'structureAdded'; id: number }
   | { type: 'structureRemoved'; id: number }
   | { type: 'structureDamaged'; id: number; x: number; z: number }
@@ -70,7 +111,10 @@ export type SimEvent =
   | { type: 'wave'; owner: number; index: number; total: number; size: number }
   | { type: 'result'; result: 'victory' | 'defeat'; reason: string }
   | { type: 'taunt'; owner: number; name: string; text: string }
-  | { type: 'flare'; owner: number; x: number; z: number };
+  | { type: 'flare'; owner: number; x: number; z: number }
+  | { type: 'launched'; owner: number; unit: number; kind: number }
+  /** Feedback for a player action that didn't happen (shown as a toast). */
+  | { type: 'notice'; owner: number; text: string };
 
 export interface SimInit {
   map: GameMap;
@@ -106,6 +150,7 @@ export class Sim {
   readonly economy: Economy;
   readonly combat: Combat;
   readonly vision: Vision;
+  readonly drones: Drones;
   director: WaveDirector | null = null;
   /** Player whose victory/defeat is tracked. */
   defender = 1;
@@ -133,6 +178,7 @@ export class Sim {
     this.economy = new Economy(this);
     this.combat = new Combat(this);
     this.vision = new Vision(this);
+    this.drones = new Drones(this);
     this.cellHead = new Int32Array(this.map.width * this.map.height).fill(-1);
     this.cellNext = new Int32Array(this.units.alive.length).fill(-1);
   }
@@ -203,6 +249,12 @@ export class Sim {
       status: def.jobs ? 'noWorker' : 'ok',
       recipe: 0,
       powered: !def.power || def.power > 0,
+      aim: rot,
+      cooldown: 0,
+      ammo: def.turret?.mag ?? 0,
+      reload: 0,
+      target: -1,
+      manualUntil: -1,
     };
     for (let z = tz; z < tz + h; z++) {
       for (let x = tx; x < tx + w; x++) {
@@ -433,6 +485,7 @@ export class Sim {
     }
 
     this.updateMovement();
+    this.drones.update();
     this.combat.update();
     this.resolveOverlaps();
     this.updateElevation();
@@ -454,19 +507,62 @@ export class Sim {
     const u = this.units;
     const owned = (id: number): boolean => u.isAlive(id) && u.owner[id] === c.owner && UNIT_TYPES[u.kind[id]].selectable;
     switch (c.type) {
-      case 'move':
-        this.issueMove(c.ids.filter(owned), c.x, c.z, c.layer ?? 0);
+      case 'move': {
+        const ids = c.ids.filter(owned);
+        this.issueMove(
+          ids.filter((id) => !UNIT_TYPES[u.kind[id]].fly),
+          c.x,
+          c.z,
+          c.layer ?? 0,
+        );
+        this.flyTo(
+          ids.filter((id) => UNIT_TYPES[u.kind[id]].fly),
+          c.x,
+          c.z,
+        );
         break;
+      }
+      case 'follow':
+        if (!u.isAlive(c.leader) || u.owner[c.leader] !== c.owner) break;
+        for (const id of c.ids) {
+          if (!owned(id) || id === c.leader || u.order[id] === Order.Control || u.order[id] === Order.Dive) continue;
+          u.order[id] = Order.Follow;
+          u.leader[id] = c.leader;
+          u.repath[id] = 0;
+          u.target[id] = -1;
+          u.targetStruct[id] = -1;
+        }
+        break;
+      case 'launchDrone': {
+        const why = this.drones.launchBlocker(c.owner, c.bay, c.kind);
+        if (why) this.emit({ type: 'buildFailed', owner: c.owner, reason: why });
+        else this.drones.launch(c.owner, c.bay, c.kind);
+        break;
+      }
+      case 'controlStructure': {
+        const s = this.structureById(c.id);
+        if (!s || s.owner !== c.owner) break;
+        const def = STRUCTURE_DEFS[s.kind];
+        if (!def.turret && def.light?.kind !== 'search') break;
+        s.manualUntil = this.tick + 3;
+        s.aim = wrapAngle(c.yaw);
+        if (def.turret) {
+          if (c.reload && s.ammo < def.turret.mag && s.reload === 0) s.reload = def.turret.reloadSec;
+          if (c.fire) this.combat.turretFire(s, c);
+        }
+        break;
+      }
       case 'stop':
         for (const id of c.ids) {
           if (!owned(id)) continue;
-          if (u.order[id] !== Order.Control) u.order[id] = Order.Idle;
+          if (u.order[id] !== Order.Control && u.order[id] !== Order.Dive) u.order[id] = Order.Idle;
         }
         break;
       case 'attack':
         if (!u.isAlive(c.target) || u.owner[c.target] === c.owner) break;
         for (const id of c.ids) {
-          if (!owned(id) || !UNIT_TYPES[u.kind[id]].armed) continue;
+          if (!owned(id) || u.order[id] === Order.Dive) continue;
+          if (!UNIT_TYPES[u.kind[id]].armed && !UNIT_TYPES[u.kind[id]].fly) continue;
           u.order[id] = Order.Attack;
           u.target[id] = c.target;
           u.repath[id] = 0;
@@ -479,6 +575,17 @@ export class Sim {
         for (const id of c.ids) {
           if (!owned(id)) continue;
           const t = UNIT_TYPES[u.kind[id]];
+          if (u.order[id] === Order.Dive) continue;
+          if (t.fly) {
+            // Strike drones fly in and blow it up; recon drones go and have a look.
+            if (t.blast) {
+              u.order[id] = Order.Breach;
+              u.targetStruct[id] = s.id;
+            } else {
+              this.flyTo([id], s.tx + s.w / 2, s.tz + s.h / 2);
+            }
+            continue;
+          }
           // Small arms can't hurt walls: only units with charges take those orders.
           if (armored && u.charges[id] === 0) continue;
           if (!t.armed) continue;
@@ -496,25 +603,42 @@ export class Sim {
         const id = c.id;
         if (!u.isAlive(id) || u.owner[id] !== c.owner) return;
         const t = UNIT_TYPES[u.kind[id]];
-        if (!t.controllable) return;
-        u.order[id] = Order.Control;
-        const len = Math.hypot(c.mx, c.mz);
-        const k = len > 1 ? 1 / len : 1;
-        const speed = t.speed * (c.aim ? 0.5 : 1) * (u.suppressed[id] > 0 ? 0.6 : 1);
-        u.vx[id] = c.mx * k * speed;
-        u.vz[id] = c.mz * k * speed;
-        u.heading[id] = wrapAngle(c.yaw);
-        if (c.fire && u.cooldown[id] === 0) {
-          const spread = c.aim ? 0.008 : 0.045;
-          this.combat.fire(id, c.yaw + (this.rng.next() - 0.5) * spread, t.range, t.damage, true, t.suppress);
-          u.cooldown[id] = t.cooldown;
+        if (!t.controllable || u.order[id] === Order.Dive) return;
+        if (u.order[id] !== Order.Control) {
+          u.order[id] = Order.Control;
+          u.target[id] = -1;
+          u.targetStruct[id] = -1;
+          u.field[id] = -1;
         }
+        const len = Math.hypot(c.mx, c.mz);
+        // Walking away cancels a charge you were planting.
+        if (u.plantTimer[id] > 0 && len > 0.2) {
+          u.plantTimer[id] = 0;
+          u.targetStruct[id] = -1;
+        }
+        const k = len > 1 ? 1 / len : 1;
+        const speed = t.speed * (c.aim && !t.fly ? 0.5 : 1) * (u.suppressed[id] > 0 ? 0.6 : 1);
+        u.vx[id] = u.plantTimer[id] > 0 ? 0 : c.mx * k * speed;
+        u.vz[id] = u.plantTimer[id] > 0 ? 0 : c.mz * k * speed;
+        u.heading[id] = wrapAngle(c.yaw);
+        if (t.fly) {
+          if (c.fire && t.blast) {
+            const base = this.map.heightAt(u.x[id], u.z[id]) + u.elev[id];
+            this.drones.diveAlong(id, c.ex ?? u.x[id], c.ey ?? base, c.ez ?? u.z[id], c.yaw, c.pitch ?? -0.5);
+          }
+          break;
+        }
+        if (c.reload) this.combat.startReload(id);
+        if (c.plant) this.combat.startPlant(id);
+        if (c.fire) this.combat.controlledFire(id, c, len > 0.2);
         break;
       }
       case 'release':
         if (u.isAlive(c.id) && u.owner[c.id] === c.owner && u.order[c.id] === Order.Control) {
           u.order[c.id] = Order.Idle;
           u.vx[c.id] = u.vz[c.id] = 0;
+          u.plantTimer[c.id] = 0;
+          u.targetStruct[c.id] = -1;
         }
         break;
       case 'build': {
@@ -557,7 +681,7 @@ export class Sim {
         }
         let near = false;
         for (let i = 0; i < u.count && !near; i++) {
-          if (u.alive[i] && u.owner[i] === c.owner && UNIT_TYPES[u.kind[i]].armed) {
+          if (u.alive[i] && u.owner[i] === c.owner && (UNIT_TYPES[u.kind[i]].armed || UNIT_TYPES[u.kind[i]].fly)) {
             near = Math.hypot(u.x[i] - c.x, u.z[i] - c.z) <= FLARE_REACH;
           }
         }
@@ -574,6 +698,21 @@ export class Sim {
         this.economy.player(c.owner).nightShift = c.on;
         break;
     }
+  }
+
+  /** Drones fly straight to the point, spread a little so they don't stack. */
+  private flyTo(ids: number[], x: number, z: number): void {
+    const u = this.units;
+    ids.forEach((id, k) => {
+      if (u.order[id] === Order.Control || u.order[id] === Order.Dive) return;
+      const a = k * 2.4;
+      const r = k === 0 ? 0 : 1.2 + k * 0.25;
+      u.order[id] = Order.Move;
+      u.goalX[id] = Math.min(Math.max(x + Math.cos(a) * r, 0.5), this.map.width - 0.5);
+      u.goalZ[id] = Math.min(Math.max(z + Math.sin(a) * r, 0.5), this.map.height - 0.5);
+      u.target[id] = -1;
+      u.targetStruct[id] = -1;
+    });
   }
 
   private issueMove(ids: number[], tx: number, tz: number, layer: number): void {
@@ -695,12 +834,15 @@ export class Sim {
     for (let i = 0; i < u.count; i++) {
       if (!u.alive[i]) continue;
       const order = u.order[i];
+      if (UNIT_TYPES[u.kind[i]].fly) continue; // see Drones
       if (order === Order.Control) {
-        this.moveWithCollision(i, u.vx[i] * TICK_SEC, u.vz[i] * TICK_SEC);
-        // Possessed units can use stairs by walking onto them.
-        const tile = this.map.idx(Math.floor(u.x[i]), Math.floor(u.z[i]));
-        if (this.map.stairs[tile] && u.layer[i] === 0 && this.map.deck[tile]) u.layer[i] = 1;
+        this.controlMove(i);
+        this.combat.tickPlant(i);
         if (u.cooldown[i] > 0) u.cooldown[i]--;
+        continue;
+      }
+      if (order === Order.Follow) {
+        this.follow(i);
         continue;
       }
       if (order !== Order.Move) {
@@ -713,6 +855,96 @@ export class Sim {
         u.vx[i] = u.vz[i] = 0;
       }
     }
+  }
+
+  /**
+   * Possessed movement: slide along obstacles, take stairs up and down by walking onto/off them,
+   * and (climbers) scale a wall by walking into it or drop off one by walking over the edge.
+   */
+  private controlMove(i: number): void {
+    const u = this.units;
+    const map = this.map;
+    const dx = u.vx[i] * TICK_SEC;
+    const dz = u.vz[i] * TICK_SEC;
+    const len = Math.hypot(dx, dz);
+    if (len > 0) {
+      const moved = this.moveWithCollision(i, dx, dz);
+      if (moved < len * 0.4) {
+        // Blocked: maybe step onto the other layer ahead.
+        const t = UNIT_TYPES[u.kind[i]];
+        const ax = u.x[i] + (dx / len) * 0.6;
+        const az = u.z[i] + (dz / len) * 0.6;
+        const tx = Math.floor(ax);
+        const tz = Math.floor(az);
+        const here = map.idx(Math.floor(u.x[i]), Math.floor(u.z[i]));
+        if (map.inBounds(tx, tz)) {
+          const ahead = map.idx(tx, tz);
+          if (u.layer[i] === 0 && t.climber && map.deck[ahead] && map.walkable(tx, tz, 1, u.owner[i])) {
+            u.layer[i] = 1;
+            u.x[i] = ax;
+            u.z[i] = az;
+          } else if (
+            u.layer[i] === 1 &&
+            !map.deck[ahead] &&
+            (t.climber || map.stairs[here]) &&
+            map.walkableAt(ax + (dx / len) * 0.25, az + (dz / len) * 0.25, 0, u.owner[i])
+          ) {
+            u.layer[i] = 0;
+            u.x[i] = ax + (dx / len) * 0.25;
+            u.z[i] = az + (dz / len) * 0.25;
+          }
+        }
+      }
+    }
+    // Walking onto stairs takes you up.
+    const tile = map.idx(Math.floor(u.x[i]), Math.floor(u.z[i]));
+    if (map.stairs[tile] && u.layer[i] === 0 && map.deck[tile]) u.layer[i] = 1;
+  }
+
+  /** Squad follower: keep a slot behind the leader, re-pathing as they move. */
+  private follow(i: number): void {
+    const u = this.units;
+    const l = u.leader[i];
+    if (!u.isAlive(l) || u.owner[l] !== u.owner[i]) {
+      u.order[i] = Order.Idle;
+      u.leader[i] = -1;
+      u.vx[i] = u.vz[i] = 0;
+      return;
+    }
+    // Flank and trail the leader, clear of the over-the-shoulder camera (behind-right of them).
+    const slot = i % 6;
+    const SLOTS = [
+      [-1.7, 0.6],
+      [1.9, 0.9],
+      [-2.6, 2.2],
+      [2.8, 2.6],
+      [-1.2, 3.8],
+      [1.4, 4.2],
+    ];
+    const [lat, back] = SLOTS[slot];
+    const h = u.heading[l];
+    const sx = u.x[l] - Math.sin(h) * back + Math.cos(h) * lat;
+    const sz = u.z[l] - Math.cos(h) * back - Math.sin(h) * lat;
+    const near = Math.hypot(u.x[l] - u.x[i], u.z[l] - u.z[i]);
+    if (near < 3 && u.layer[i] === u.layer[l]) {
+      // Close enough: drift toward the slot, don't crowd the leader.
+      const d = Math.hypot(sx - u.x[i], sz - u.z[i]);
+      if (d > 0.5 && this.map.walkableAt(sx, sz, u.layer[i], u.owner[i])) {
+        const sp = UNIT_TYPES[u.kind[i]].speed * 0.8;
+        u.vx[i] = ((sx - u.x[i]) / d) * sp;
+        u.vz[i] = ((sz - u.z[i]) / d) * sp;
+        this.moveWithCollision(i, u.vx[i] * TICK_SEC, u.vz[i] * TICK_SEC);
+      } else {
+        u.vx[i] = u.vz[i] = 0;
+      }
+      return;
+    }
+    if (u.repath[i] === 0 || u.field[i] < 0) {
+      const ok = this.map.walkableAt(sx, sz, u.layer[l], u.owner[i]);
+      this.setDestination(i, ok ? sx : u.x[l], ok ? sz : u.z[l], u.layer[l]);
+      u.repath[i] = 15;
+    }
+    if (this.navigate(i) !== Nav.Moving) u.vx[i] = u.vz[i] = 0;
   }
 
   /** Move with per-axis sliding against tiles this unit can't occupy. Returns distance moved. */
@@ -750,7 +982,7 @@ export class Sim {
     const u = this.units;
     const map = this.map;
     for (let i = 0; i < u.count; i++) {
-      if (!u.alive[i]) continue;
+      if (!u.alive[i] || UNIT_TYPES[u.kind[i]].fly) continue;
       let target = 0;
       if (u.layer[i] === 1) {
         const tx = Math.floor(u.x[i]);
@@ -781,7 +1013,7 @@ export class Sim {
     this.rebuildSpatialHash();
 
     for (let i = 0; i < u.count; i++) {
-      if (!u.alive[i]) continue;
+      if (!u.alive[i] || UNIT_TYPES[u.kind[i]].fly) continue;
       const ri = UNIT_TYPES[u.kind[i]].radius;
       const cx = Math.floor(u.x[i]);
       const cz = Math.floor(u.z[i]);
@@ -791,7 +1023,7 @@ export class Sim {
           const gz = cz + oz;
           if (gx < 0 || gz < 0 || gx >= w || gz >= map.height) continue;
           for (let j = this.cellHead[gz * w + gx]; j >= 0; j = this.cellNext[j]) {
-            if (j <= i || u.layer[j] !== u.layer[i]) continue;
+            if (j <= i || u.layer[j] !== u.layer[i] || UNIT_TYPES[u.kind[j]].fly) continue;
             const rj = UNIT_TYPES[u.kind[j]].radius;
             let dx = u.x[j] - u.x[i];
             let dz = u.z[j] - u.z[i];
@@ -893,7 +1125,10 @@ export class Sim {
       mix(u32[0]);
       mix(u.order[i]);
       mix(u.layer[i]);
+      mix(u.ammo[i]);
+      mix(Math.round(u.battery[i] * 10));
     }
+    for (const s of this.structures) if (STRUCTURE_DEFS[s.kind].turret) mix(s.ammo * 1000 + Math.round(s.aim * 100));
     return h >>> 0;
   }
 }

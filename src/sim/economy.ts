@@ -63,7 +63,7 @@ const CHOP_SEC = 3;
 const ARRIVE_R = 1.25;
 /** Fraction of cost refunded on demolish. */
 const REFUND = 0.5;
-const DEFENSE_KINDS: StructureKind[] = ['wall', 'tower', 'gate', 'stairs'];
+const DEFENSE_KINDS: StructureKind[] = ['wall', 'tower', 'gate', 'stairs', 'guntower'];
 
 export interface MoraleFactor {
   key: string;

@@ -4,6 +4,8 @@ import type { Controller, Sim, SimEvent } from './sim';
 import { GEAR_RES, Res, STRUCTURE_DEFS, footprint, type ResId, type StructureKind } from './structures';
 import { RATION_LEVELS } from './economy';
 import { RECRUITABLE, UNIT_TYPES, UnitKind } from './unitTypes';
+import { RETURN_AT } from './drones';
+import { CYCLE_SEC } from './clock';
 import { Order, Task } from './units';
 
 // ------------------------------------------------------------------ tuning
@@ -60,7 +62,7 @@ export const DIFFICULTY: Record<Difficulty, AiTuning> = {
 type Near = 'trees' | 'fertile' | 'rock' | 'home' | 'producers';
 
 interface BuildStep {
-  kind: StructureKind | 'fortFront' | 'fortRing' | 'nightKit';
+  kind: StructureKind | 'fortFront' | 'fortRing' | 'nightKit' | 'gunTowers';
   /** Target number of this kind (cumulative), so destroyed buildings get rebuilt. */
   count?: number;
   near?: Near;
@@ -95,6 +97,9 @@ export const OLD_SARGE: Personality = {
     { kind: 'depot', count: 2, near: 'producers' },
     { kind: 'house', count: 4, near: 'home' },
     { kind: 'orchard', count: 2, near: 'fertile' },
+    { kind: 'gunTowers' },
+    { kind: 'generator', count: 2, near: 'home' },
+    { kind: 'dronebay', count: 1, near: 'home' },
     { kind: 'fortRing' },
     { kind: 'scrapyard', count: 2, near: 'home' },
     { kind: 'house', count: 5, near: 'home' },
@@ -111,6 +116,10 @@ export const OLD_SARGE: Personality = {
     lose: ['Well... you earned it. Carry on.'],
   },
 };
+
+/** Build steps that only go ahead with steel to spare. */
+const EXTRAS: StructureKind[] = ['generator', 'dronebay'];
+const SPARE_STEEL = 18;
 
 const RECIPE_FOR: Partial<Record<number, number>> = {
   [UnitKind.Rifleman]: 0,
@@ -188,6 +197,7 @@ export class AiCommander implements Controller {
     this.build(sim);
     this.military(sim);
     this.flares(sim);
+    this.drones(sim);
   }
 
   private say(sim: Sim, kind: keyof Personality['lines']): void {
@@ -313,9 +323,15 @@ export class AiCommander implements Controller {
         if (!this.nightKit(sim)) return;
         continue;
       }
+      if (step.kind === 'gunTowers') {
+        if (!this.gunTowers(sim)) return;
+        continue;
+      }
       if (this.impossible.has(`${step.kind}:${step.count}`)) continue;
       if (this.count(sim, step.kind) >= (step.count ?? 1)) continue;
       const def = STRUCTURE_DEFS[step.kind];
+      // Extras that eat steel wait for a surplus instead of holding up the build (weapons come first).
+      if (EXTRAS.includes(step.kind) && (!p.canAfford(def.cost) || p.stock[Res.Steel] < SPARE_STEEL + (def.cost.steel ?? 0))) continue;
       if (!p.canAfford(def.cost)) return; // save up for the next step
       if (!this.tryBuild(sim, step.kind, step.near ?? 'home')) {
         // Fall back to a ranch when there's no fertile ground in reach.
@@ -351,9 +367,9 @@ export class AiCommander implements Controller {
         this.lastBuildAt = sim.elapsed;
         return false;
       }
-      if (check.reason !== 'Enemies in the way' && !check.reason?.startsWith('Not enough')) {
-        this.impossible.add(`${pc.kind}@${pc.tx},${pc.tz}`);
-      }
+      // Stairs wait for their wall; enemies move; money comes in. Anything else won't fix itself.
+      const retry = check.reason === 'Enemies in the way' || check.reason?.startsWith('Not enough') || check.reason?.startsWith('Must be right next');
+      if (!retry) this.impossible.add(`${pc.kind}@${pc.tx},${pc.tz}`);
     }
     const per = STRUCTURE_DEFS.wall.cost.concrete ?? 1;
     const budget = Math.floor(p.stock[Res.Concrete] / per);
@@ -371,6 +387,37 @@ export class AiCommander implements Controller {
       }
     }
     return false;
+  }
+
+  /** Where the two gun towers go: just inside the front wall, touching it, either side of the gate. */
+  private gunTowerSpots(): { tx: number; tz: number }[] {
+    if (this.difficulty === 'easy') return [];
+    const tx = this.front === 'west' ? this.home.x - this.ring + 1 : this.home.x + this.ring - 2;
+    return [
+      { tx, tz: this.home.z - 4 },
+      { tx, tz: this.home.z + 3 },
+    ];
+  }
+
+  /** Normal and up: two gun towers by the front gate. Returns true when done (or impossible). */
+  private gunTowers(sim: Sim): boolean {
+    const p = sim.economy.player(this.owner);
+    for (const g of this.gunTowerSpots()) {
+      const key = `guntower@${g.tx},${g.tz}`;
+      if (this.impossible.has(key)) continue;
+      const s = sim.structureAt(g.tx, g.tz);
+      if (s && s.kind === 'guntower' && s.owner === this.owner) continue;
+      const cost = STRUCTURE_DEFS.guntower.cost;
+      if (!p.canAfford(cost) || p.stock[Res.Steel] < SPARE_STEEL + (cost.steel ?? 0)) return true; // later
+      const check = sim.economy.canPlace(this.owner, 'guntower', g.tx, g.tz);
+      if (check.ok) {
+        sim.enqueue({ type: 'build', owner: this.owner, kind: 'guntower', tx: g.tx, tz: g.tz });
+        this.lastBuildAt = sim.elapsed;
+        return false;
+      }
+      if (check.reason !== 'Enemies in the way') this.impossible.add(key);
+    }
+    return true;
   }
 
   /** Lights and a sensor around the walls (front first). Returns true when all are up. */
@@ -642,17 +689,91 @@ export class AiCommander implements Controller {
     return kind === UnitKind.Marksman ? 0 : kind === UnitKind.Gunner ? 1 : kind === UnitKind.Rifleman ? 2 : 3;
   }
 
-  /** Built wall-top tiles on the side facing the enemy. */
+  /** Built wall-top tiles on the side facing the enemy (gun towers first: they need a crew to fire). */
   private frontDeckTiles(sim: Sim): { x: number; z: number }[] {
     const out: { x: number; z: number }[] = [];
+    const guns: { x: number; z: number }[] = [];
     const map = sim.map;
+    for (const g of this.gunTowerSpots()) {
+      const s = sim.structureAt(g.tx, g.tz);
+      if (s && s.kind === 'guntower' && s.owner === this.owner) guns.push({ x: s.tx + 1, z: s.tz + 1 });
+    }
     for (const pc of this.pieces) {
       if (pc.kind !== 'wall' || pc.side !== this.front) continue;
       const i = map.idx(pc.tx, pc.tz);
       if (map.deck[i] && map.structOwner[i] === this.owner) out.push({ x: pc.tx + 0.5, z: pc.tz + 0.5 });
     }
     // Spread defenders out from the gate.
-    return out.sort((a, b) => Math.abs(a.z - this.home.z) - Math.abs(b.z - this.home.z)).filter((_, k) => k % 2 === 0);
+    return [...guns, ...out.sort((a, b) => Math.abs(a.z - this.home.z) - Math.abs(b.z - this.home.z)).filter((_, k) => k % 2 === 0)];
+  }
+
+  private lastDroneAt = -1e9;
+  private reconNight = -1;
+
+  /**
+   * Drones: a recon drone watches the front approach at night; during an assault (Normal and up) a
+   * strike drone goes after a gun tower or a defender on the walls.
+   */
+  private drones(sim: Sim): void {
+    const u = sim.units;
+    const bay = sim.structures.find((s) => s.owner === this.owner && s.kind === 'dronebay');
+    const night = sim.cycle.daylight < 0.35;
+    const f = this.front === 'west' ? -1 : 1;
+    const watch = { x: this.home.x + f * (this.ring + 12), z: this.home.z };
+    let recon = 0;
+    let strike = 0;
+    for (let i = 0; i < u.count; i++) {
+      if (!u.alive[i] || u.owner[i] !== this.owner) continue;
+      const k = u.kind[i];
+      if (k !== UnitKind.ReconDrone && k !== UnitKind.StrikeDrone) continue;
+      const busy = u.order[i] !== Order.Idle || u.battery[i] < RETURN_AT + 20;
+      if (k === UnitKind.ReconDrone) {
+        recon++;
+        if (busy) continue;
+        if (night) sim.enqueue({ type: 'move', owner: this.owner, ids: [i], x: watch.x, z: watch.z });
+      } else {
+        strike++;
+        if (busy) continue;
+        const tgt = this.strikeTarget(sim);
+        if (tgt.structure >= 0) sim.enqueue({ type: 'attackStructure', owner: this.owner, ids: [i], structure: tgt.structure });
+        else if (tgt.unit >= 0) sim.enqueue({ type: 'attack', owner: this.owner, ids: [i], target: tgt.unit });
+      }
+    }
+    if (!bay || !bay.powered || sim.elapsed - this.lastDroneAt < 40) return;
+    const p = sim.economy.player(this.owner);
+    if (p.funds < 150) return;
+    let kind = -1;
+    const nightNo = Math.floor(sim.timeSec / CYCLE_SEC);
+    if (night && recon === 0 && this.reconNight !== nightNo) {
+      kind = UnitKind.ReconDrone;
+      this.reconNight = nightNo; // one recon drone a night: if it's shot down, so be it
+    } else if (this.difficulty !== 'easy' && this.attackGroup.length > 0 && strike === 0 && p.stock[Res.Charges] >= 3) {
+      // Strike drones use a breach kit: only with kits to spare for the engineers.
+      const tgt = this.strikeTarget(sim);
+      if (tgt.structure >= 0 || tgt.unit >= 0) kind = UnitKind.StrikeDrone;
+    }
+    if (kind < 0 || sim.drones.launchBlocker(this.owner, bay.id, kind)) return;
+    this.lastDroneAt = sim.elapsed;
+    sim.enqueue({ type: 'launchDrone', owner: this.owner, bay: bay.id, kind });
+  }
+
+  /** Best strike-drone target: a crewed enemy gun tower, else a defender we can see on a wall top. */
+  private strikeTarget(sim: Sim): { structure: number; unit: number } {
+    const u = sim.units;
+    for (const s of sim.structures) {
+      if (s.owner === this.enemy && s.kind === 'guntower' && sim.combat.crewed(s)) return { structure: s.id, unit: -1 };
+    }
+    let best = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < u.count; i++) {
+      if (!u.alive[i] || u.owner[i] !== this.enemy || u.layer[i] !== 1 || !sim.vision.isSeen(this.owner, i)) continue;
+      const d = Math.hypot(u.x[i] - this.home.x, u.z[i] - this.home.z);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return { structure: -1, unit: best };
   }
 
   private nearestIntruder(sim: Sim, radius: number): number {

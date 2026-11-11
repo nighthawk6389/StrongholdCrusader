@@ -11,8 +11,8 @@ soldiers.
 
 - **Design & technical plan:** [docs/PLAN.md](docs/PLAN.md)
 - **Status:** **M0** (foundations), **M1** (economy), **M2** (fortifications & combat), **M3**
-  (skirmish vs an AI commander) and **M4** (night & stealth) are playable. Next up is **M5** (full direct
-  control).
+  (skirmish vs an AI commander), **M4** (night & stealth) and **M5** (full direct control: aimed fire, gun
+  towers, drones) are playable. Next up is **M6** (content & siege depth).
 
 ## Play locally
 
@@ -82,6 +82,22 @@ Fight at night:
   - Unsilenced gunfire gives the shooter away for a few seconds.
 - **Night vision:** take control of an SF Operator or a Marksman at night to see through their optics.
 
+Take direct control:
+- **Any soldier:** press **F** (or tap **Take control**) and the rest of your selection follows you as a squad.
+  Shots go where the crosshair is. Head hits do double damage (triple through a Marksman's scope), and wall
+  parapets cover a defender's body but not their head. Magazines run dry, so reload (**R**). Engineers and
+  operators plant charges by hand (**G**), operators climb walls by walking into them, and anyone can take the
+  stairs up and down.
+- **Gun Tower:** a watchtower with a heavy machine gun. It fires on its own while one of your soldiers is up top.
+  Select it and take control to aim it yourself.
+- **Searchlight:** take control to sweep the beam by hand.
+- **Drone Bay:** launches **recon drones** (thermal camera; fly over walls and spot for your troops) and **strike
+  drones** (dive onto a unit, building or wherever you point and explode; they need a breach kit). Drones run on
+  batteries: they fly home to recharge when low, and crash if they run flat. Soldiers and gun towers shoot them
+  down.
+- Old Sarge builds gun towers by his gate and a drone bay. On Normal and Hard he sends strike drones at your gun
+  towers and wall defenders.
+
 ## Controls
 
 | | Desktop | Phone (landscape) |
@@ -95,7 +111,7 @@ Fight at night:
 | Select | Click, or drag a box. Double-click selects the same type. | Tap. Double-tap selects the same type. **▢ Box** toggles drag-select. |
 | Move | Right-click the ground | Tap the ground |
 | Camera | WASD / screen edges pan, wheel zooms, Q/E or right/middle-drag rotate | Drag pans, pinch zooms, twist rotates |
-| Take control | **F** (WASD + mouse, LMB fire, RMB aim, Esc exits) | **Take control**, then left thumb moves, right thumb aims, **Fire**/**Aim** buttons |
+| Take control | **F** on a soldier, drone, gun tower or searchlight: WASD + mouse, LMB fire (drone: dive), RMB aim/scope, R reload, G plant charge, V flare at the crosshair, N night vision, T slow motion, Esc/Tab exits | **Take control**, then left thumb moves, right thumb aims; **Fire**, **Aim**, **Reload**, **Charge** and **NVG** buttons |
 | Flare | **V** or **Flare** with soldiers selected, then click (Esc cancels) | **Flare**, then tap |
 | Other | Ctrl+1–9 / 1–9 groups, Space centers, H returns to base, P pauses | **Base**, **All**, **Time** (jump to dawn/day/dusk/night) |
 
@@ -105,7 +121,7 @@ Fight at night:
 |---|---|
 | `npm run dev` | Vite dev server |
 | `npm run build` | Typecheck + production build to `dist/` |
-| `npm test` | Simulation unit tests (Vitest): economy, fortifications, combat, waves, AI, night & stealth, determinism, perf |
+| `npm test` | Simulation unit tests (Vitest): economy, fortifications, combat, waves, AI, night & stealth, direct control, drones, determinism, perf |
 | `HOLD_REPORT=1 npx vitest run tests/hold-report.test.ts --silent=false` | Prints a simulated Hold the Line match for balancing (add `GARRISON=1` to man the walls) |
 | `AI_REPORT=1 DIFF=normal npx vitest run tests/ai-report.test.ts --silent=false` | Prints a 20-minute skirmish timeline of the AI against a passive player |
 | `npm run preview` | Serve the production build |
@@ -120,7 +136,7 @@ Fight at night:
 ## Code layout
 
 ```
-src/sim/      Pure TypeScript simulation: map gen, layered flow fields, units, economy, combat, vision, waves, AI (no DOM/three)
+src/sim/      Pure TypeScript simulation: map gen, layered flow fields, units, economy, combat, vision, drones, waves, AI (no DOM/three)
 src/render/   Three.js renderer: terrain, structures, instanced soldiers, day/night, FX, cameras
 src/input/    Mouse / keyboard / touch → camera and commands; virtual joystick
 src/ui/       React HUD (zustand store)

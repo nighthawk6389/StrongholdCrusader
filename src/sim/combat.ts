@@ -1,7 +1,7 @@
 import { TICK_SEC } from './clock';
 import { Block } from './map';
-import { Nav, type Sim } from './sim';
-import { STRUCTURE_DEFS, type Structure } from './structures';
+import { Nav, turnToward, wrapAngle, type Sim } from './sim';
+import { STRUCTURE_DEFS, structureTop, type Structure } from './structures';
 import { UNIT_TYPES } from './unitTypes';
 import { MAX_UNITS, Order } from './units';
 import { NOISE_SEC } from './vision';
@@ -18,6 +18,72 @@ const DECK_SPREAD = 1.6;
 const RAID_COOLDOWN = 300;
 /** How far wave troops will wander to raid soft buildings when walls stop them. */
 const RAID_RADIUS = 36;
+
+// Hitboxes for aimed (direct-control) fire, in tiles above the unit's feet.
+const BODY_H = 0.86;
+const HEAD_Y = 0.97;
+const HEAD_R = 0.14;
+const FLYER_R = 0.42;
+/** Rocks stop shots below this height above the ground. */
+const ROCK_H = 1.6;
+
+/** A direct-control shot: a ray from the camera through the crosshair. */
+export interface AimedShot {
+  /** Firing unit, or -1 for a gun tower. */
+  shooter: number;
+  owner: number;
+  /** Ray origin (the camera) and direction. */
+  ex: number;
+  ey: number;
+  ez: number;
+  yaw: number;
+  pitch: number;
+  /** Ray distance at which the shot actually leaves the muzzle (skips anything behind the gun). */
+  startT: number;
+  range: number;
+  damage: number;
+  headshot: number;
+  suppress: number;
+  structDamage: number;
+  /** Tracer start. */
+  mx: number;
+  my: number;
+  mz: number;
+  /** Ignore structures within `nearR` of (nearX, nearZ): the wall or tower you're standing on. */
+  nearX: number;
+  nearZ: number;
+  nearR: number;
+}
+
+export interface AimedResult {
+  unit: number;
+  head: boolean;
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** Distance along a unit ray to a sphere, or Infinity. */
+function raySphere(
+  ox: number,
+  oy: number,
+  oz: number,
+  dx: number,
+  dy: number,
+  dz: number,
+  cx: number,
+  cy: number,
+  cz: number,
+  r: number,
+): number {
+  const lx = cx - ox;
+  const ly = cy - oy;
+  const lz = cz - oz;
+  const tca = lx * dx + ly * dy + lz * dz;
+  const d2 = lx * lx + ly * ly + lz * lz - tca * tca;
+  if (d2 > r * r) return Infinity;
+  return tca - Math.sqrt(r * r - d2);
+}
 
 /**
  * Combat: automatic engagement, focused attacks, structure attacks (incl. engineer breach charges)
@@ -45,6 +111,14 @@ export class Combat {
       if (!u.alive[i]) continue;
       if (u.suppressed[i] > 0) u.suppressed[i] = Math.max(0, u.suppressed[i] - TICK_SEC);
       const type = UNIT_TYPES[u.kind[i]];
+      if (u.bloom[i] > 0) u.bloom[i] = Math.max(0, u.bloom[i] - 0.09 * TICK_SEC);
+      if (u.reload[i] > 0) {
+        u.reload[i] -= TICK_SEC;
+        if (u.reload[i] <= 0) {
+          u.reload[i] = 0;
+          u.ammo[i] = type.mag;
+        }
+      }
       if (!type.armed || u.order[i] === Order.Control) continue;
       if (u.cooldown[i] > 0) u.cooldown[i]--;
       if (u.repath[i] > 0) u.repath[i]--;
@@ -60,9 +134,10 @@ export class Combat {
           this.doAssault(i);
           break;
         default:
-          this.autoEngage(i, u.order[i] === Order.Move);
+          this.autoEngage(i, u.order[i] === Order.Move || u.order[i] === Order.Follow);
       }
     }
+    this.updateTurrets();
   }
 
   // ------------------------------------------------------------------ targeting
@@ -109,6 +184,8 @@ export class Combat {
   los(i: number, j: number): boolean {
     const u = this.sim.units;
     const map = this.sim.map;
+    // Nothing on the ground hides a drone (or what a drone looks down on).
+    if (UNIT_TYPES[u.kind[i]].fly || UNIT_TYPES[u.kind[j]].fly) return true;
     const elevated = u.layer[i] === 1 || u.layer[j] === 1;
     const x0 = u.x[i];
     const z0 = u.z[i];
@@ -412,7 +489,7 @@ export class Combat {
     return best;
   }
 
-  private explode(s: Structure, i: number): void {
+  explode(s: Structure, i: number): void {
     const sim = this.sim;
     const u = sim.units;
     // Blast point: the spot on the structure closest to the engineer.
@@ -453,14 +530,30 @@ export class Combat {
    * standing on a wall top can still be hit). Returns the unit hit, or -1.
    */
   fire(i: number, yaw: number, range: number, damage: number, aimed: boolean, suppress: number): number {
+    const u = this.sim.units;
+    const y = this.sim.map.heightAt(u.x[i], u.z[i]) + u.elev[i] + MUZZLE_Y;
+    return this.fireFrom(i, u.owner[i], u.x[i], u.z[i], y, u.layer[i] === 1, yaw, range, damage, aimed, suppress);
+  }
+
+  /** Flat hitscan from a point (soldiers and gun towers). `shooter` is the firing unit, or -1. */
+  fireFrom(
+    shooter: number,
+    owner: number,
+    ox: number,
+    oz: number,
+    oy: number,
+    elevated: boolean,
+    yaw: number,
+    range: number,
+    damage: number,
+    aimed: boolean,
+    suppress: number,
+  ): number {
     const sim = this.sim;
     const u = sim.units;
     const map = sim.map;
-    const ox = u.x[i];
-    const oz = u.z[i];
     const dx = Math.sin(yaw);
     const dz = Math.cos(yaw);
-    const elevated = u.layer[i] === 1;
     const ownTile = Math.floor(ox) + Math.floor(oz) * map.width;
 
     let maxT = range;
@@ -484,15 +577,17 @@ export class Combat {
     let hitT = Infinity;
     let hitPerp = 0;
     for (let j = 0; j < u.count; j++) {
-      if (!u.alive[j] || u.owner[j] === u.owner[i]) continue;
+      if (!u.alive[j] || u.owner[j] === owner) continue;
       const rx = u.x[j] - ox;
       const rz = u.z[j] - oz;
       const t = rx * dx + rz * dz;
       if (t <= 0 || t >= hitT) continue;
-      const reach = u.layer[j] === 1 ? maxT + 1.3 : maxT;
+      const type = UNIT_TYPES[u.kind[j]];
+      const reach = type.fly ? range : u.layer[j] === 1 ? maxT + 1.3 : maxT;
       if (t >= reach) continue;
       const perp = Math.abs(rx * dz - rz * dx);
-      const r = UNIT_TYPES[u.kind[j]].radius + 0.06;
+      // Drones are small, quick targets.
+      const r = type.fly ? type.radius * 0.6 : type.radius + 0.06;
       if (perp < r) {
         hit = j;
         hitT = t;
@@ -501,30 +596,427 @@ export class Combat {
     }
 
     // Unsilenced gunfire gives the shooter's position away.
-    if (!UNIT_TYPES[u.kind[i]].silenced) sim.vision.reveal[i] = NOISE_SEC;
+    if (shooter >= 0) {
+      if (!UNIT_TYPES[u.kind[shooter]].silenced) sim.vision.reveal[shooter] = NOISE_SEC;
+      u.lastShot[shooter] = sim.tick;
+    }
     const endT = hit >= 0 ? hitT : maxT;
     const toX = ox + dx * endT;
     const toZ = oz + dz * endT;
-    u.lastShot[i] = sim.tick;
     sim.emit({
       type: 'shot',
-      unit: i,
-      owner: u.owner[i],
+      unit: shooter,
+      owner,
       fromX: ox,
       fromZ: oz,
-      fromY: map.heightAt(ox, oz) + u.elev[i] + MUZZLE_Y,
+      fromY: oy,
       toX,
       toZ,
-      toY: map.heightAt(toX, toZ) + (hit >= 0 ? u.elev[hit] + 0.7 : 0.5),
+      toY: map.heightAt(toX, toZ) + (hit >= 0 ? u.elev[hit] + (UNIT_TYPES[u.kind[hit]].fly ? 0.1 : 0.7) : 0.5),
       hit: hit >= 0,
+      target: hit,
     });
     if (hit < 0) return -1;
 
     const crit = aimed && hitPerp < 0.35 ? 2 : 1;
     const cover = u.layer[hit] === 1 ? DECK_COVER : 1;
     if (suppress > 0) u.suppressed[hit] = Math.max(u.suppressed[hit], suppress * (cover < 1 ? 0.5 : 1));
-    this.damageUnit(hit, damage * crit * cover, i);
+    this.damageUnit(hit, damage * crit * cover, shooter);
     return hit;
+  }
+
+  /**
+   * Direct-control shot: a 3D ray from the camera through the crosshair, so what's under the
+   * crosshair is what gets hit. Soldiers have a body cylinder and a head sphere (head hits multiply
+   * damage); drones are a sphere. Ground, rocks, walls and buildings stop the round by height, so a
+   * parapet covers a defender's body but not their head.
+   */
+  aimedShot(o: AimedShot): AimedResult {
+    const sim = this.sim;
+    const u = sim.units;
+    const map = sim.map;
+    const cp = Math.cos(o.pitch);
+    const dx = Math.sin(o.yaw) * cp;
+    const dy = Math.sin(o.pitch);
+    const dz = Math.cos(o.yaw) * cp;
+    const { ex, ey, ez } = o;
+
+    let maxT = o.startT + o.range;
+    let block: Structure | undefined;
+    for (let t = o.startT; t <= maxT; t += 0.12) {
+      const px = ex + dx * t;
+      const py = ey + dy * t;
+      const pz = ez + dz * t;
+      const tx = Math.floor(px);
+      const tz = Math.floor(pz);
+      if (!map.inBounds(tx, tz)) {
+        maxT = t;
+        break;
+      }
+      const g = map.heightAt(px, pz);
+      if (py < g) {
+        maxT = t;
+        break;
+      }
+      const tile = map.idx(tx, tz);
+      if (map.blocked[tile] === Block.Terrain) {
+        if (py < g + ROCK_H) {
+          maxT = t;
+          break;
+        }
+        continue;
+      }
+      const sid = map.structAt[tile];
+      const b = map.blocked[tile];
+      if (!sid && b !== Block.Structure && b !== Block.Gate) continue;
+      if (o.nearR > 0 && Math.hypot(px - o.nearX, pz - o.nearZ) < o.nearR) continue;
+      const s = sid ? sim.structureById(sid) : undefined;
+      if (py < g + (s ? structureTop(s.kind) : 2.2)) {
+        maxT = t;
+        block = s;
+        break;
+      }
+    }
+
+    let hit = -1;
+    let hitT = maxT;
+    let head = false;
+    const hl = dx * dx + dz * dz;
+    for (let j = 0; j < u.count; j++) {
+      if (!u.alive[j] || u.owner[j] === o.owner || j === o.shooter) continue;
+      const type = UNIT_TYPES[u.kind[j]];
+      const bx = u.x[j];
+      const bz = u.z[j];
+      // Cheap reject: too far from the ray in the ground plane.
+      const rx = bx - ex;
+      const rz = bz - ez;
+      const along = hl > 1e-6 ? (rx * dx + rz * dz) / hl : 0;
+      if (hl > 1e-6 && (along < o.startT - 1 || along > hitT + 1)) continue;
+      const by = map.heightAt(bx, bz) + u.elev[j];
+      if (type.fly) {
+        const th = raySphere(ex, ey, ez, dx, dy, dz, bx, by + 0.15, bz, FLYER_R);
+        if (th >= o.startT && th < hitT) {
+          hit = j;
+          hitT = th;
+          head = false;
+        }
+        continue;
+      }
+      const th = raySphere(ex, ey, ez, dx, dy, dz, bx, by + HEAD_Y, bz, HEAD_R);
+      if (th >= o.startT && th < hitT) {
+        hit = j;
+        hitT = th;
+        head = true;
+      }
+      if (hl < 1e-6) continue;
+      const tc = along;
+      if (tc < o.startT || tc >= hitT) continue;
+      const px = ex + dx * tc - bx;
+      const pz = ez + dz * tc - bz;
+      const rr = type.radius * 0.85;
+      const perp2 = px * px + pz * pz;
+      if (perp2 > rr * rr) continue;
+      const yy = ey + dy * tc;
+      if (yy < by || yy > by + BODY_H) continue;
+      hit = j;
+      hitT = Math.max(o.startT, tc - Math.sqrt(rr * rr - perp2) / Math.sqrt(hl));
+      head = false;
+    }
+
+    if (o.shooter >= 0) {
+      if (!UNIT_TYPES[u.kind[o.shooter]].silenced) sim.vision.reveal[o.shooter] = NOISE_SEC;
+      u.lastShot[o.shooter] = sim.tick;
+    }
+    const x = ex + dx * hitT;
+    const y = ey + dy * hitT;
+    const z = ez + dz * hitT;
+    sim.emit({
+      type: 'shot',
+      unit: o.shooter,
+      owner: o.owner,
+      fromX: o.mx,
+      fromZ: o.mz,
+      fromY: o.my,
+      toX: x,
+      toZ: z,
+      toY: y,
+      hit: hit >= 0,
+      target: hit,
+      head,
+    });
+    if (hit >= 0) {
+      if (o.suppress > 0) u.suppressed[hit] = Math.max(u.suppressed[hit], o.suppress);
+      this.damageUnit(hit, o.damage * (head ? o.headshot : 1), o.shooter);
+    } else if (block && block.owner !== o.owner && block.owner !== 0 && !STRUCTURE_DEFS[block.kind].armored && o.structDamage > 0) {
+      sim.damageStructure(block, o.structDamage);
+    }
+    return { unit: hit, head, x, y, z };
+  }
+
+  /** Fire a possessed soldier's weapon along the camera ray (magazine, bloom and movement apply). */
+  controlledFire(i: number, c: ControlAim, moving: boolean): void {
+    const sim = this.sim;
+    const u = sim.units;
+    const t = UNIT_TYPES[u.kind[i]];
+    if (t.mag === 0 || u.cooldown[i] > 0 || u.reload[i] > 0 || u.plantTimer[i] > 0) return;
+    if (u.ammo[i] === 0) {
+      u.reload[i] = t.reloadSec;
+      return;
+    }
+    const sigma = t.spread * (c.aim ? 0.12 : 0.6) + (moving ? 0.015 : 0) + u.bloom[i] + (u.suppressed[i] > 0 ? 0.02 : 0);
+    const yaw = c.yaw + (sim.rng.next() - 0.5) * 2 * sigma;
+    const pitch = (c.pitch ?? 0) + (sim.rng.next() - 0.5) * 2 * sigma;
+    const base = sim.map.heightAt(u.x[i], u.z[i]) + u.elev[i];
+    // Without camera data, aim from chest height (a level shot hits a standing man).
+    const eye = this.eyeFor(u.x[i], base + 0.8, u.z[i], c);
+    const cp = Math.cos(pitch);
+    const startT = Math.max(0, (u.x[i] - eye.x) * Math.sin(yaw) * cp + (u.z[i] - eye.z) * Math.cos(yaw) * cp + (base + 0.8 - eye.y) * Math.sin(pitch) - 0.2);
+    this.aimedShot({
+      shooter: i,
+      owner: u.owner[i],
+      ex: eye.x,
+      ey: eye.y,
+      ez: eye.z,
+      yaw,
+      pitch,
+      startT,
+      range: t.range,
+      damage: t.damage,
+      headshot: t.headshot,
+      suppress: t.suppress,
+      structDamage: t.structDamage,
+      mx: u.x[i] + Math.sin(c.yaw) * 0.35,
+      my: base + MUZZLE_Y,
+      mz: u.z[i] + Math.cos(c.yaw) * 0.35,
+      nearX: u.x[i],
+      nearZ: u.z[i],
+      nearR: u.layer[i] === 1 ? 1.1 : 0,
+    });
+    u.ammo[i]--;
+    u.cooldown[i] = t.cooldown;
+    u.bloom[i] = Math.min(0.05, u.bloom[i] + (t.mag >= 100 ? 0.004 : 0.008));
+    if (u.ammo[i] === 0) u.reload[i] = t.reloadSec;
+  }
+
+  /** Start a reload if the magazine isn't full. */
+  startReload(i: number): void {
+    const u = this.sim.units;
+    const t = UNIT_TYPES[u.kind[i]];
+    if (t.mag > 0 && u.reload[i] === 0 && u.ammo[i] < t.mag) u.reload[i] = t.reloadSec;
+  }
+
+  /** Possessed engineer/operator: plant a charge on the enemy structure you're standing against. */
+  startPlant(i: number): void {
+    const sim = this.sim;
+    const u = sim.units;
+    if (u.charges[i] === 0 || u.plantTimer[i] > 0) return;
+    let best: Structure | undefined;
+    let bestD = 1.0;
+    for (const s of sim.structures) {
+      if (s.owner === u.owner[i] || s.owner === 0) continue;
+      const d = distToRect(u.x[i], u.z[i], s);
+      if (d < bestD) {
+        bestD = d;
+        best = s;
+      }
+    }
+    if (!best || u.layer[i] !== 0) {
+      sim.emit({ type: 'notice', owner: u.owner[i], text: 'Get right up against an enemy wall, gate or building to plant' });
+      return;
+    }
+    u.plantTimer[i] = UNIT_TYPES[u.kind[i]].plantSec;
+    u.targetStruct[i] = best.id;
+    u.vx[i] = u.vz[i] = 0;
+  }
+
+  /** Advance a possessed unit's charge plant; it goes off when the timer runs out. */
+  tickPlant(i: number): void {
+    const sim = this.sim;
+    const u = sim.units;
+    if (u.plantTimer[i] <= 0) return;
+    u.vx[i] = u.vz[i] = 0;
+    u.plantTimer[i] -= TICK_SEC;
+    if (u.plantTimer[i] > 0) return;
+    u.plantTimer[i] = 0;
+    const s = sim.structureById(u.targetStruct[i]);
+    u.targetStruct[i] = -1;
+    if (s && u.charges[i] > 0) {
+      u.charges[i]--;
+      this.explode(s, i);
+    }
+  }
+
+  /** The camera position a control command came from (clamped near the unit), or a default eye. */
+  private eyeFor(x: number, y: number, z: number, c: ControlAim): { x: number; y: number; z: number } {
+    if (c.ex === undefined || c.ey === undefined || c.ez === undefined) return { x, y, z };
+    const dx = c.ex - x;
+    const dy = c.ey - y;
+    const dz = c.ez - z;
+    const d = Math.hypot(dx, dy, dz);
+    const k = d > 4 ? 4 / d : 1;
+    return { x: x + dx * k, y: y + dy * k, z: z + dz * k };
+  }
+
+  // ------------------------------------------------------------------ gun towers
+
+  /** A gun tower is crewed while one of its owner's soldiers stands on top of it. */
+  crewed(s: Structure): boolean {
+    const u = this.sim.units;
+    for (let i = 0; i < u.count; i++) {
+      if (!u.alive[i] || u.owner[i] !== s.owner || u.layer[i] !== 1 || !UNIT_TYPES[u.kind[i]].armed) continue;
+      if (u.x[i] >= s.tx && u.x[i] < s.tx + s.w && u.z[i] >= s.tz && u.z[i] < s.tz + s.h) return true;
+    }
+    return false;
+  }
+
+  turretRange(s: Structure): number {
+    const def = STRUCTURE_DEFS[s.kind];
+    return (def.turret?.range ?? 0) * (1 + 0.12 * (def.deckH ?? 0));
+  }
+
+  /** Muzzle position of a gun tower's gun. */
+  turretMuzzle(s: Structure): { x: number; y: number; z: number } {
+    const cx = s.tx + s.w / 2;
+    const cz = s.tz + s.h / 2;
+    return {
+      x: cx + Math.sin(s.aim) * 0.7,
+      y: this.sim.map.heightAt(cx, cz) + (STRUCTURE_DEFS[s.kind].deckH ?? 0) + 0.95,
+      z: cz + Math.cos(s.aim) * 0.7,
+    };
+  }
+
+  private updateTurrets(): void {
+    const sim = this.sim;
+    const u = sim.units;
+    for (const s of sim.structures) {
+      const spec = STRUCTURE_DEFS[s.kind].turret;
+      if (!spec) continue;
+      if (s.cooldown > 0) s.cooldown--;
+      if (s.reload > 0) {
+        s.reload -= TICK_SEC;
+        if (s.reload <= 0) {
+          s.reload = 0;
+          s.ammo = spec.mag;
+        }
+      }
+      if (sim.tick < s.manualUntil) continue;
+      if ((sim.tick + s.id) % ENGAGE_INTERVAL !== 0 && s.target < 0) continue;
+      if (!this.crewed(s)) {
+        s.target = -1;
+        continue;
+      }
+      const range = this.turretRange(s);
+      const cx = s.tx + s.w / 2;
+      const cz = s.tz + s.h / 2;
+      const valid = (t: number): boolean =>
+        u.isAlive(t) && u.owner[t] !== s.owner && sim.vision.isSeen(s.owner, t) && Math.hypot(u.x[t] - cx, u.z[t] - cz) <= range;
+      if ((sim.tick + s.id) % ENGAGE_INTERVAL === 0 || !valid(s.target)) s.target = this.turretTarget(s, range, cx, cz);
+      const t = s.target;
+      if (t < 0) continue;
+      const want = Math.atan2(u.x[t] - cx, u.z[t] - cz);
+      s.aim = turnToward(s.aim, want, spec.turn * TICK_SEC);
+      if (s.cooldown > 0 || Math.abs(wrapAngle(want - s.aim)) > 0.12) continue;
+      const dist = Math.hypot(u.x[t] - cx, u.z[t] - cz);
+      const spread = spec.spread * (0.6 + (0.8 * dist) / range);
+      const m = this.turretMuzzle(s);
+      const hit = this.fireFrom(-1, s.owner, m.x, m.z, m.y, true, s.aim + (sim.rng.next() - 0.5) * 2 * spread, range + 2, spec.autoDamage, false, 0);
+      const cover = u.layer[t] === 1 ? 0.5 : 1;
+      u.suppressed[t] = Math.max(u.suppressed[t], spec.suppress * (hit === t ? 1 : 0.6) * cover);
+      s.cooldown = spec.autoCooldown;
+    }
+  }
+
+  private turretTarget(s: Structure, range: number, cx: number, cz: number): number {
+    const u = this.sim.units;
+    const map = this.sim.map;
+    const seen = this.sim.vision.seen[s.owner];
+    let best = -1;
+    let bestD = range;
+    for (let j = 0; j < u.count; j++) {
+      if (!u.alive[j] || u.owner[j] === s.owner || !seen[j]) continue;
+      const d = Math.hypot(u.x[j] - cx, u.z[j] - cz);
+      if (d >= bestD) continue;
+      // From up top only rocks block the view (drones are never hidden).
+      let clear = true;
+      if (!UNIT_TYPES[u.kind[j]].fly) {
+        const steps = Math.ceil(d / 0.4);
+        for (let k = 1; k < steps; k++) {
+          const f = k / steps;
+          const tx = Math.floor(cx + (u.x[j] - cx) * f);
+          const tz = Math.floor(cz + (u.z[j] - cz) * f);
+          if (map.blocked[map.idx(tx, tz)] === Block.Terrain) {
+            clear = false;
+            break;
+          }
+        }
+      }
+      if (clear) {
+        bestD = d;
+        best = j;
+      }
+    }
+    return best;
+  }
+
+  /** Hand-aimed burst from a gun tower (needs a soldier up top). */
+  turretFire(s: Structure, c: ControlAim): void {
+    const sim = this.sim;
+    const spec = STRUCTURE_DEFS[s.kind].turret;
+    if (!spec || s.cooldown > 0 || s.reload > 0) return;
+    if (!this.crewed(s)) return;
+    if (s.ammo === 0) {
+      s.reload = spec.reloadSec;
+      return;
+    }
+    const sigma = spec.spread * (c.aim ? 0.15 : 0.35);
+    const yaw = c.yaw + (sim.rng.next() - 0.5) * 2 * sigma;
+    const pitch = (c.pitch ?? 0) + (sim.rng.next() - 0.5) * 2 * sigma;
+    const m = this.turretMuzzle(s);
+    const eye = this.eyeFor(m.x, m.y + 0.4, m.z, c);
+    const cp = Math.cos(pitch);
+    const startT = Math.max(0, (m.x - eye.x) * Math.sin(yaw) * cp + (m.z - eye.z) * Math.cos(yaw) * cp);
+    this.aimedShot({
+      shooter: -1,
+      owner: s.owner,
+      ex: eye.x,
+      ey: eye.y,
+      ez: eye.z,
+      yaw,
+      pitch,
+      startT,
+      range: this.turretRange(s),
+      damage: spec.damage,
+      headshot: 1.5,
+      suppress: spec.suppress,
+      structDamage: 8,
+      mx: m.x,
+      my: m.y,
+      mz: m.z,
+      nearX: s.tx + s.w / 2,
+      nearZ: s.tz + s.h / 2,
+      nearR: 1.6,
+    });
+    s.ammo--;
+    s.cooldown = spec.cooldown;
+    if (s.ammo === 0) s.reload = spec.reloadSec;
+  }
+
+  /** Strike-drone warhead (or any blast) at a point. */
+  blast(x: number, z: number, y: number, owner: number, b: { damage: number; radius: number; structDamage: number }): void {
+    const sim = this.sim;
+    const u = sim.units;
+    sim.emit({ type: 'explosion', x, z, owner });
+    for (let j = 0; j < u.count; j++) {
+      if (!u.alive[j] || u.owner[j] === owner) continue;
+      const jy = sim.map.heightAt(u.x[j], u.z[j]) + u.elev[j] + 0.5;
+      const d = Math.hypot(u.x[j] - x, u.z[j] - z, (jy - y) * 0.7);
+      if (d < b.radius) this.damageUnit(j, b.damage * (1 - (0.6 * d) / b.radius), -1);
+    }
+    for (const s of [...sim.structures]) {
+      if (s.owner === owner || s.owner === 0) continue;
+      const d = distToRect(x, z, s);
+      if (d < b.radius * 0.6) sim.damageStructure(s, b.structDamage * (1 - d / b.radius));
+    }
   }
 
   damageUnit(j: number, dmg: number, attacker: number): void {
@@ -540,14 +1032,25 @@ export class Combat {
         x: u.x[j],
         z: u.z[j],
         y: sim.map.heightAt(u.x[j], u.z[j]) + u.elev[j],
+        kind: u.kind[j],
       });
       sim.economy.onUnitRemoved(j);
       this.assault[j] = 0;
       u.kill(j);
-    } else if (u.order[j] === Order.Idle && u.target[j] < 0 && UNIT_TYPES[u.kind[j]].armed && attacker >= 0) {
+    } else if ((u.order[j] === Order.Idle || u.order[j] === Order.Follow) && u.target[j] < 0 && UNIT_TYPES[u.kind[j]].armed && attacker >= 0) {
       u.target[j] = attacker; // return fire
     }
   }
+}
+
+/** Aim fields of a control command (see Sim `control`). */
+export interface ControlAim {
+  yaw: number;
+  pitch?: number;
+  aim: boolean;
+  ex?: number;
+  ey?: number;
+  ez?: number;
 }
 
 /** Distance from a point to a structure's footprint rectangle (0 inside). */

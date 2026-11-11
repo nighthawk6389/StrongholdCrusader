@@ -13,6 +13,10 @@ export const Order = {
   Breach: 4,
   /** Wave AI: push toward the goal, blowing through walls on the way. */
   Assault: 5,
+  /** Keep close to `leader` (your squad while you possess one of them). */
+  Follow: 6,
+  /** Strike drone diving onto (goalX, goalZ). */
+  Dive: 7,
 } as const;
 
 /** Civilian work-cycle states (see Economy). */
@@ -97,6 +101,20 @@ export class UnitStore {
   /** Ticks until the next re-path for Attack/Assault. */
   readonly repath = new Uint8Array(MAX_UNITS);
 
+  // Direct control & drones (M5)
+  /** Rounds left in the magazine (direct-control fire). */
+  readonly ammo = new Uint8Array(MAX_UNITS);
+  /** Seconds left reloading (0 = ready). */
+  readonly reload = new Float32Array(MAX_UNITS);
+  /** Extra aim error from sustained fire; recovers quickly. */
+  readonly bloom = new Float32Array(MAX_UNITS);
+  /** Unit this one follows (Order.Follow). */
+  readonly leader = new Int32Array(MAX_UNITS).fill(-1);
+  /** Drones: seconds of flight left. */
+  readonly battery = new Float32Array(MAX_UNITS);
+  /** Drones: the bay they launched from (where they recharge). */
+  readonly home = new Int32Array(MAX_UNITS).fill(-1);
+
   spawn(kind: number, owner: number, x: number, z: number, heading: number): number {
     let id = -1;
     for (let i = 0; i < this.count; i++) {
@@ -141,6 +159,13 @@ export class UnitStore {
     this.targetStruct[id] = -1;
     this.plantTimer[id] = 0;
     this.repath[id] = 0;
+    this.ammo[id] = UNIT_TYPES[kind].mag;
+    this.reload[id] = 0;
+    this.bloom[id] = 0;
+    this.leader[id] = -1;
+    this.battery[id] = UNIT_TYPES[kind].battery;
+    this.home[id] = -1;
+    if (UNIT_TYPES[kind].fly) this.elev[id] = this.pelev[id] = UNIT_TYPES[kind].fly;
     return id;
   }
 
@@ -152,6 +177,7 @@ export class UnitStore {
     this.job[id] = -1;
     this.carry[id] = CARRY_NONE;
     this.targetStruct[id] = -1;
+    this.leader[id] = -1;
   }
 
   /** Turn a unit into another kind in place (recruit → soldier). */
@@ -159,6 +185,7 @@ export class UnitStore {
     this.kind[id] = kind;
     this.hp[id] = UNIT_TYPES[kind].hp;
     this.charges[id] = UNIT_TYPES[kind].charges;
+    this.ammo[id] = UNIT_TYPES[kind].mag;
     this.job[id] = -1;
     this.task[id] = 0;
     this.carry[id] = CARRY_NONE;

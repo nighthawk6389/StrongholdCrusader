@@ -41,8 +41,9 @@ export function ringBlueprint(cx: number, cz: number, ring: number, gates: Side[
   };
   const occupied = (x: number, z: number): boolean =>
     pieces.some((p) => {
-      const w = p.kind === 'tower' ? 2 : p.kind === 'gate' ? (p.rot ? 1 : 3) : 1;
-      const h = p.kind === 'tower' ? 2 : p.kind === 'gate' ? (p.rot ? 3 : 1) : 1;
+      const big = p.kind === 'tower' || p.kind === 'guntower';
+      const w = big ? 2 : p.kind === 'gate' ? (p.rot ? 1 : 3) : 1;
+      const h = big ? 2 : p.kind === 'gate' ? (p.rot ? 3 : 1) : 1;
       return x >= p.tx && z >= p.tz && x < p.tx + w && z < p.tz + h;
     });
   for (let z = cz - ring; z <= cz + ring; z++) {

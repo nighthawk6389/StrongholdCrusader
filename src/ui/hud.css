@@ -1393,3 +1393,251 @@ kbd {
     white-space: nowrap;
   }
 }
+
+/* ---------- M5: direct control */
+
+.crosshair.light::before,
+.crosshair.light::after {
+  background: rgba(255, 236, 170, 0.75);
+}
+
+.scope {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.85)) center / 1.5px 100% no-repeat,
+    linear-gradient(rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.85)) center / 100% 1.5px no-repeat,
+    radial-gradient(circle at center, transparent 0, transparent min(38vw, 38vh), rgba(0, 0, 0, 0.92) calc(min(38vw, 38vh) + 2px));
+}
+
+.scope::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(230, 60, 40, 0.9);
+}
+
+.hitmarker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  pointer-events: none;
+  animation: hitfade 0.35s ease-out forwards;
+}
+
+.hitmarker::before,
+.hitmarker::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  margin-left: -1px;
+  background: linear-gradient(#fff 0 30%, transparent 30% 70%, #fff 70%);
+  transform: rotate(45deg);
+}
+
+.hitmarker::after {
+  transform: rotate(-45deg);
+}
+
+.hitmarker.head::before,
+.hitmarker.head::after {
+  background: linear-gradient(#ffd34d 0 34%, transparent 34% 66%, #ffd34d 66%);
+}
+
+.hitmarker.kill {
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  animation-duration: 0.6s;
+}
+
+.hitmarker.kill::before,
+.hitmarker.kill::after {
+  width: 3px;
+  background: linear-gradient(#ff5a4a 0 36%, transparent 36% 64%, #ff5a4a 64%);
+}
+
+@keyframes hitfade {
+  from {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+.damage-dir {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.damage-arc {
+  position: absolute;
+  left: -70px;
+  top: -150px;
+  width: 140px;
+  height: 36px;
+  border-top: 6px solid rgba(235, 60, 40, 0.85);
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  filter: drop-shadow(0 0 6px rgba(235, 60, 40, 0.7));
+  animation: dmgfade 1.1s ease-out forwards;
+}
+
+@keyframes dmgfade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.hurt-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at center, transparent 50%, rgba(160, 10, 0, 0.75) 100%);
+}
+
+.battery {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.battery.low {
+  color: var(--red);
+}
+
+.battery .hpbar {
+  margin-top: 3px;
+}
+
+.battery-fill {
+  background: linear-gradient(90deg, #6fb7ff, #9ad8ff);
+}
+
+.battery.low .battery-fill {
+  background: var(--red);
+}
+
+.ammo {
+  position: absolute;
+  right: calc(20px + var(--safe-right));
+  bottom: calc(20px + var(--safe-bottom));
+  padding: 8px 14px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: 170px;
+  justify-content: flex-end;
+}
+
+.ammo.touch {
+  bottom: calc(124px + var(--safe-bottom));
+  padding: 4px 10px;
+}
+
+.ammo-count {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ammo.touch .ammo-count {
+  font-size: 18px;
+}
+
+.ammo-count.low {
+  color: var(--red);
+}
+
+.charges {
+  font-size: 13px;
+  margin-left: 6px;
+}
+
+.reload-bar {
+  flex-basis: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.reload-bar > div {
+  height: 100%;
+  background: var(--accent-strong);
+}
+
+.plant-progress {
+  position: absolute;
+  left: 50%;
+  top: 62%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  min-width: 180px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.side-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.btn.round.small-round {
+  width: 54px;
+  height: 54px;
+  font-size: 11px;
+}
+
+.action-btns > .btn,
+.action-btns > button {
+  pointer-events: auto;
+}
+
+.drone-blurb {
+  margin: 2px 0 6px;
+}
+
+@media (max-height: 500px) {
+  .btn.round.small-round {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    font-size: 10px;
+  }
+  .ammo.touch {
+    bottom: calc(116px + var(--safe-bottom));
+  }
+  .damage-arc {
+    top: -110px;
+  }
+}
+
+.toast.low {
+  top: calc(124px + var(--safe-top));
+}

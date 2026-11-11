@@ -96,7 +96,9 @@ export type StructureKind =
   | 'searchlight'
   | 'sensor'
   | 'kennel'
-  | 'generator';
+  | 'generator'
+  | 'guntower'
+  | 'dronebay';
 
 export interface Cost {
   funds?: number;
@@ -163,6 +165,31 @@ export interface StructureDef {
   light?: { kind: 'flood' | 'search' | 'area'; range: number };
   /** Detects enemies within this radius in any light: 'motion' sees movers, 'dogs' sees everyone. */
   sensor?: { kind: 'motion' | 'dogs'; range: number };
+  /** Mounted gun (gun towers): fires on its own while crewed; can be aimed by hand. */
+  turret?: TurretSpec;
+  /** Drone bay: how many drones it can keep in the air. */
+  bay?: { capacity: number };
+  /** Height a shot has to clear to pass over it (default: deck + parapet, else 2.2). */
+  top?: number;
+}
+
+export interface TurretSpec {
+  /** Base range in tiles (the tower's height adds to it). */
+  range: number;
+  /** Damage per round when you aim it yourself / when it fires on its own. */
+  damage: number;
+  autoDamage: number;
+  /** Ticks between rounds (hand / auto). */
+  cooldown: number;
+  autoCooldown: number;
+  /** Aim error (radians) when firing on its own. */
+  spread: number;
+  suppress: number;
+  /** Belt size and seconds to swap belts (hand-aimed fire). */
+  mag: number;
+  reloadSec: number;
+  /** Turn rate when tracking on its own (radians per second). */
+  turn: number;
 }
 
 export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
@@ -181,6 +208,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     power: 4,
     sight: 12,
     light: { kind: 'area', range: 5 },
+    top: 3.4,
   },
   hub: {
     kind: 'hub',
@@ -433,6 +461,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     cost: { concrete: 2, steel: 2 },
     power: -2,
     light: { kind: 'flood', range: 11 },
+    top: 0.5,
   },
   searchlight: {
     kind: 'searchlight',
@@ -462,6 +491,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     cost: { steel: 4, concrete: 2 },
     power: -1,
     sensor: { kind: 'motion', range: 11 },
+    top: 0.6,
   },
   kennel: {
     kind: 'kennel',
@@ -475,6 +505,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     category: 'night',
     cost: { timber: 10, funds: 30 },
     sensor: { kind: 'dogs', range: 8 },
+    top: 1.2,
   },
   generator: {
     kind: 'generator',
@@ -489,8 +520,60 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     cost: { timber: 12, concrete: 8, steel: 4 },
     jobs: 1,
     power: 12,
+    top: 1.2,
+  },
+  guntower: {
+    kind: 'guntower',
+    name: 'Gun Tower',
+    description:
+      'A watchtower with a heavy machine gun. It fires on its own while one of your soldiers is up top, and you can take control to aim it yourself.',
+    w: 2,
+    h: 2,
+    blocks: true,
+    hp: 1500,
+    buildable: true,
+    category: 'defense',
+    cost: { concrete: 16, timber: 4, steel: 6 },
+    deckH: 2.75,
+    armored: true,
+    sight: 18,
+    turret: {
+      range: 22,
+      damage: 26,
+      autoDamage: 9,
+      cooldown: 2,
+      autoCooldown: 3,
+      spread: 0.06,
+      suppress: 2.2,
+      mag: 120,
+      reloadSec: 5,
+      turn: 2.6,
+    },
+  },
+  dronebay: {
+    kind: 'dronebay',
+    name: 'Drone Bay',
+    description: 'Launches recon and strike drones (up to 3 in the air) and recharges them. Needs 2 power.',
+    w: 2,
+    h: 2,
+    blocks: true,
+    hp: 450,
+    buildable: true,
+    category: 'military',
+    cost: { timber: 8, concrete: 6, steel: 6 },
+    power: -2,
+    bay: { capacity: 3 },
+    top: 1.3,
   },
 };
+
+/** Height a shot must clear to pass over a structure of this kind (above the ground it stands on). */
+export function structureTop(kind: StructureKind): number {
+  const d = STRUCTURE_DEFS[kind];
+  if (d.top !== undefined) return d.top;
+  if (d.deckH !== undefined) return d.deckH + 0.45;
+  return 2.2;
+}
 
 export const BUILDABLE: StructureKind[] = (Object.keys(STRUCTURE_DEFS) as StructureKind[]).filter(
   (k) => STRUCTURE_DEFS[k].buildable,
@@ -522,6 +605,17 @@ export interface Structure {
   recipe: number;
   /** Lights and sensors: currently receiving power. */
   powered: boolean;
+  /** Gun towers / searchlights: current aim (radians). */
+  aim: number;
+  /** Gun towers: ticks until the next round. */
+  cooldown: number;
+  /** Gun towers: rounds left in the belt and seconds left swapping it. */
+  ammo: number;
+  reload: number;
+  /** Gun towers: unit it's tracking (-1 = none). */
+  target: number;
+  /** Aimed by the player until this tick (gun towers, searchlights). */
+  manualUntil: number;
 }
 
 /** Footprint size for a kind at a rotation (gatehouses swap w/h at a quarter turn). */

@@ -29,6 +29,9 @@ const DRAG_PX = 7;
 export class InputController {
   /** Fire button held (touch HUD). */
   fireHeld = false;
+  /** One-shot requests, delivered with the next control intent. */
+  reloadReq = false;
+  plantReq = false;
   private mode: 'rts' | 'control' = 'rts';
   private keys = new Set<string>();
   private ptrs = new Map<number, Ptr>();
@@ -123,7 +126,7 @@ export class InputController {
   }
 
   /** Movement/aim intent for the possessed unit, sampled once per sim tick. */
-  controlIntent(): { mx: number; mz: number; yaw: number; fire: boolean; aim: boolean } {
+  controlIntent(): { mx: number; mz: number; yaw: number; fire: boolean; aim: boolean; reload: boolean; plant: boolean } {
     let f = 0;
     let s = 0;
     const k = this.keys;
@@ -140,12 +143,17 @@ export class InputController {
     const fz = Math.cos(yaw);
     const rx = -fz;
     const rz = fx;
+    const reload = this.reloadReq;
+    const plant = this.plantReq;
+    this.reloadReq = this.plantReq = false;
     return {
       mx: fx * f + rx * s,
       mz: fz * f + rz * s,
       yaw,
       fire: this.fireHeld || this.mouseFire,
       aim: this.ots.aiming,
+      reload,
+      plant,
     };
   }
 
@@ -164,6 +172,7 @@ export class InputController {
     this.mode = 'rts';
     this.mouseFire = false;
     this.fireHeld = false;
+    this.reloadReq = this.plantReq = false;
     this.joy = null;
     this.lookPtr = null;
     this.joyBase.style.display = 'none';
@@ -587,7 +596,31 @@ export class InputController {
     if (!down) return;
 
     if (this.mode === 'control') {
-      if (e.code === 'KeyF' || e.code === 'Escape') this.game.exitControl();
+      switch (e.code) {
+        case 'KeyF':
+        case 'Escape':
+          this.game.exitControl();
+          break;
+        case 'Tab':
+          e.preventDefault();
+          this.game.exitControl();
+          break;
+        case 'KeyR':
+          this.reloadReq = true;
+          break;
+        case 'KeyG':
+          this.plantReq = true;
+          break;
+        case 'KeyV':
+          this.game.flareAtCrosshair();
+          break;
+        case 'KeyN':
+          this.game.toggleNvg();
+          break;
+        case 'KeyT':
+          this.game.toggleSlowMo();
+          break;
+      }
       return;
     }
 

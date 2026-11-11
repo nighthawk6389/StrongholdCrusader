@@ -3,7 +3,7 @@ import type { Sim, SimEvent } from '../sim/sim';
 import { CameraDirector, OtsCameraRig, RtsCameraRig } from './cameras';
 import { DayNight } from './daynight';
 import { Fx } from './fx';
-import type { Structure, StructureKind } from '../sim/structures';
+import { STRUCTURE_DEFS, type Structure, type StructureKind } from '../sim/structures';
 import { PlacementGhost, SelectionFrame, StructureRenderer, WallLineGhost } from './structures';
 import { buildScatter, buildTerrain, buildWater, LightOverlay, TreeRenderer } from './terrain';
 import { UNIT_TYPES } from '../sim/unitTypes';
@@ -33,6 +33,8 @@ export interface FrameState {
   selected: ReadonlySet<number>;
   /** Possessed unit id or -1. */
   controlled: number;
+  /** Gun tower / searchlight being aimed by hand, or -1. */
+  controlledStruct: number;
   events: SimEvent[];
 }
 
@@ -57,6 +59,8 @@ export class GameRenderer {
   team = 1;
   /** True while looking through night-vision optics. */
   nvg = false;
+  /** Player's night-vision switch (N). */
+  nvgEnabled = true;
 
   private raycaster = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
@@ -66,7 +70,7 @@ export class GameRenderer {
   private tmp2 = new THREE.Vector3();
 
   constructor(
-    private canvas: HTMLCanvasElement,
+    readonly canvas: HTMLCanvasElement,
     private sim: Sim,
     readonly quality: Quality,
   ) {
@@ -120,27 +124,45 @@ export class GameRenderer {
   render(f: FrameState): void {
     this.structures.handle(f.events);
     for (const e of f.events) if (e.type === 'treeFelled') this.trees.fell(e.index);
-    this.fx.handle(f.events, f.controlled);
+    const cs = f.controlledStruct >= 0 ? this.sim.structureById(f.controlledStruct) : undefined;
+    this.fx.handle(f.events, f.controlled, cs ? { x: cs.tx + cs.w / 2, z: cs.tz + cs.h / 2 } : null);
     this.fx.update(f.dt);
 
     let fov = 40;
     if (f.controlled >= 0 && this.sim.units.isAlive(f.controlled)) {
+      const t = UNIT_TYPES[this.sim.units.kind[f.controlled]];
       const p = this.units.unitPosition(f.controlled, f.alpha, this.tmp);
+      this.ots.mode = t.fly ? 'drone' : 'soldier';
       this.ots.update(p, this.eye, this.look);
-      fov = this.ots.aiming ? 38 : 62;
-      // Flashlight from just above the shoulder along the aim direction.
-      this.tmp2.copy(p).add(this.ots.forward(this.look.clone()).multiplyScalar(14));
-      this.tmp2.y = this.sim.map.heightAt(this.tmp2.x, this.tmp2.z);
-      this.dayNight.setFlashlight(true, this.tmp.clone().setY(p.y + 1.2), this.tmp2);
+      fov = this.ots.aiming ? 62 / t.zoom : 62;
+      if (!t.fly) {
+        // Flashlight from just above the shoulder along the aim direction.
+        this.tmp2.copy(p).add(this.ots.forward(this.look.clone()).multiplyScalar(14));
+        this.tmp2.y = this.sim.map.heightAt(this.tmp2.x, this.tmp2.z);
+        this.dayNight.setFlashlight(true, this.tmp.clone().setY(p.y + 1.2), this.tmp2);
+      } else {
+        this.dayNight.setFlashlight(false, this.eye, this.look);
+      }
+    } else if (cs) {
+      // Stand behind the gun (or the lamp) on top of the tower.
+      const def = STRUCTURE_DEFS[cs.kind];
+      const cx = cs.tx + cs.w / 2;
+      const cz = cs.tz + cs.h / 2;
+      const p = this.tmp.set(cx, this.sim.map.heightAt(cx, cz) + (def.deckH ?? 2.3) + 0.45, cz);
+      this.ots.mode = 'turret';
+      this.ots.update(p, this.eye, this.look);
+      fov = this.ots.aiming ? 62 / 2.2 : 62;
+      this.dayNight.setFlashlight(false, this.eye, this.look);
     } else {
       this.rts.update(f.dt, this.eye, this.look);
       this.dayNight.setFlashlight(false, this.eye, this.look);
     }
     this.director.apply(f.dt, this.eye, this.look, fov);
 
-    // Night-vision optics when possessing a unit that has them.
+    // Night-vision optics when possessing a unit that has them (and they're switched on).
     const c = f.controlled;
-    this.nvg = c >= 0 && this.sim.units.isAlive(c) && UNIT_TYPES[this.sim.units.kind[c]].nightVision >= 0.8 && this.dayNight.night > 0.3;
+    this.nvg =
+      this.nvgEnabled && c >= 0 && this.sim.units.isAlive(c) && UNIT_TYPES[this.sim.units.kind[c]].nightVision >= 0.8 && this.dayNight.night > 0.3;
     this.dayNight.nvg = this.nvg;
     const focus = f.controlled >= 0 ? this.tmp.copy(this.director.look) : this.rts.target;
     this.dayNight.update(this.sim.cycle, focus);
@@ -153,17 +175,28 @@ export class GameRenderer {
     this.lightOverlay.update(vision.light, vision.lightVersion, this.dayNight.night);
     this.fx.updateFlares(vision.flares, this.dayNight.night);
     const team = this.team;
-    const owner = this.sim.units.owner;
+    const u = this.sim.units;
+    const owner = u.owner;
     const seen = vision.seen[team];
+    // Aiming a tower's gun yourself: the crew up there would be in your face, so hide them.
+    const crewed = (i: number): boolean =>
+      !!cs && u.layer[i] === 1 && u.x[i] >= cs.tx && u.x[i] < cs.tx + cs.w && u.z[i] >= cs.tz && u.z[i] < cs.tz + cs.h;
     this.units.update({
       alpha: f.alpha,
       dt: f.dt,
       selected: f.selected,
       cameraQuat: this.camera.quaternion,
-      visible: (i) => owner[i] === team || seen[i] === 1,
+      visible: (i) => (owner[i] === team || seen[i] === 1) && !crewed(i),
     });
     this.renderer.toneMappingExposure = this.nvg ? 1 + 0.8 * this.dayNight.night : 1;
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /** The ray through the crosshair (screen centre): camera position plus yaw/pitch. */
+  aimRay(): { yaw: number; pitch: number; ex: number; ey: number; ez: number } {
+    const d = this.camera.getWorldDirection(this.tmp2);
+    const p = this.camera.position;
+    return { yaw: Math.atan2(d.x, d.z), pitch: Math.asin(Math.max(-1, Math.min(1, d.y))), ex: p.x, ey: p.y, ez: p.z };
   }
 
   /** World ground point under a client-space pixel, or null. */

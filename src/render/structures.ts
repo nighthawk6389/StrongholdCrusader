@@ -17,6 +17,11 @@ interface Searchlight {
   beam: THREE.Mesh;
 }
 
+interface GunMount {
+  id: number;
+  gun: THREE.Object3D;
+}
+
 const geoCache = new Map<string, THREE.BufferGeometry>();
 
 function cached(key: string, build: () => THREE.BufferGeometry): THREE.BufferGeometry {
@@ -206,6 +211,44 @@ export function bodyGeometry(kind: StructureKind, owner: number): THREE.BufferGe
           box(0.6, 0.35, 0.03, 0, 4.2, 0, team),
         ]),
       );
+    case 'guntower':
+      return cached(`guntower${owner}`, () =>
+        merge([
+          box(0.2, 2.6, 0.2, -0.75, 1.3, -0.75, COLORS.concreteDark),
+          box(0.2, 2.6, 0.2, 0.75, 1.3, -0.75, COLORS.concreteDark),
+          box(0.2, 2.6, 0.2, -0.75, 1.3, 0.75, COLORS.concreteDark),
+          box(0.2, 2.6, 0.2, 0.75, 1.3, 0.75, COLORS.concreteDark),
+          box(1.5, 1.5, 1.5, 0, 0.75, 0, COLORS.concrete),
+          box(2.0, 0.2, 2.0, 0, 2.65, 0, COLORS.concrete),
+          // Sandbagged parapet
+          box(2.0, 0.45, 0.3, 0, 2.97, -0.85, 0xb7a479),
+          box(2.0, 0.45, 0.3, 0, 2.97, 0.85, 0xb7a479),
+          box(0.3, 0.45, 1.4, -0.85, 2.97, 0, 0xb7a479),
+          box(0.3, 0.45, 1.4, 0.85, 2.97, 0, 0xb7a479),
+          box(2.02, 0.08, 0.32, 0, 3.2, -0.85, 0xa08f66),
+          box(2.02, 0.08, 0.32, 0, 3.2, 0.85, 0xa08f66),
+          // Pintle post (the gun turns on top of it)
+          cylinder(0.08, 0.1, 0.7, 0, 3.1, 0, COLORS.metal, 6),
+          box(0.7, 0.3, 0.03, 0.62, 3.65, -0.86, team),
+        ]),
+      );
+    case 'dronebay':
+      return cached(`dronebay${owner}`, () =>
+        merge([
+          box(1.95, 0.1, 1.95, 0, 0.05, 0, COLORS.asphalt),
+          // Landing "H"
+          box(0.08, 0.02, 0.7, -0.25, 0.11, 0, 0xe8e2d0),
+          box(0.08, 0.02, 0.7, 0.25, 0.11, 0, 0xe8e2d0),
+          box(0.5, 0.02, 0.08, 0, 0.11, 0, 0xe8e2d0),
+          // Charging cabinet and antenna
+          box(0.5, 0.75, 0.4, -0.7, 0.45, -0.7, 0x5d6650),
+          box(0.52, 0.06, 0.42, -0.7, 0.85, -0.7, 0x454c3c),
+          box(0.3, 0.1, 0.03, -0.7, 0.6, -0.49, 0x6fd06f),
+          cylinder(0.02, 0.03, 1.2, 0.8, 0.6, -0.8, COLORS.metal, 4),
+          sphere(0.07, 0.8, 1.22, -0.8, 0xd0d0d0),
+          box(0.6, 0.25, 0.03, 0.4, 0.3, 0.97, team),
+        ]),
+      );
     case 'generator':
       return cached(`generator${owner}`, () =>
         merge([
@@ -368,6 +411,7 @@ export class StructureRenderer {
   });
   readonly floodlights: Floodlight[] = [];
   private searchlights: Searchlight[] = [];
+  private guns: GunMount[] = [];
   private lampOff = new THREE.MeshLambertMaterial({ color: 0x3a3a3a });
   private beamMat = new THREE.MeshBasicMaterial({
     color: 0xfff3c8,
@@ -480,6 +524,25 @@ export class StructureRenderer {
       head.add(housing, lens, beam);
       root.add(head);
       this.searchlights.push({ id: s.id, head, beam });
+    } else if (s.kind === 'guntower') {
+      const gun = new THREE.Mesh(
+        cached('hmg', () =>
+          merge([
+            box(0.16, 0.16, 0.6, 0, 0, 0.05, 0x2a2a28),
+            box(0.05, 0.05, 0.75, 0, 0.02, 0.62, 0x1b1b1a),
+            box(0.1, 0.08, 0.1, 0, 0.02, 0.98, 0x1b1b1a),
+            box(0.18, 0.14, 0.2, 0.15, -0.04, 0.0, 0x4f5640),
+            box(0.36, 0.26, 0.04, 0, 0.12, 0.38, 0x5a6048),
+            box(0.05, 0.12, 0.22, 0, -0.04, -0.32, 0x2a2a28),
+          ]),
+        ),
+        this.bodyMat,
+      );
+      gun.position.set(0, 3.5, 0);
+      gun.rotation.y = s.aim;
+      gun.castShadow = true;
+      root.add(gun);
+      this.guns.push({ id: s.id, gun });
     }
     this.group.add(root);
     this.objects.set(s.id, root);
@@ -496,6 +559,7 @@ export class StructureRenderer {
       this.floodlights.splice(fi, 1);
     }
     this.searchlights = this.searchlights.filter((sl) => sl.id !== id);
+    this.guns = this.guns.filter((g) => g.id !== id);
     this.wallsDirty = true; // cheap to rebuild; covers wall removal
   }
 
@@ -510,9 +574,24 @@ export class StructureRenderer {
     for (const sl of this.searchlights) {
       const s = this.sim.structureById(sl.id);
       if (!s) continue;
-      sl.head.rotation.y = this.sim.vision.beamAngle(s.rot, s.id);
+      sl.head.rotation.y = this.sim.vision.beamAngle(s);
       sl.beam.visible = s.powered && lightsOn > 0.02;
     }
+    for (const g of this.guns) {
+      const s = this.sim.structureById(g.id);
+      if (!s) continue;
+      // Ease toward the sim's aim so hand-aiming and tracking look smooth.
+      let d = s.aim - g.gun.rotation.y;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      g.gun.rotation.y += d * 0.5;
+    }
+  }
+
+  /** World position of a gun tower's gun (for cameras). */
+  gunPosition(id: number, out: THREE.Vector3): THREE.Vector3 | null {
+    const g = this.guns.find((m) => m.id === id);
+    if (!g) return null;
+    return g.gun.getWorldPosition(out);
   }
 
   private rebuildWalls(): void {

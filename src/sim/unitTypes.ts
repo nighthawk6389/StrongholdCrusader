@@ -47,6 +47,24 @@ export interface UnitType {
   /** Can scale walls with grapnels (no stairs needed). */
   climber: boolean;
 
+  // --- Direct control (M5)
+  /** Rounds per magazine when you fire it yourself (0 = no weapon). */
+  mag: number;
+  /** Seconds to reload a magazine. */
+  reloadSec: number;
+  /** Damage multiplier for a head hit under direct control. */
+  headshot: number;
+  /** Camera zoom while aiming (scopes zoom further). */
+  zoom: number;
+
+  // --- Drones (M5)
+  /** Cruising height above the ground; 0 = a ground unit. Flyers ignore walls and terrain. */
+  fly: number;
+  /** Seconds of flight per charge. */
+  battery: number;
+  /** One-way strike drones: warhead that goes off on impact. */
+  blast: { damage: number; radius: number; structDamage: number } | null;
+
   armed: boolean;
   controllable: boolean;
   selectable: boolean;
@@ -68,6 +86,13 @@ const base = {
   stealth: 1,
   silenced: false,
   climber: false,
+  mag: 30,
+  reloadSec: 2.2,
+  headshot: 2,
+  zoom: 1.6,
+  fly: 0,
+  battery: 0,
+  blast: null,
   armed: true,
   controllable: true,
   selectable: true,
@@ -110,6 +135,7 @@ export const UNIT_TYPES: UnitType[] = [
     autoJitter: 4,
     spread: 0.06,
     nightVision: 0.5,
+    reloadSec: 2,
     gear: null,
     funds: 0,
     blurb: 'If the Commander dies, you lose.',
@@ -133,6 +159,7 @@ export const UNIT_TYPES: UnitType[] = [
     structDamage: 0,
     sight: 8,
     nightVision: 0.3,
+    mag: 0,
     armed: false,
     controllable: false,
     selectable: false,
@@ -158,6 +185,8 @@ export const UNIT_TYPES: UnitType[] = [
     spread: 0.13,
     suppress: 1.6,
     structDamage: 3,
+    mag: 100,
+    reloadSec: 4.5,
     gear: Res.MG,
     funds: 35,
     blurb: 'Pins infantry down: suppressed troops move and shoot worse.',
@@ -181,6 +210,10 @@ export const UNIT_TYPES: UnitType[] = [
     structDamage: 2,
     sight: 22,
     nightVision: 0.8,
+    mag: 5,
+    reloadSec: 2.8,
+    headshot: 3,
+    zoom: 4,
     gear: Res.Scoped,
     funds: 40,
     blurb: 'Long range, hits hard, fires slowly.',
@@ -203,6 +236,8 @@ export const UNIT_TYPES: UnitType[] = [
     structDamage: 2,
     charges: 2,
     sight: 14,
+    mag: 20,
+    reloadSec: 2,
     gear: Res.Charges,
     funds: 30,
     blurb: 'Blows breaches in walls and gates (2 charges each).',
@@ -230,9 +265,70 @@ export const UNIT_TYPES: UnitType[] = [
     stealth: 0.45,
     silenced: true,
     climber: true,
+    reloadSec: 1.8,
+    zoom: 2.2,
     gear: Res.NVKit,
     funds: 60,
     blurb: 'Night vision, silenced, hard to spot in the dark. Climbs walls; one demolition charge.',
+  },
+  {
+    ...base,
+    id: 7,
+    key: 'recon',
+    name: 'Recon Drone',
+    speed: 6,
+    hp: 30,
+    radius: 0.32,
+    range: 0,
+    damage: 0,
+    cooldown: 0,
+    autoRange: 0,
+    autoDamage: 0,
+    autoCooldown: 0,
+    autoJitter: 0,
+    spread: 0,
+    structDamage: 0,
+    sight: 20,
+    nightVision: 1,
+    stealth: 0.6,
+    mag: 0,
+    zoom: 2.5,
+    fly: 7,
+    battery: 150,
+    armed: false,
+    gear: null,
+    funds: 0,
+    blurb: 'Thermal camera in the sky. Flies over walls and spots for your troops. Unarmed.',
+  },
+  {
+    ...base,
+    id: 8,
+    key: 'strike',
+    name: 'Strike Drone',
+    speed: 7,
+    hp: 25,
+    radius: 0.3,
+    range: 0,
+    damage: 0,
+    cooldown: 0,
+    autoRange: 0,
+    autoDamage: 0,
+    autoCooldown: 0,
+    autoJitter: 0,
+    spread: 0,
+    structDamage: 0,
+    sight: 12,
+    nightVision: 1,
+    stealth: 0.6,
+    mag: 0,
+    zoom: 1.6,
+    fly: 6,
+    battery: 110,
+    blast: { damage: 95, radius: 2.6, structDamage: 320 },
+    armed: false,
+    gear: null,
+    funds: 0,
+    blurb: 'One-way attack drone: dives onto its target and explodes. Hurts walls and gates too.',
   },
 ];
 
@@ -244,7 +340,12 @@ export const UnitKind = {
   Marksman: 4,
   Engineer: 5,
   Operator: 6,
+  ReconDrone: 7,
+  StrikeDrone: 8,
 } as const;
+
+/** Drone kinds a Drone Bay can launch, in menu order. */
+export const DRONE_KINDS = [UnitKind.ReconDrone, UnitKind.StrikeDrone];
 
 /** Units the barracks can train, in menu order. */
 export const RECRUITABLE = [UnitKind.Rifleman, UnitKind.Gunner, UnitKind.Marksman, UnitKind.Engineer, UnitKind.Operator];

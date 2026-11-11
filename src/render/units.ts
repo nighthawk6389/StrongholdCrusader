@@ -3,7 +3,7 @@ import type { Sim } from '../sim/sim';
 import { UNIT_TYPES, UnitKind } from '../sim/unitTypes';
 import { CARRY_LOG, MAX_UNITS } from '../sim/units';
 import { Res, type StructureKind } from '../sim/structures';
-import { box, merge } from './geometry';
+import { box, cylinder, merge, sphere } from './geometry';
 import { COLORS, COMMANDER_TINT, TEAM_COLORS } from './palette';
 
 const HIP_Y = 0.46;
@@ -60,6 +60,38 @@ function soldierParts(): { team: THREE.BufferGeometry; gear: THREE.BufferGeometr
     box(0.14, 0.08, 0.21, 0, -0.42, 0.03, COLORS.boots),
   ]);
   return { team, gear, leg };
+}
+
+/** Drones: [recon quadcopter, strike "dart"]; the white parts take the team tint. Plus rotor discs. */
+function droneParts(): { bodies: THREE.BufferGeometry[]; rotors: THREE.BufferGeometry[] } {
+  const arm = (a: number): THREE.BufferGeometry => box(0.62, 0.035, 0.05, 0, 0, 0, 0x5a5a56, { ry: a });
+  const motor = (x: number, z: number): THREE.BufferGeometry => cylinder(0.04, 0.045, 0.07, x, 0.03, z, 0x1c1c1c, 6);
+  const d = 0.22;
+  const recon = merge([
+    box(0.26, 0.09, 0.3, 0, 0, 0, 0xffffff),
+    box(0.2, 0.05, 0.22, 0, 0.06, -0.02, 0xd8d8d8),
+    arm(Math.PI / 4),
+    arm(-Math.PI / 4),
+    motor(d, d),
+    motor(-d, d),
+    motor(d, -d),
+    motor(-d, -d),
+    sphere(0.06, 0, -0.07, 0.12, 0x151515),
+    box(0.03, 0.03, 0.02, 0, -0.07, 0.18, 0x7ad0ff),
+  ]);
+  const strike = merge([
+    box(0.1, 0.1, 0.62, 0, 0, 0, 0x4a4f3c),
+    box(0.11, 0.11, 0.12, 0, 0, 0.34, 0xffffff),
+    box(0.06, 0.06, 0.06, 0, 0, 0.43, 0xd04030),
+    box(0.86, 0.02, 0.13, 0, 0.02, 0.02, 0x3c4030),
+    box(0.3, 0.02, 0.08, 0, 0.02, -0.28, 0x3c4030),
+    box(0.02, 0.16, 0.08, 0, 0.06, -0.28, 0x3c4030),
+  ]);
+  const disc = (x: number, y: number, z: number, r: number, rot?: { rx?: number }): THREE.BufferGeometry =>
+    cylinder(r, r, 0.006, x, y, z, 0xffffff, 12, rot);
+  const reconRotors = merge([disc(d, 0.075, d, 0.15), disc(-d, 0.075, d, 0.15), disc(d, 0.075, -d, 0.15), disc(-d, 0.075, -d, 0.15)]);
+  const strikeRotor = merge([disc(0, 0, -0.33, 0.13, { rx: Math.PI / 2 })]);
+  return { bodies: [recon, strike], rotors: [reconRotors, strikeRotor] };
 }
 
 /** Civilian: shirt (tinted per job), head + hair. Legs are shared with soldiers. */
@@ -123,6 +155,9 @@ export class UnitRenderer {
   private rings: THREE.InstancedMesh;
   private barBg: THREE.InstancedMesh;
   private barFg: THREE.InstancedMesh;
+  private droneBody: THREE.InstancedMesh[];
+  private droneRotor: THREE.InstancedMesh[];
+  private shadows: THREE.InstancedMesh;
   private phase = new Float32Array(MAX_UNITS);
 
   private m = new THREE.Matrix4();
@@ -133,6 +168,7 @@ export class UnitRenderer {
   private scl = new THREE.Vector3();
   private col = new THREE.Color();
   private yAxis = new THREE.Vector3(0, 1, 0);
+  private euler = new THREE.Euler();
 
   constructor(
     private sim: Sim,
@@ -200,6 +236,63 @@ export class UnitRenderer {
       this.group.add(b);
     }
     for (let i = 0; i < cap; i++) this.barFg.setColorAt(i, this.col.setHex(0x55dd55));
+
+    const drones = droneParts();
+    const DCAP = 64;
+    this.droneBody = drones.bodies.map((g) => new THREE.InstancedMesh(g, mat, DCAP));
+    const rotorMat = new THREE.MeshBasicMaterial({ color: 0xc8c8c8, transparent: true, opacity: 0.22, depthWrite: false });
+    this.droneRotor = drones.rotors.map((g) => new THREE.InstancedMesh(g, rotorMat, DCAP));
+    for (const im of [...this.droneBody, ...this.droneRotor]) {
+      im.frustumCulled = false;
+      im.castShadow = castShadows;
+      im.count = 0;
+      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      this.group.add(im);
+    }
+    for (const im of this.droneBody) for (let i = 0; i < DCAP; i++) im.setColorAt(i, this.col.setHex(0xffffff));
+    // Soft shadow blob under each drone so you can judge its height.
+    const blob = new THREE.CircleGeometry(0.32, 12);
+    blob.rotateX(-Math.PI / 2);
+    this.shadows = new THREE.InstancedMesh(
+      blob,
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false }),
+      DCAP,
+    );
+    this.shadows.frustumCulled = false;
+    this.shadows.count = 0;
+    this.shadows.renderOrder = 1;
+    this.group.add(this.shadows);
+  }
+
+  /** Draw a drone; returns false when this unit isn't one. */
+  private drawDrone(i: number, x: number, y: number, z: number, heading: number, dt: number, counts: number[]): boolean {
+    const u = this.sim.units;
+    const kind = u.kind[i];
+    const v = kind === UnitKind.ReconDrone ? 0 : kind === UnitKind.StrikeDrone ? 1 : -1;
+    if (v < 0) return false;
+    const k = counts[v];
+    if (k >= 64) return true;
+    // Bank into the direction of travel.
+    const vx = (u.x[i] - u.px[i]) * 20;
+    const vz = (u.z[i] - u.pz[i]) * 20;
+    const fwd = vx * Math.sin(heading) + vz * Math.cos(heading);
+    const side = vx * Math.cos(heading) - vz * Math.sin(heading);
+    this.phase[i] += dt;
+    const hover = Math.sin(this.phase[i] * 3 + i) * 0.04;
+    this.euler.set(v === 0 ? Math.min(0.35, fwd * 0.05) : 0, heading, v === 0 ? Math.max(-0.35, Math.min(0.35, -side * 0.05)) : side * 0.03, 'YXZ');
+    this.quat.setFromEuler(this.euler);
+    this.pos.set(x, y + hover, z);
+    this.scl.set(1.3, 1.3, 1.3);
+    this.m.compose(this.pos, this.quat, this.scl);
+    this.droneBody[v].setMatrixAt(k, this.m);
+    this.droneBody[v].setColorAt(k, this.col.setHex(TEAM_COLORS[u.owner[i]] ?? 0xffffff));
+    this.droneRotor[v].setMatrixAt(k, this.m);
+    this.pos.set(x, this.sim.map.heightAt(x, z) + 0.04, z);
+    const s = Math.max(0.5, 1.3 - (y - this.sim.map.heightAt(x, z)) * 0.08);
+    this.m.compose(this.pos, this.quat.identity(), this.scl.set(s, 1, s));
+    this.shadows.setMatrixAt(counts[0] + counts[1], this.m);
+    counts[v]++;
+    return true;
   }
 
   /** Interpolated world position of a unit, including wall-top elevation (for cameras / FX). */
@@ -221,6 +314,7 @@ export class UnitRenderer {
     let cargo = 0;
     let rings = 0;
     let bars = 0;
+    const drones = [0, 0];
     for (let i = 0; i < u.count; i++) {
       if (!u.alive[i] || !s.visible(i)) continue;
       const x = u.px[i] + (u.x[i] - u.px[i]) * s.alpha;
@@ -241,6 +335,27 @@ export class UnitRenderer {
       const isCiv = kind === UnitKind.Civilian;
       const isCmd = kind === UnitKind.Commander;
       const k = isCmd ? 1.15 : isCiv ? 0.95 : 1;
+      if (UNIT_TYPES[kind].fly) {
+        this.drawDrone(i, x, y, z, heading, s.dt, drones);
+        const selected = s.selected.has(i);
+        const ground = map.heightAt(x, z);
+        if (selected) {
+          this.pos.set(x, ground + 0.06, z);
+          this.m.compose(this.pos, this.quat.identity(), this.scl.set(1.2, 1, 1.2));
+          this.rings.setMatrixAt(rings++, this.m);
+        }
+        const frac = u.hp[i] / UNIT_TYPES[kind].hp;
+        if (selected || frac < 0.999) {
+          this.pos.set(x, y + 0.45, z);
+          this.m.compose(this.pos, s.cameraQuat, this.scl.set(1, 1, 1));
+          this.barBg.setMatrixAt(bars, this.m);
+          this.local.makeTranslation(-0.3, 0, 0).scale(this.scl.set(Math.max(frac, 0.001), 1, 1));
+          this.barFg.setMatrixAt(bars, this.tmp.multiplyMatrices(this.m, this.local));
+          this.barFg.setColorAt(bars, this.col.setHSL(0.33 * frac, 0.75, 0.5));
+          bars++;
+        }
+        continue;
+      }
       this.pos.set(x, y + bob, z);
       this.quat.setFromAxisAngle(this.yAxis, heading);
       this.scl.set(k, k, k);
@@ -311,6 +426,17 @@ export class UnitRenderer {
       im.instanceMatrix.needsUpdate = true;
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
     }
+    this.droneBody.forEach((im, v) => {
+      im.count = drones[v];
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    });
+    this.droneRotor.forEach((im, v) => {
+      im.count = drones[v];
+      im.instanceMatrix.needsUpdate = true;
+    });
+    this.shadows.count = drones[0] + drones[1];
+    this.shadows.instanceMatrix.needsUpdate = true;
     this.rings.count = rings;
     this.rings.instanceMatrix.needsUpdate = true;
     this.barBg.count = this.barFg.count = bars;
