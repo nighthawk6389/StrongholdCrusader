@@ -112,7 +112,8 @@ export type StructureKind =
   | 'trench'
   | 'wire'
   | 'ramp'
-  | 'contracts';
+  | 'contracts'
+  | 'mortar';
 
 export interface Cost {
   funds?: number;
@@ -196,6 +197,21 @@ export interface StructureDef {
   vehicles?: boolean;
   /** Upgrades, in order: [level 2, level 3, ...]. */
   upgrades?: UpgradeSpec[];
+  /** Mortar pit: lobs shells on its own (counter-battery first). */
+  mortar?: MortarSpec;
+}
+
+export interface MortarSpec {
+  range: number;
+  minRange: number;
+  /** Seconds between rounds. */
+  cooldownSec: number;
+  /** Shell speed (tiles/s along the ground) and miss distance at full range. */
+  shellSpeed: number;
+  scatter: number;
+  blast: { damage: number; radius: number; structDamage: number };
+  /** Enemy guns that fired within this many seconds are tracked by radar, seen or not. */
+  trackSec: number;
 }
 
 /** One building upgrade (effects stack with earlier levels). */
@@ -209,6 +225,8 @@ export interface UpgradeSpec {
   /** Work time multiplier (below 1 = faster). */
   work?: number;
   light?: number;
+  /** Rate of fire multiplier (mortar pits). */
+  speed?: number;
   /** Additions. */
   housing?: number;
   power?: number;
@@ -756,6 +774,32 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     line: true,
     trap: 'wire',
   },
+  mortar: {
+    kind: 'mortar',
+    name: 'Mortar Pit',
+    description:
+      'Sandbagged mortar with a counter-battery radar. It fires on its own: first at any enemy gun that has shelled within reach (seen or not), then at enemies your side can see. Outranges howitzers a little.',
+    w: 2,
+    h: 2,
+    blocks: true,
+    hp: 900,
+    buildable: true,
+    category: 'defense',
+    cost: { concrete: 12, timber: 4, steel: 8 },
+    armored: true,
+    sight: 10,
+    top: 0.9,
+    mortar: {
+      range: 34,
+      minRange: 6,
+      cooldownSec: 5,
+      shellSpeed: 14,
+      scatter: 2.0,
+      blast: { damage: 70, radius: 2.2, structDamage: 140 },
+      trackSec: 20,
+    },
+    upgrades: [{ name: 'Second tube', description: 'Fires 40% faster.', cost: { concrete: 6, steel: 8 }, speed: 1.4 }],
+  },
   ramp: {
     kind: 'ramp',
     name: 'Assault Ramp',
@@ -831,7 +875,7 @@ export interface Structure {
 }
 
 /** Product of a multiplier over the upgrades a structure has. */
-export function upgradeMul(s: Structure, key: 'hp' | 'storage' | 'work' | 'light'): number {
+export function upgradeMul(s: Structure, key: 'hp' | 'storage' | 'work' | 'light' | 'speed'): number {
   const ups = STRUCTURE_DEFS[s.kind].upgrades;
   let m = 1;
   for (let k = 0; ups && k < (s.level ?? 1) - 1 && k < ups.length; k++) m *= ups[k][key] ?? 1;

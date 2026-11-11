@@ -48,7 +48,7 @@ function countNear(map: GameMap, b: { x: number; z: number }, r: number, tile: n
 describe('skirmish maps', () => {
   for (const key of MAP_KEYS) {
     describe(MAPS[key].name, () => {
-      for (const seed of [1337, 7]) {
+      for (const seed of [1337, 7, 90210, 424242]) {
         const map = generateDesertMap(MAPS[key].spec(seed, BASES));
 
         it(`is a mirror image west to east (seed ${seed})`, () => {
@@ -67,12 +67,14 @@ describe('skirmish maps', () => {
         });
 
         it(`gives each base timber, stone, farmland and oil within reach (seed ${seed})`, () => {
+          // Salt Flats keeps its resources out on the edges (no build radius for work sites).
+          const reachR = key === 'flats' ? 60 : 36;
           for (const b of BASES) {
-            const trees = map.trees.filter((t) => Math.hypot(t.x - b.x, t.z - b.z) < 36).length;
+            const trees = map.trees.filter((t) => Math.hypot(t.x - b.x, t.z - b.z) < reachR).length;
             expect(trees).toBeGreaterThan(key === 'dunes' ? 6 : 12);
-            expect(countNear(map, b, 36, Tile.Rock)).toBeGreaterThan(4);
-            expect(countNear(map, b, 36, Tile.Fertile)).toBeGreaterThan(20);
-            expect(countNear(map, b, 36, Tile.Oil)).toBeGreaterThan(3);
+            expect(countNear(map, b, reachR, Tile.Rock) + countNear(map, b, reachR, Tile.Ruin)).toBeGreaterThan(4);
+            expect(countNear(map, b, reachR, Tile.Fertile)).toBeGreaterThan(20);
+            expect(countNear(map, b, reachR, Tile.Oil)).toBeGreaterThan(3);
           }
         });
       }
@@ -85,6 +87,32 @@ describe('skirmish maps', () => {
     let rock = 0;
     for (let x = 50; x <= 58; x++) if (map.tileAt(x, 44) === Tile.Rock) rock++;
     expect(rock).toBeGreaterThanOrEqual(3);
+  });
+
+  it('Ruined Town is full of ruins (cover), with gaps to walk through', () => {
+    const map = generateDesertMap(MAPS.ruins.spec(1337, BASES));
+    let ruin = 0;
+    for (let i = 0; i < map.tiles.length; i++) if (map.tiles[i] === Tile.Ruin) ruin++;
+    expect(ruin).toBeGreaterThan(80);
+    expect(map.blocksGroundFire(...(() => {
+      const i = map.tiles.indexOf(Tile.Ruin);
+      return [i % map.width, Math.floor(i / map.width)] as [number, number];
+    })())).toBe(true);
+  });
+
+  it('a base walled in by rock gets a pass cut to the middle', () => {
+    const map = generateDesertMap({
+      width: 64,
+      height: 64,
+      seed: 3,
+      clearings: [{ x: 12, z: 32, r: 4 }],
+      oases: [],
+      extraOases: 0,
+      oilPatches: 0,
+      ridges: [{ x: 22, w: 4, gaps: [] }],
+    });
+    const seen = reach(map, 12, 32);
+    expect(seen[map.idx(31, 32)] || seen.some((v, i) => v && i % 64 === 31)).toBeTruthy();
   });
 
   it('skirmish uses the chosen map and opponent', () => {

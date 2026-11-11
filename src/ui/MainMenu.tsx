@@ -40,7 +40,9 @@ export function MainMenu({
   const next = Math.min(trailDone, TRAIL.length - 1);
   const finished = trailDone >= TRAIL.length;
   const foe = PERSONALITIES[opponent];
-  const skirmish = (): void => onStart({ mode: 'skirmish', difficulty: diff, seed: DEFAULT_SEED, opponent, map, trail: null });
+  // Every new skirmish gets a fresh layout of the chosen map (Play again keeps it).
+  const skirmish = (): void =>
+    onStart({ mode: 'skirmish', difficulty: diff, seed: 1 + Math.floor(Math.random() * 999_998), opponent, map, trail: null });
   const simple = (mode: 'hold' | 'sandbox'): void =>
     onStart({ mode, difficulty: 'normal', seed: DEFAULT_SEED, opponent: 'sarge', map: 'basin', trail: null });
   return (
@@ -121,7 +123,7 @@ export function MainMenu({
                 </button>
               ))}
             </div>
-            <span className="mode-desc">{MAPS[map].blurb}</span>
+            <span className="mode-desc">{MAPS[map].blurb} A new layout every game.</span>
             <span className="menu-label">Difficulty</span>
             <div className="segmented diff-picker">
               {DIFFS.map((d) => (

@@ -1,8 +1,8 @@
-import { TICK_SEC } from './clock';
+import { TICK_RATE, TICK_SEC } from './clock';
 import { Block } from './map';
 import { Nav, turnToward, wrapAngle, type Sim } from './sim';
-import { STRUCTURE_DEFS, structureTop, type Structure } from './structures';
-import { UNIT_TYPES } from './unitTypes';
+import { STRUCTURE_DEFS, structureTop, upgradeMul, type MortarSpec, type Structure } from './structures';
+import { UNIT_TYPES, UnitKind } from './unitTypes';
 import { MAX_UNITS, Order } from './units';
 import { NOISE_SEC } from './vision';
 
@@ -152,6 +152,7 @@ export class Combat {
       }
     }
     this.updateTurrets();
+    this.updateMortars();
     this.updateShells();
   }
 
@@ -1168,7 +1169,18 @@ export class Combat {
   // ------------------------------------------------------------------ splash & artillery
 
   /** Shells in flight (howitzers). */
-  readonly shells: { owner: number; shooter: number; kind: number; x: number; z: number; t: number; T: number }[] = [];
+  readonly shells: {
+    owner: number;
+    shooter: number;
+    kind: number;
+    x: number;
+    z: number;
+    t: number;
+    T: number;
+    /** Warhead (mortar rounds); otherwise the shooter kind's artillery blast. */
+    blast?: { damage: number; radius: number; structDamage: number };
+  }[] = [];
+  private lastCounterNotice = new Map<number, number>();
 
   /** Area damage around an impact (not the unit that took the direct hit). */
   private splash(x: number, z: number, owner: number, dmg: number, radius: number, skip: number, ap: boolean): void {
@@ -1232,8 +1244,8 @@ export class Combat {
       s.t += TICK_SEC;
       if (s.t < s.T) continue;
       this.shells.splice(k, 1);
-      const art = UNIT_TYPES[s.kind].artillery;
-      if (art) this.blast(s.x, s.z, this.sim.map.heightAt(s.x, s.z), s.owner, art.blast);
+      const blast = s.blast ?? UNIT_TYPES[s.kind].artillery?.blast;
+      if (blast) this.blast(s.x, s.z, this.sim.map.heightAt(s.x, s.z), s.owner, blast);
     }
   }
 
@@ -1296,9 +1308,10 @@ export class Combat {
     const d = Math.hypot(aim.x - u.x[i], aim.z - u.z[i]);
     if (d > t.range * 0.95 || (approach && d < art.minRange)) {
       if (!approach) return;
-      // Close in (or back off) until it's in range.
+      // Close in (or back off) to a firing spot on our side of the target, well inside range.
       if (u.repath[i] === 0) {
-        sim.setDestination(i, aim.x, aim.z, 0, false);
+        const k = (t.range * 0.8) / Math.max(d, 0.01);
+        sim.setDestination(i, aim.x + (u.x[i] - aim.x) * k, aim.z + (u.z[i] - aim.z) * k, 0, false);
         u.repath[i] = 40;
       }
       if (d > t.range * 0.95) sim.navigate(i);
@@ -1311,6 +1324,77 @@ export class Combat {
     if (u.deploy[i] < 1 || u.cooldown[i] > 0) return;
     this.fireShell(i, aim.x, aim.z);
     u.cooldown[i] = Math.min(255, t.autoCooldown + sim.rng.int(t.autoJitter + 1));
+  }
+
+  /**
+   * Mortar pits fire on their own: counter-battery first (any enemy gun that has fired recently and is
+   * within reach, seen or not: the radar plots it from its shells), then the nearest enemy your side can
+   * see, vehicles before infantry.
+   */
+  private updateMortars(): void {
+    const sim = this.sim;
+    const u = sim.units;
+    for (const s of sim.structures) {
+      const spec = STRUCTURE_DEFS[s.kind].mortar;
+      if (!spec) continue;
+      if (s.cooldown > 0) {
+        s.cooldown--;
+        continue;
+      }
+      if ((sim.tick + s.id) % 10 !== 0) continue;
+      const cx = s.tx + s.w / 2;
+      const cz = s.tz + s.h / 2;
+      let best = -1;
+      let bestScore = Infinity;
+      let counter = false;
+      for (let j = 0; j < u.count; j++) {
+        if (!u.alive[j] || u.owner[j] === s.owner || u.owner[j] === 0) continue;
+        const t = UNIT_TYPES[u.kind[j]];
+        if (t.fly || u.kind[j] === UnitKind.Civilian) continue;
+        const d = Math.hypot(u.x[j] - cx, u.z[j] - cz);
+        if (d > spec.range || d < spec.minRange) continue;
+        const firing = !!t.artillery && sim.tick - u.lastShot[j] < spec.trackSec * TICK_RATE;
+        if (!firing && !sim.vision.isSeen(s.owner, j)) continue;
+        const score = d - (firing ? 1000 : t.vehicle ? 15 : 0);
+        if (score < bestScore) {
+          bestScore = score;
+          best = j;
+          counter = firing;
+        }
+      }
+      if (best < 0) continue;
+      this.fireMortar(s, spec, u.x[best], u.z[best]);
+      s.cooldown = Math.round((spec.cooldownSec * TICK_RATE) / upgradeMul(s, 'speed'));
+      if (counter && sim.elapsed - (this.lastCounterNotice.get(s.owner) ?? -1e9) > 45) {
+        this.lastCounterNotice.set(s.owner, sim.elapsed);
+        sim.emit({ type: 'notice', owner: s.owner, text: 'Counter-battery: your mortar is firing back at an enemy gun' });
+      }
+    }
+  }
+
+  private fireMortar(s: Structure, spec: MortarSpec, tx: number, tz: number): void {
+    const sim = this.sim;
+    const cx = s.tx + s.w / 2;
+    const cz = s.tz + s.h / 2;
+    const d = Math.hypot(tx - cx, tz - cz);
+    const miss = spec.scatter * Math.min(1, d / spec.range) * sim.rng.next();
+    const a = sim.rng.next() * Math.PI * 2;
+    const x = Math.min(Math.max(tx + Math.cos(a) * miss, 0.5), sim.map.width - 0.5);
+    const z = Math.min(Math.max(tz + Math.sin(a) * miss, 0.5), sim.map.height - 0.5);
+    const T = Math.max(0.8, d / spec.shellSpeed);
+    s.aim = Math.atan2(tx - cx, tz - cz);
+    this.shells.push({ owner: s.owner, shooter: -1, kind: -1, x, z, t: 0, T, blast: spec.blast });
+    sim.emit({
+      type: 'shell',
+      owner: s.owner,
+      fromX: cx,
+      fromZ: cz,
+      fromY: sim.map.heightAt(cx, cz) + 0.8,
+      toX: x,
+      toZ: z,
+      toY: sim.map.heightAt(x, z),
+      flight: T,
+    });
   }
 
   /** Assaulting artillery: the nearest enemy wall, tower, gate or building in range. */

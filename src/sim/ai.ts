@@ -40,20 +40,20 @@ export const DIFFICULTY: Record<Difficulty, AiTuning> = {
   },
   normal: {
     thinkTicks: 12,
-    firstAttack: 360,
+    firstAttack: 330,
     attackSize: 10,
     attackGrowth: 5,
-    attackGap: 140,
+    attackGap: 125,
     garrison: 6,
     bonus: { timber: 60, concrete: 40, funds: 180 },
   },
   hard: {
     thinkTicks: 6,
-    firstAttack: 300,
-    attackSize: 12,
-    attackGrowth: 6,
-    attackGap: 115,
-    garrison: 8,
+    firstAttack: 250,
+    attackSize: 11,
+    attackGrowth: 5,
+    attackGap: 90,
+    garrison: 7,
     bonus: { timber: 140, concrete: 100, funds: 450 },
   },
 };
@@ -128,7 +128,7 @@ export const OLD_SARGE: Personality = {
   name: 'Old Sarge',
   title: 'Balanced veteran',
   blurb: 'Walls up early, then steady infantry pushes with a tank or two. A fair first opponent.',
-  mix: { [UnitKind.Rifleman]: 5, [UnitKind.Gunner]: 2, [UnitKind.Marksman]: 1, [UnitKind.Engineer]: 2, [UnitKind.AT]: 1 },
+  mix: { [UnitKind.Rifleman]: 5, [UnitKind.Gunner]: 2, [UnitKind.Marksman]: 1, [UnitKind.Engineer]: 2, [UnitKind.AT]: 1, [UnitKind.Operator]: 1 },
   build: [
     { kind: 'lumber', count: 1, near: 'trees' },
     { kind: 'orchard', count: 1, near: 'fertile' },
@@ -151,6 +151,7 @@ export const OLD_SARGE: Personality = {
     { kind: 'dronebay', count: 1, near: 'home' },
     { kind: 'derrick', count: 1, near: 'oil' },
     { kind: 'motorpool', count: 1, near: 'home' },
+    { kind: 'mortar', count: 1, near: 'home' },
     { kind: 'fortRing' },
     { kind: 'scrapyard', count: 2, near: 'home' },
     { kind: 'house', count: 5, near: 'home' },
@@ -179,7 +180,7 @@ export const JACKAL: Personality = {
   name: 'Jackal',
   title: 'Raider',
   blurb: 'Hits early and often. Armored cars and small raiding parties go after your farms and work camps.',
-  mix: { [UnitKind.Rifleman]: 6, [UnitKind.Gunner]: 1, [UnitKind.Engineer]: 2, [UnitKind.AT]: 1 },
+  mix: { [UnitKind.Rifleman]: 6, [UnitKind.Gunner]: 1, [UnitKind.Engineer]: 2, [UnitKind.AT]: 1, [UnitKind.Operator]: 2 },
   build: [
     { kind: 'lumber', count: 1, near: 'trees' },
     { kind: 'orchard', count: 1, near: 'fertile' },
@@ -229,7 +230,7 @@ export const THE_ENGINEER: Personality = {
   name: 'The Engineer',
   title: 'Sapper',
   blurb: 'Turns the ground outside the walls into a death trap: wire, mines, ditches and fuel trenches that go up in flames under you. Shells you from afar.',
-  mix: { [UnitKind.Rifleman]: 4, [UnitKind.Gunner]: 1, [UnitKind.Marksman]: 1, [UnitKind.Engineer]: 4, [UnitKind.AT]: 1 },
+  mix: { [UnitKind.Rifleman]: 4, [UnitKind.Gunner]: 1, [UnitKind.Marksman]: 1, [UnitKind.Engineer]: 4, [UnitKind.AT]: 1, [UnitKind.Operator]: 1 },
   build: [
     { kind: 'lumber', count: 1, near: 'trees' },
     { kind: 'orchard', count: 1, near: 'fertile' },
@@ -252,6 +253,7 @@ export const THE_ENGINEER: Personality = {
     { kind: 'orchard', count: 2, near: 'fertile' },
     { kind: 'generator', count: 2, near: 'home' },
     { kind: 'gunTowers' },
+    { kind: 'mortar', count: 1, near: 'home' },
     { kind: 'fortRing' },
     { kind: 'scrapyard', count: 3, near: 'home' },
     { kind: 'house', count: 5, near: 'home' },
@@ -298,8 +300,10 @@ export const WARDEN: Personality = {
     { kind: 'fortFront' },
     { kind: 'scrapyard', count: 2, near: 'home' },
     { kind: 'gunTowers' },
+    { kind: 'mortar', count: 1, near: 'home' },
     { kind: 'scrapyard', count: 3, near: 'home' },
     { kind: 'fortRing' },
+    { kind: 'mortar', count: 2, near: 'home' },
     { kind: 'generator', count: 2, near: 'home' },
     { kind: 'nightKit' },
     { kind: 'searchlights' },
@@ -339,7 +343,7 @@ export const THE_BROKER: Personality = {
   name: 'The Broker',
   title: 'Trader',
   blurb: 'Taxes hard, trades everything, and buys ready-made PMC teams when the cash piles up. Armies appear fast.',
-  mix: { [UnitKind.Rifleman]: 5, [UnitKind.Gunner]: 2, [UnitKind.Marksman]: 1, [UnitKind.Engineer]: 2, [UnitKind.AT]: 1 },
+  mix: { [UnitKind.Rifleman]: 5, [UnitKind.Gunner]: 2, [UnitKind.Marksman]: 1, [UnitKind.Engineer]: 2, [UnitKind.AT]: 1, [UnitKind.Operator]: 1 },
   build: [
     { kind: 'lumber', count: 1, near: 'trees' },
     { kind: 'orchard', count: 1, near: 'fertile' },
@@ -371,7 +375,7 @@ export const THE_BROKER: Personality = {
     [UnitKind.ArmoredCar, 1, 1],
     [UnitKind.Tank, 0, 1],
   ],
-  tempo: { attackSize: 1.1 },
+  tempo: { attackSize: 1.0, attackGap: 0.85 },
   contracts: true,
   trader: true,
   upgrades: ['house', 'scrapyard', 'quarry', 'lumber', 'orchard', 'ranch', 'depot', 'arms', 'generator'],
@@ -411,8 +415,17 @@ const RECIPE_FOR: Partial<Record<number, number>> = {
   [UnitKind.Gunner]: 1,
   [UnitKind.Marksman]: 2,
   [UnitKind.Engineer]: 3,
+  [UnitKind.Operator]: 4,
   [UnitKind.AT]: 5,
 };
+
+/** Rough fighting value of a unit, for sizing up armies. */
+function worth(k: number): number {
+  return k === UnitKind.Tank ? 4 : k === UnitKind.Howitzer ? 3 : k === UnitKind.ArmoredCar || k === UnitKind.Breacher ? 2 : 1;
+}
+
+/** Defensive weight of a structure on the side of a base an attack would come from. */
+const DEFENSE_WEIGHT: Partial<Record<StructureKind, number>> = { wall: 1, gate: 2, tower: 3, guntower: 8, mortar: 5, ditch: 1, mines: 1, wire: 0.5 };
 
 // ------------------------------------------------------------------ controller
 
@@ -502,6 +515,8 @@ export class AiCommander implements Controller {
         }
       }
       if (e.type === 'result') this.say(sim, e.result === 'victory' ? 'lose' : 'win');
+      // Enemy artillery landing near home: time for a mortar pit of our own.
+      if (e.type === 'shell' && e.owner === this.enemy && Math.hypot(e.toX - this.home.x, e.toZ - this.home.z) < this.ring + 12) this.shelled = true;
     }
   }
 
@@ -535,7 +550,7 @@ export class AiCommander implements Controller {
     const cars = sim.units.kind.some((k, i) => sim.units.alive[i] && sim.units.owner[i] === this.owner && k === UnitKind.ArmoredCar);
     if (!cars && this.difficulty !== 'easy' && sim.elapsed > 400) idx = CONTRACTS.findIndex((c) => c.key === 'car');
     if (idx < 0) idx = 0;
-    const reserve = this.difficulty === 'easy' ? 250 : 60;
+    const reserve = this.difficulty === 'easy' ? 250 : 40;
     if (p.funds < CONTRACTS[idx].funds + reserve) return;
     if (sim.economy.hireBlocker(this.owner, office.id, idx)) return;
     this.lastHireAt = sim.elapsed;
@@ -603,7 +618,54 @@ export class AiCommander implements Controller {
 
   // ---------------------------------------------------------------- economy
 
+  private shelled = false;
+
+  /**
+   * Normal and up: pick rations and taxes together for the most income that still moves morale where
+   * it needs to be. While there's room to grow, keep morale high so people keep arriving; once housing
+   * is full, cash in on high morale down to a safe floor; below the floor, buy it back.
+   */
+  private planEconomy(sim: Sim): void {
+    const p = sim.economy.player(this.owner);
+    if (sim.elapsed - this.lastTaxChange < 12) return;
+    const pop = Math.max(1, p.population);
+    const others = p.factors.filter((f) => f.key !== 'rations' && f.key !== 'taxes').reduce((a, f) => a + f.value, 0);
+    const food = p.stored('food');
+    const rate = this.foodRate(sim);
+    const m = p.morale;
+    const floor = this.personality.trader ? 52 : 55;
+    const room = p.population < p.housing - 1;
+    const need = room ? (m < 72 ? 3 : 0) : m > 78 ? -5 : m > 64 ? -2 : m > floor ? 0 : 3;
+    let best: [number, number] | null = null;
+    let bestValue = -Infinity;
+    for (let r = 1; r < RATION_LEVELS.length; r++) {
+      const eat = pop * RATION_LEVELS[r].perMin;
+      // Only rations we can keep up: farms cover it, or the stores cover four minutes of the shortfall.
+      if (eat > rate && food < (eat - rate) * 4 + pop) continue;
+      for (let t = 0; t < TAX_LEVELS.length; t++) {
+        const drift = others + RATION_LEVELS[r].morale + TAX_LEVELS[t].morale;
+        if (drift < need) continue;
+        const value = pop * TAX_LEVELS[t].perMin - eat * 2;
+        if (value > bestValue) {
+          bestValue = value;
+          best = [r, t];
+        }
+      }
+    }
+    if (!best) best = [food > pop * 2 ? 3 : 1, 1];
+    if (best[0] !== p.rationLevel) sim.enqueue({ type: 'setRations', owner: this.owner, level: best[0] });
+    if (best[1] !== p.taxLevel) {
+      this.lastTaxChange = sim.elapsed;
+      sim.enqueue({ type: 'setTax', owner: this.owner, level: best[1] });
+    }
+  }
+
   private manageMorale(sim: Sim): void {
+    if (this.difficulty !== 'easy') {
+      this.planEconomy(sim);
+      this.trade(sim);
+      return;
+    }
     const p = sim.economy.player(this.owner);
     const food = p.stored('food');
     const ration = food < p.population * 1.5 ? 1 : food > p.population * 8 ? 3 : 2;
@@ -663,6 +725,7 @@ export class AiCommander implements Controller {
   /** Army-mix weight for a unit type. AT teams only join once the enemy fields armor. */
   private weight(sim: Sim, k: number): number {
     const w = this.personality.mix[k] ?? 0;
+    if (k === UnitKind.Operator) return this.difficulty === 'easy' ? 0 : w;
     if (k !== UnitKind.AT) return w;
     const u = sim.units;
     for (let i = 0; i < u.count; i++) if (u.alive[i] && u.owner[i] === this.enemy && UNIT_TYPES[u.kind[i]].vehicle) return w * 2;
@@ -728,6 +791,15 @@ export class AiCommander implements Controller {
     }
     if (p.stored('materials') > p.materialsCap - 15 && this.tryBuild(sim, 'depot', 'producers')) return;
     if (p.stored('food') > p.foodCap - 15 && this.tryBuild(sim, 'rations', 'home')) return;
+    // Being shelled: answer it with a mortar pit (counter-battery) as soon as we can.
+    if (this.shelled && this.difficulty !== 'easy' && this.count(sim, 'mortar') < 2 && !this.impossible.has('mortar:react')) {
+      if (p.canAfford(STRUCTURE_DEFS.mortar.cost)) {
+        if (this.tryBuild(sim, 'mortar', 'home')) return;
+        this.impossible.add('mortar:react');
+      }
+    }
+    // Hands sitting idle: put them to work (steel first: it's what weapons and armor are made of).
+    if (this.difficulty !== 'easy' && p.idle >= 8 && sim.elapsed > 150 && this.expand(sim)) return;
 
     for (const step of this.personality.build) {
       if (step.kind === 'fortFront' || step.kind === 'fortRing') {
@@ -764,6 +836,26 @@ export class AiCommander implements Controller {
       }
       return;
     }
+  }
+
+  /** Build another producer for whatever is short. Returns true if something was ordered. */
+  private expand(sim: Sim): boolean {
+    const p = sim.economy.player(this.owner);
+    const options: [StructureKind, Near, number][] = [];
+    if (p.stock[Res.Steel] < 20) options.push(['scrapyard', 'home', 5]);
+    if (p.stored('gear') < 4) options.push(['arms', 'home', 3]);
+    if (p.stock[Res.Concrete] < 30) options.push(['quarry', 'rock', 4]);
+    if (p.stock[Res.Timber] < 30) options.push(['lumber', 'trees', 4]);
+    if (p.foodSeconds < 240) options.push(['orchard', 'fertile', 6], ['ranch', 'home', 4]);
+    options.push(['scrapyard', 'home', 5], ['arms', 'home', 3]);
+    for (const [kind, near, cap] of options) {
+      const key = `${kind}:expand`;
+      if (this.impossible.has(key) || this.count(sim, kind) >= cap) continue;
+      if (!p.canAfford(STRUCTURE_DEFS[kind].cost)) continue;
+      if (this.tryBuild(sim, kind, near)) return true;
+      this.impossible.add(key);
+    }
+    return false;
   }
 
   /** Build the next pieces of the fortress. Returns true when that phase is complete. */
@@ -993,7 +1085,7 @@ export class AiCommander implements Controller {
   private anchorFor(sim: Sim, near: Near): { x: number; z: number } | null {
     const map = sim.map;
     const { x: hx, z: hz } = this.home;
-    const limit = 36;
+    const limit = 56;
     if (near === 'home') return { x: hx, z: hz };
     if (near === 'trees') {
       // The densest grove within reach: count living trees around each candidate.
@@ -1017,7 +1109,8 @@ export class AiCommander implements Controller {
       let bestD = limit;
       for (let tz = Math.max(0, hz - limit); tz < Math.min(map.height, hz + limit); tz++) {
         for (let tx = Math.max(0, hx - limit); tx < Math.min(map.width, hx + limit); tx++) {
-          if (map.tileAt(tx, tz) !== want) continue;
+          const tile = map.tileAt(tx, tz);
+          if (tile !== want && !(want === Tile.Rock && tile === Tile.Ruin)) continue;
           const d = Math.hypot(tx + 0.5 - hx, tz + 0.5 - hz);
           if (d < bestD && d > this.ring + 2) {
             bestD = d;
@@ -1164,12 +1257,17 @@ export class AiCommander implements Controller {
       if (best >= 0) sim.enqueue({ type: 'recruit', owner: this.owner, barracks: barracks.id, kind: best, count: 1 });
     }
 
-    const raiding = new Set(this.raidGroup);
+    const mine = (id: number): boolean => u.isAlive(id) && u.owner[id] === this.owner;
+    this.saboteurs = this.saboteurs.filter(mine);
+    if (this.stage) this.stage.ids = this.stage.ids.filter(mine);
+    if (this.scout >= 0 && !mine(this.scout)) this.scout = -1;
+    const busy = new Set([...this.raidGroup, ...this.saboteurs, ...(this.stage?.ids ?? []), this.scout]);
     const free = army.filter(
-      (i) =>
-        !this.garrison.has(i) && !raiding.has(i) && !sim.combat.assault[i] && u.order[i] !== Order.Control && u.task[i] !== Task.Recruit,
+      (i) => !this.garrison.has(i) && !busy.has(i) && !sim.combat.assault[i] && u.order[i] !== Order.Control && u.task[i] !== Task.Recruit,
     );
     this.manageRaids(sim, free);
+    this.updateIntel(sim);
+    this.manageScout(sim, free);
 
     // Man the front wall (prefer marksmen and machine gunners up there).
     const deck = this.frontDeckTiles(sim);
@@ -1201,6 +1299,8 @@ export class AiCommander implements Controller {
       if (idle.length) sim.enqueue({ type: 'attack', owner: this.owner, ids: idle, target: intruder });
       return;
     }
+    this.huntCommander(sim, free);
+    this.nightSabotage(sim, free);
 
     // Attack when the field army is big enough (and has engineers if the enemy has walls).
     if (this.attackGroup.length === 0 && this.lastAttackLaunched && !this.reportedFailure) {
@@ -1209,24 +1309,310 @@ export class AiCommander implements Controller {
       const survivors = this.launched.filter((id) => u.isAlive(id) && u.owner[id] === this.owner).length;
       if (survivors < this.launched.length * 0.3 && !sim.result) this.say(sim, 'attackFailed');
     }
-    if (sim.elapsed < this.nextAttackAt || this.attackGroup.length > 0) return;
+    if (this.attackGroup.length > 0) {
+      this.manageAssault(sim, free);
+      return;
+    }
+    if (this.stage) {
+      this.manageStage(sim);
+      return;
+    }
     const enemyWalls = sim.structures.some((s) => s.owner === this.enemy && STRUCTURE_DEFS[s.kind].armored);
-    const engineers = free.filter((i) => u.kind[i] === UnitKind.Engineer).length;
-    // Armor counts for more than one rifleman, and tanks/howitzers can breach walls themselves.
-    const worth = (k: number): number => (k === UnitKind.Tank ? 4 : k === UnitKind.Howitzer ? 3 : k === UnitKind.ArmoredCar ? 2 : 1);
+    const engineers = free.filter((i) => u.kind[i] === UnitKind.Engineer || u.kind[i] === UnitKind.Operator).length;
+    // Armor counts for more than one rifleman, and tanks/howitzers/breachers deal with walls themselves.
     const strength = free.reduce((a, i) => a + worth(u.kind[i]), 0);
-    const breachers = engineers + free.filter((i) => UNIT_TYPES[u.kind[i]].siege || UNIT_TYPES[u.kind[i]].artillery).length;
-    const ready = strength >= this.attackSize && (!enemyWalls || breachers > 0 || strength >= this.attackSize * 1.5);
-    if (!ready) return;
-    sim.enqueue({ type: 'assault', owner: this.owner, ids: free, target: this.enemy });
-    this.attackGroup = [...free];
-    this.launched = [...free];
-    this.lastAttackLaunched = true;
-    this.attackLaunchedAt = sim.elapsed;
-    this.reportedFailure = false;
+    const breachers = engineers + free.filter((i) => UNIT_TYPES[u.kind[i]].siege || UNIT_TYPES[u.kind[i]].artillery || UNIT_TYPES[u.kind[i]].dozer).length;
+    const canBreach = !enemyWalls || breachers > 0 || strength >= this.attackSize * 1.5;
+    const scheduled = sim.elapsed >= this.nextAttackAt && strength >= this.attackSize;
+    // Bold: with fresh intel showing we clearly outnumber them, go now rather than wait for the clock.
+    const opportunity =
+      this.difficulty !== 'easy' &&
+      sim.elapsed >= this.tuning.firstAttack * 0.75 &&
+      sim.elapsed - this.attackLaunchedAt > this.tuning.attackGap * 0.6 &&
+      sim.elapsed - this.lastIntelAt < 90 &&
+      strength >= Math.max(this.attackSize * 0.8, this.knownEnemy * 2.2 + 3);
+    if (!canBreach || !(scheduled || opportunity)) return;
+    this.launchAttack(sim, free, strength);
+  }
+
+  // ---------------------------------------------------------------- strategy
+
+  private knownEnemy = 0;
+  private lastIntelAt = -1e9;
+  private scout = -1;
+  private scoutTarget = { x: 0, z: 0 };
+  private lastScoutAt = -1e9;
+  private stage: { ids: number[]; x: number; z: number; since: number; size: number } | null = null;
+  private saboteurs: number[] = [];
+  private sabotageNight = -1;
+  private lastReinforceAt = -1e9;
+  private launchedStrength = 0;
+  private lastHuntAt = -1e9;
+
+  /** What we've seen of the enemy's army lately (decays when nobody's looking). No vision cheats. */
+  private updateIntel(sim: Sim): void {
+    const u = sim.units;
+    let seen = 0;
+    for (let i = 0; i < u.count; i++) {
+      if (!u.alive[i] || u.owner[i] !== this.enemy || !UNIT_TYPES[u.kind[i]].armed) continue;
+      if (sim.vision.isSeen(this.owner, i)) seen += worth(u.kind[i]);
+    }
+    for (const s of sim.structures) if (s.owner === this.enemy && s.kind === 'guntower' && sim.combat.crewed(s)) seen += 3;
+    if (seen >= this.knownEnemy * 0.8 && seen > 0) this.lastIntelAt = sim.elapsed;
+    this.knownEnemy = Math.max(seen, this.knownEnemy * 0.995);
+  }
+
+  /** Normal and up: send a fast soldier to have a look at the enemy base every couple of minutes. */
+  private manageScout(sim: Sim, free: number[]): void {
+    if (this.difficulty === 'easy') return;
+    const u = sim.units;
+    if (this.scout >= 0) {
+      const i = this.scout;
+      if (u.order[i] === Order.Idle) {
+        if (Math.hypot(u.x[i] - this.scoutTarget.x, u.z[i] - this.scoutTarget.z) < 6) {
+          sim.enqueue({ type: 'move', owner: this.owner, ids: [i], x: this.home.x, z: this.home.z + 2 });
+          this.scout = -1; // on the way home: back to the army
+        } else {
+          sim.enqueue({ type: 'move', owner: this.owner, ids: [i], x: this.scoutTarget.x, z: this.scoutTarget.z });
+        }
+      }
+      return;
+    }
+    if (sim.elapsed < 100 || sim.elapsed - this.lastScoutAt < 140 || this.attackGroup.length) return;
+    const hq = sim.economy.hqOf(this.enemy);
+    if (!hq) return;
+    const pick = free
+      .filter((i) => u.order[i] === Order.Idle && (u.kind[i] === UnitKind.ArmoredCar || u.kind[i] === UnitKind.Rifleman))
+      .sort((a, b) => (u.kind[a] === UnitKind.ArmoredCar ? 0 : 1) - (u.kind[b] === UnitKind.ArmoredCar ? 0 : 1) || a - b)[0];
+    if (pick === undefined) return;
+    const ex = hq.tx + hq.w / 2;
+    const ez = hq.tz + hq.h / 2;
+    const d = Math.hypot(this.home.x - ex, this.home.z - ez) || 1;
+    // A point outside their walls, a little off the straight line, with a view of the base.
+    const side = sim.rng.next() < 0.5 ? -1 : 1;
+    this.scoutTarget = {
+      x: ex + ((this.home.x - ex) / d) * 18 + ((-(this.home.z - ez) / d) * 8 * side),
+      z: ez + ((this.home.z - ez) / d) * 18 + (((this.home.x - ex) / d) * 8 * side),
+    };
+    this.scout = pick;
+    this.lastScoutAt = sim.elapsed;
+    free.splice(free.indexOf(pick), 1);
+    sim.enqueue({ type: 'move', owner: this.owner, ids: [pick], x: this.scoutTarget.x, z: this.scoutTarget.z });
+  }
+
+  /**
+   * Pick the approach: the side of the enemy base with the least in the way (walls, towers, gun towers,
+   * mortars, traps). Returns a staging point out on that side, or null to go straight in.
+   */
+  private attackSide(sim: Sim, ex: number, ez: number): { x: number; z: number } | null {
+    const dirs: [number, number][] = [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ];
+    const toUs = { x: this.home.x - ex, z: this.home.z - ez };
+    let direct = 0;
+    let best = -1;
+    let bestScore = Infinity;
+    const scores = dirs.map(([dx, dz]) => {
+      let score = 0;
+      for (const s of sim.structures) {
+        if (s.owner !== this.enemy) continue;
+        const w = DEFENSE_WEIGHT[s.kind];
+        if (!w) continue;
+        const rx = s.tx + s.w / 2 - ex;
+        const rz = s.tz + s.h / 2 - ez;
+        const along = rx * dx + rz * dz;
+        const across = Math.abs(rx * dz - rz * dx);
+        if (along > 3 && along < 24 && across < along + 3) score += w;
+      }
+      return score;
+    });
+    dirs.forEach(([dx, dz], k) => {
+      if (dx * toUs.x + dz * toUs.z > dirs[direct][0] * toUs.x + dirs[direct][1] * toUs.z) direct = k;
+    });
+    const at = (k: number): { x: number; z: number } => ({
+      x: Math.min(Math.max(ex + dirs[k][0] * 22, 6), sim.map.width - 7),
+      z: Math.min(Math.max(ez + dirs[k][1] * 22, 6), sim.map.height - 7),
+    });
+    dirs.forEach(([dx, dz], k) => {
+      // Only the two flanks: going round the back means marching past every gun they have.
+      if (k !== direct && dx * dirs[direct][0] + dz * dirs[direct][1] !== 0) return;
+      const p = at(k);
+      // A longer walk round costs a little.
+      const score = scores[k] + Math.hypot(p.x - this.home.x, p.z - this.home.z) / 12;
+      if (score < bestScore) {
+        bestScore = score;
+        best = k;
+      }
+    });
+    if (best < 0 || best === direct || scores[direct] - scores[best] < 6) return null;
+    return at(best);
+  }
+
+  /** Go: straight in, or (Normal and up) feint at the front while the main body swings round to a weak side. */
+  private launchAttack(sim: Sim, free: number[], strength: number): void {
+    const u = sim.units;
+    const hq = sim.economy.hqOf(this.enemy);
+    if (!hq) return;
+    let ids = [...free];
+    // All in: far stronger than anything we've seen of them, and late enough to finish it.
+    if (this.difficulty !== 'easy' && sim.elapsed > 600 && strength >= this.knownEnemy * 2 + 6 && this.garrison.size > 2) {
+      const pulled = [...this.garrison].slice(2);
+      for (const g of pulled) this.garrison.delete(g);
+      ids = ids.concat(pulled);
+    }
     this.nextAttackAt = sim.elapsed + this.tuning.attackGap;
     this.attackSize += this.tuning.attackGrowth;
+    this.reportedFailure = false;
     this.say(sim, 'attack');
+    const side = this.difficulty === 'easy' ? null : this.attackSide(sim, hq.tx + hq.w / 2, hq.tz + hq.h / 2);
+    if (side) {
+      const feint = ids.length >= 9 ? ids.filter((i) => u.kind[i] === UnitKind.Rifleman).slice(0, 3) : [];
+      if (feint.length) sim.enqueue({ type: 'assault', owner: this.owner, ids: feint, target: this.enemy });
+      const main = ids.filter((i) => !feint.includes(i));
+      this.stage = { ids: main, x: side.x, z: side.z, since: sim.elapsed, size: main.length };
+      sim.enqueue({ type: 'move', owner: this.owner, ids: main, x: side.x, z: side.z });
+      return;
+    }
+    this.assaultNow(sim, ids);
+  }
+
+  private assaultNow(sim: Sim, ids: number[]): void {
+    const u = sim.units;
+    sim.enqueue({ type: 'assault', owner: this.owner, ids, target: this.enemy });
+    this.attackGroup = [...ids];
+    this.launched = [...ids];
+    this.launchedStrength = ids.reduce((a, i) => a + worth(u.kind[i]), 0);
+    this.lastAttackLaunched = true;
+    this.attackLaunchedAt = sim.elapsed;
+  }
+
+  /** The flanking body goes in once most of it has reached the staging point (or it's taking too long). */
+  private manageStage(sim: Sim): void {
+    const st = this.stage!;
+    const u = sim.units;
+    if (st.ids.length === 0) {
+      this.stage = null;
+      return;
+    }
+    const there = st.ids.filter((i) => Math.hypot(u.x[i] - st.x, u.z[i] - st.z) < 7).length;
+    // Caught on the way round (someone's hurt or down): fight from where we are.
+    const engaged = st.ids.length < st.size || st.ids.some((i) => u.hp[i] < UNIT_TYPES[u.kind[i]].hp);
+    if (there >= st.ids.length * 0.7 || engaged || sim.elapsed - st.since > 50) {
+      this.stage = null;
+      this.assaultNow(sim, st.ids);
+    }
+  }
+
+  /** An attack under way: feed it while it's winning; pull the survivors out when it's broken. */
+  private manageAssault(sim: Sim, free: number[]): void {
+    const u = sim.units;
+    const now = this.attackGroup.reduce((a, i) => a + worth(u.kind[i]), 0);
+    if (sim.elapsed - this.attackLaunchedAt > 45 && now < this.launchedStrength * 0.3) {
+      let cx = 0;
+      let cz = 0;
+      for (const i of this.attackGroup) {
+        cx += u.x[i];
+        cz += u.z[i];
+      }
+      cx /= this.attackGroup.length;
+      cz /= this.attackGroup.length;
+      let near = 0;
+      for (let j = 0; j < u.count; j++) {
+        if (!u.alive[j] || u.owner[j] !== this.enemy || !UNIT_TYPES[u.kind[j]].armed || !sim.vision.isSeen(this.owner, j)) continue;
+        if (Math.hypot(u.x[j] - cx, u.z[j] - cz) < 16) near += worth(u.kind[j]);
+      }
+      if (near > now * 1.5 && this.difficulty !== 'easy') {
+        // Broken and outgunned: live to fight again.
+        const back = [...this.attackGroup];
+        sim.enqueue({ type: 'stop', owner: this.owner, ids: back });
+        sim.enqueue({ type: 'move', owner: this.owner, ids: back, x: this.home.x, z: this.home.z + 2 });
+        this.attackGroup = [];
+        this.nextAttackAt = Math.min(this.nextAttackAt, sim.elapsed + this.tuning.attackGap * 0.6);
+        this.reportedFailure = true;
+        this.say(sim, 'attackFailed');
+      }
+      return;
+    }
+    // Going well: keep the pressure on with whoever is ready at home (keeping a couple back).
+    if (this.difficulty === 'easy' || sim.elapsed - this.lastReinforceAt < 25 || now < this.launchedStrength * 0.4) return;
+    const send = free.filter((i) => u.order[i] === Order.Idle).slice(2);
+    if (send.reduce((a, i) => a + worth(u.kind[i]), 0) < 3) return;
+    this.lastReinforceAt = sim.elapsed;
+    sim.enqueue({ type: 'assault', owner: this.owner, ids: send, target: this.enemy });
+    this.attackGroup.push(...send);
+    this.launched.push(...send);
+    this.launchedStrength += send.reduce((a, i) => a + worth(u.kind[i]), 0);
+  }
+
+  /** Bold: an enemy Commander caught out in the open gets hunted down (that wins the game). */
+  private huntCommander(sim: Sim, free: number[]): void {
+    if (this.difficulty === 'easy' || sim.elapsed - this.lastHuntAt < 20) return;
+    const u = sim.units;
+    const c = sim.commanderOf(this.enemy);
+    if (c < 0 || !u.isAlive(c) || !sim.vision.isSeen(this.owner, c)) return;
+    const hq = sim.economy.hqOf(this.enemy);
+    if (hq && Math.hypot(u.x[c] - (hq.tx + hq.w / 2), u.z[c] - (hq.tz + hq.h / 2)) < 12) return; // safe at home
+    const hunters = free
+      .filter((i) => (u.order[i] === Order.Idle || u.order[i] === Order.Move) && Math.hypot(u.x[i] - u.x[c], u.z[i] - u.z[c]) < 45)
+      .sort((a, b) => Math.hypot(u.x[a] - u.x[c], u.z[a] - u.z[c]) - Math.hypot(u.x[b] - u.x[c], u.z[b] - u.z[c]) || a - b)
+      .slice(0, 6);
+    if (hunters.length < 2) return;
+    this.lastHuntAt = sim.elapsed;
+    sim.enqueue({ type: 'attack', owner: this.owner, ids: hunters, target: c });
+    for (const h of hunters) free.splice(free.indexOf(h), 1);
+  }
+
+  /**
+   * Sneaky: once a night (Normal and up), special forces slip over the walls to blow up the enemy's
+   * generators (lights out), then gun towers, then the HQ. They come home at dawn.
+   */
+  private nightSabotage(sim: Sim, free: number[]): void {
+    if (this.difficulty === 'easy') return;
+    const u = sim.units;
+    const night = sim.cycle.daylight < 0.3;
+    if (!night) {
+      if (this.saboteurs.length) {
+        sim.enqueue({ type: 'move', owner: this.owner, ids: this.saboteurs, x: this.home.x, z: this.home.z + 2 });
+        this.saboteurs = [];
+      }
+      return;
+    }
+    if (this.saboteurs.length) {
+      const idle = this.saboteurs.filter((i) => u.order[i] === Order.Idle);
+      const target = idle.length ? this.sabotageTarget(sim) : null;
+      if (target) sim.enqueue({ type: 'attackStructure', owner: this.owner, ids: idle, structure: target.id });
+      return;
+    }
+    const nightNo = Math.floor(sim.timeSec / CYCLE_SEC);
+    if (this.sabotageNight === nightNo) return;
+    const ops = free.filter((i) => u.kind[i] === UnitKind.Operator && u.charges[i] > 0 && u.order[i] === Order.Idle).slice(0, 3);
+    if (ops.length < 2) return;
+    const target = this.sabotageTarget(sim);
+    if (!target) return;
+    this.sabotageNight = nightNo;
+    this.saboteurs = ops;
+    for (const o of ops) free.splice(free.indexOf(o), 1);
+    sim.enqueue({ type: 'attackStructure', owner: this.owner, ids: ops, structure: target.id });
+  }
+
+  private sabotageTarget(sim: Sim): Structure | null {
+    for (const kind of ['generator', 'guntower', 'mortar', 'hq'] as StructureKind[]) {
+      let best: Structure | null = null;
+      let bestD = Infinity;
+      for (const s of sim.structures) {
+        if (s.owner !== this.enemy || s.kind !== kind) continue;
+        const d = Math.hypot(s.tx - this.home.x, s.tz - this.home.z);
+        if (d < bestD) {
+          bestD = d;
+          best = s;
+        }
+      }
+      if (best) return best;
+    }
+    return null;
   }
 
   private lastAttackLaunched = false;
@@ -1369,18 +1755,21 @@ export class AiCommander implements Controller {
     if (night && recon === 0 && this.reconNight !== nightNo) {
       kind = UnitKind.ReconDrone;
       this.reconNight = nightNo; // one recon drone a night: if it's shot down, so be it
-    } else if (this.difficulty !== 'easy' && this.attackGroup.length > 0 && strike === 0) {
+    } else if (this.difficulty !== 'easy' && strike === 0) {
       const tgt = this.strikeTarget(sim);
-      if (tgt.structure >= 0 || tgt.unit >= 0) kind = UnitKind.StrikeDrone;
+      const commander = tgt.unit >= 0 && tgt.unit === sim.commanderOf(this.enemy);
+      if ((this.attackGroup.length > 0 || commander) && (tgt.structure >= 0 || tgt.unit >= 0)) kind = UnitKind.StrikeDrone;
     }
     if (kind < 0 || sim.drones.launchBlocker(this.owner, bay.id, kind)) return;
     this.lastDroneAt = sim.elapsed;
     sim.enqueue({ type: 'launchDrone', owner: this.owner, bay: bay.id, kind });
   }
 
-  /** Best strike-drone target: a crewed enemy gun tower, else a defender we can see on a wall top. */
+  /** Best strike-drone target: their Commander if we can see it, a crewed gun tower, else a wall-top defender. */
   private strikeTarget(sim: Sim): { structure: number; unit: number } {
     const u = sim.units;
+    const c = sim.commanderOf(this.enemy);
+    if (this.difficulty !== 'easy' && c >= 0 && u.isAlive(c) && sim.vision.isSeen(this.owner, c)) return { structure: -1, unit: c };
     for (const s of sim.structures) {
       if (s.owner === this.enemy && s.kind === 'guntower' && sim.combat.crewed(s)) return { structure: s.id, unit: -1 };
     }

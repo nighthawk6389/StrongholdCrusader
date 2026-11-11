@@ -4,7 +4,7 @@ import type { DesertMapSpec } from './map';
  * Skirmish maps. Every one is mirrored west–east so both commanders start with the same ground:
  * bases sit at (28, 64) and (100, 64) on a 128×128 map. Only the west half is described here.
  */
-export type MapKey = 'basin' | 'dunes' | 'pass' | 'oilfields';
+export type MapKey = 'basin' | 'dunes' | 'pass' | 'oilfields' | 'ruins' | 'flats';
 
 export interface MapInfo {
   key: MapKey;
@@ -32,7 +32,8 @@ export const MAPS: Record<MapKey, MapInfo> = {
       ],
       extraOases: 1,
       oilPatches: 1,
-      oil: [{ x: 22, z: 98 }],
+      oil: [{ x: 20, z: 90 }],
+      outcrops: [{ x: 14, z: 46, r: 2.2 }],
       groves: [
         { x: 10, z: 86, r: 5 },
         { x: 44, z: 88, r: 4 },
@@ -65,6 +66,7 @@ export const MAPS: Record<MapKey, MapInfo> = {
         { x: 22, z: 100 },
       ],
       groves: [{ x: 12, z: 88, r: 4.5 }],
+      outcrops: [{ x: 16, z: 40, r: 2.2 }],
       tint: { hue: 0.008, sat: 0.06, light: 0.04 },
     }),
   },
@@ -98,6 +100,7 @@ export const MAPS: Record<MapKey, MapInfo> = {
       extraOases: 0,
       oilPatches: 0,
       oil: [{ x: 42, z: 46 }],
+      outcrops: [{ x: 40, z: 82, r: 2 }],
       groves: [
         { x: 12, z: 30, r: 5 },
         { x: 14, z: 98, r: 5 },
@@ -132,7 +135,74 @@ export const MAPS: Record<MapKey, MapInfo> = {
         { x: 10, z: 86, r: 5 },
         { x: 18, z: 30, r: 4 },
       ],
+      outcrops: [{ x: 14, z: 64 - 22, r: 2.2 }],
       tint: { hue: -0.02, sat: -0.1, light: -0.05 },
+    }),
+  },
+  ruins: {
+    key: 'ruins',
+    name: 'Ruined Town',
+    blurb: 'A bombed-out town fills the middle: broken walls for cover and concrete to salvage.',
+    spec: (seed, bases) => ({
+      width: 128,
+      height: 128,
+      seed: seed + 404,
+      mirror: true,
+      rockiness: 0.72,
+      clearings: clearings(bases),
+      oases: [
+        { x: 64, z: 64, r: 3.5 },
+        { x: 36, z: 34, r: 3 },
+        { x: 36, z: 94, r: 3 },
+      ],
+      extraOases: 0,
+      oilPatches: 1,
+      oil: [{ x: 20, z: 90 }],
+      groves: [
+        { x: 10, z: 84, r: 5 },
+        { x: 14, z: 30, r: 4 },
+      ],
+      outcrops: [{ x: 16, z: 46, r: 2 }],
+      ruins: { count: 16, x0: 38, x1: 63 },
+      tint: { hue: 0.004, sat: -0.06, light: 0 },
+    }),
+  },
+  flats: {
+    key: 'flats',
+    name: 'Salt Flats',
+    blurb: 'A dead-flat salt pan with nowhere to hide. Water, wood and stone lie out on the north and south edges.',
+    spec: (seed, bases) => ({
+      width: 128,
+      height: 128,
+      seed: seed + 505,
+      mirror: true,
+      duneScale: 0.25,
+      rockiness: 0.8,
+      wildTrees: 2,
+      clearings: clearings(bases),
+      oases: [
+        { x: 30, z: 16, r: 3.5 },
+        { x: 30, z: 112, r: 3.5 },
+        { x: 64, z: 64, r: 3 },
+      ],
+      extraOases: 0,
+      oilPatches: 0,
+      oil: [
+        { x: 46, z: 64 },
+        { x: 50, z: 22 },
+      ],
+      groves: [
+        { x: 10, z: 14, r: 5 },
+        { x: 12, z: 114, r: 5 },
+        { x: 44, z: 104, r: 3 },
+      ],
+      outcrops: [
+        { x: 20, z: 24, r: 3 },
+        { x: 20, z: 104, r: 3 },
+        { x: 44, z: 40, r: 2 },
+      ],
+      ruins: { count: 3, x0: 40, x1: 60 },
+      tint: { hue: 0.01, sat: -0.22, light: 0.1 },
     }),
   },
 };

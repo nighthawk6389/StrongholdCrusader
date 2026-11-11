@@ -7,6 +7,8 @@ export const Tile = {
   Fertile: 2,
   Water: 3,
   Oil: 4,
+  /** Ruined concrete: blocks movement and bullets (cover); quarries can salvage it. */
+  Ruin: 5,
 } as const;
 export type TileType = (typeof Tile)[keyof typeof Tile];
 
@@ -316,6 +318,10 @@ export interface DesertMapSpec {
   wildTrees?: number;
   /** North–south rock ridges (a band around `x`), open at the `gaps` (z ranges). */
   ridges?: { x: number; w: number; gaps: [number, number][] }[];
+  /** Guaranteed rock outcrops (quarry sites). */
+  outcrops?: { x: number; z: number; r: number }[];
+  /** Ruined buildings: how many, and the x range (west half when mirrored) they're scattered over. */
+  ruins?: { count: number; x0: number; x1: number };
   tint?: { hue: number; sat: number; light: number };
 }
 
@@ -406,9 +412,41 @@ export function generateDesertMap(spec: DesertMapSpec): GameMap {
             if (rg.gaps.some(([a, b]) => cz >= a && cz <= b)) continue;
             type = Tile.Rock;
           }
+          for (const o of spec.outcrops ?? []) {
+            const n = (fbm(cx * 0.5, cz * 0.5, seed + 53, 2) - 0.5) * 1.6;
+            if (Math.hypot(cx - o.x, cz - o.z) + n < o.r) type = Tile.Rock;
+          }
         }
       }
       map.tiles[i] = type;
+    }
+  }
+
+  // 4b. Ruined buildings: broken wall outlines with gaps, and rubble inside.
+  if (spec.ruins) {
+    const { count, x0, x1 } = spec.ruins;
+    for (let tries = 0, added = 0; added < count && tries < 200; tries++) {
+      const w = 3 + rng.int(4);
+      const h = 3 + rng.int(4);
+      const rx = Math.floor(rng.range(x0, x1 - w));
+      const rz = Math.floor(rng.range(10, height - 10 - h));
+      const cx = rx + w / 2;
+      const cz = rz + h / 2;
+      if (spec.clearings.some((c) => Math.hypot(c.x - cx, c.z - cz) < c.r + 6)) continue;
+      if (map.oases.some((o) => Math.hypot(o.x - cx, o.z - cz) < o.r + 6)) continue;
+      let clear = true;
+      for (let z = rz - 1; z <= rz + h && clear; z++) {
+        for (let x = rx - 1; x <= rx + w && clear; x++) clear = map.inBounds(x, z) && map.tiles[z * width + x] === Tile.Sand;
+      }
+      if (!clear) continue;
+      for (let z = rz; z < rz + h; z++) {
+        for (let x = rx; x < rx + w; x++) {
+          const edge = x === rx || z === rz || x === rx + w - 1 || z === rz + h - 1;
+          const hh = hash2(x, z, seed + 61);
+          if ((edge && hh < 0.62) || (!edge && hh < 0.12)) map.tiles[z * width + x] = Tile.Ruin;
+        }
+      }
+      added++;
     }
   }
 
@@ -429,7 +467,9 @@ export function generateDesertMap(spec: DesertMapSpec): GameMap {
         const nz = tz + dz;
         if (!map.inBounds(nx, nz)) continue;
         const d = Math.hypot(dx, dz) + hash2(nx, nz, seed + 5) * 1.2;
-        if (d < 2.6 && map.tiles[nz * width + nx] === Tile.Sand) map.tiles[nz * width + nx] = Tile.Oil;
+        const under = map.tiles[nz * width + nx];
+        // Guaranteed seeps push through rock too (never water or farmland).
+        if (d < 2.6 && (under === Tile.Sand || (fixed && (under === Tile.Rock || under === Tile.Ruin)))) map.tiles[nz * width + nx] = Tile.Oil;
       }
     }
     added++;
@@ -459,8 +499,10 @@ export function generateDesertMap(spec: DesertMapSpec): GameMap {
   // 7. Passability.
   for (let i = 0; i < width * height; i++) {
     const t = map.tiles[i];
-    map.blocked[i] = t === Tile.Rock || t === Tile.Water ? Block.Terrain : Block.Free;
+    map.blocked[i] = t === Tile.Rock || t === Tile.Water || t === Tile.Ruin ? Block.Terrain : Block.Free;
   }
+  // Every base must reach the middle of the map: cut a pass through rock or ruins if a seed walled it off.
+  if (spec.clearings.length) connectToCentre(map, spec.clearings[0]);
 
   // 8. Trees: palms on fertile ground, acacia groves on sand.
   const inClearing = (x: number, z: number, pad: number): boolean =>
@@ -489,6 +531,57 @@ export function generateDesertMap(spec: DesertMapSpec): GameMap {
   if (spec.mirror) mirrorWestToEast(map);
   map.version++;
   return map;
+}
+
+/** Flood fill from a clearing; if it can't reach the centre column, carve a pass toward it. */
+function connectToCentre(map: GameMap, from: Clearing): void {
+  const { width: w, height: h } = map;
+  const reach = (): Uint8Array => {
+    const seen = new Uint8Array(w * h);
+    const start = map.idx(Math.floor(from.x), Math.floor(from.z));
+    const stack = [start];
+    seen[start] = 1;
+    while (stack.length) {
+      const i = stack.pop()!;
+      const x = i % w;
+      const z = (i - x) / w;
+      for (const [dx, dz] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]) {
+        const nx = x + dx;
+        const nz = z + dz;
+        if (!map.isWalkableTile(nx, nz) || seen[nz * w + nx]) continue;
+        seen[nz * w + nx] = 1;
+        stack.push(nz * w + nx);
+      }
+    }
+    return seen;
+  };
+  const cx = Math.floor(w / 2) - 1;
+  for (const dz of [0, -16, 16, -32, 32]) {
+    const seen = reach();
+    for (let z = 0; z < h; z++) if (seen[z * w + cx]) return;
+    // Carve a 3-wide pass from the clearing to the centre through rock and ruins (not water).
+    const tz = Math.min(h - 3, Math.max(2, Math.floor(from.z) + dz));
+    const steps = Math.ceil(Math.hypot(cx - from.x, tz - from.z));
+    for (let k = 0; k <= steps; k++) {
+      const x = Math.round(from.x + ((cx - from.x) * k) / steps);
+      const z = Math.round(from.z + ((tz - from.z) * k) / steps);
+      for (let oz = -1; oz <= 1; oz++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          if (!map.inBounds(x + ox, z + oz)) continue;
+          const i = map.idx(x + ox, z + oz);
+          if (map.tiles[i] === Tile.Rock || map.tiles[i] === Tile.Ruin) {
+            map.tiles[i] = Tile.Sand;
+            map.blocked[i] = Block.Free;
+          }
+        }
+      }
+    }
+  }
 }
 
 /** Make the east half a mirror image of the west half (terrain, trees, oases). */

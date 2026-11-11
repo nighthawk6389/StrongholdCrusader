@@ -182,9 +182,12 @@ export class Economy {
   }
 
   /** Inside the build radius and away from the enemy. */
-  private territory(owner: number, cx: number, cz: number): PlaceCheck {
+  private territory(owner: number, cx: number, cz: number, kind: StructureKind): PlaceCheck {
     const hq = this.hqOf(owner);
-    if (hq && Math.hypot(cx - (hq.tx + hq.w / 2), cz - (hq.tz + hq.h / 2)) > BUILD_RADIUS) {
+    // Work sites, farms and stores can go wherever the resources are; everything else stays near the HQ.
+    const def = STRUCTURE_DEFS[kind];
+    const anywhere = def.category === 'industry' || def.category === 'food' || def.storage?.kind === 'materials' || def.storage?.kind === 'food';
+    if (hq && !anywhere && Math.hypot(cx - (hq.tx + hq.w / 2), cz - (hq.tz + hq.h / 2)) > BUILD_RADIUS) {
       return { ok: false, reason: 'Too far from your HQ' };
     }
     for (const s of this.sim.structures) {
@@ -230,16 +233,16 @@ export class Economy {
       }
     }
     if (this.enemiesOn(owner, tx, tz, w, h)) return { ok: false, reason: 'Enemies in the way' };
-    const terr = this.territory(owner, tx + w / 2, tz + h / 2);
+    const terr = this.territory(owner, tx + w / 2, tz + h / 2, kind);
     if (!terr.ok) return terr;
     if (def.requires === 'nearRock') {
       let rock = 0;
       for (let z = tz - 1; z <= tz + h; z++) {
         for (let x = tx - 1; x <= tx + w; x++) {
-          if (map.inBounds(x, z) && map.tileAt(x, z) === Tile.Rock) rock++;
+          if (map.inBounds(x, z) && (map.tileAt(x, z) === Tile.Rock || map.tileAt(x, z) === Tile.Ruin)) rock++;
         }
       }
-      if (rock < 2) return { ok: false, reason: 'Must touch a rock outcrop' };
+      if (rock < 2) return { ok: false, reason: 'Must touch a rock outcrop or ruins' };
     }
     if (def.requires === 'fertile') {
       let fertile = 0;
@@ -322,7 +325,7 @@ export class Economy {
     const r = this.tileFree(x, z);
     if (r) return { ok: false, reason: r };
     if (this.enemiesOn(owner, x, z, 1, 1)) return { ok: false, reason: 'Enemies in the way' };
-    return this.territory(owner, x + 0.5, z + 0.5);
+    return this.territory(owner, x + 0.5, z + 0.5, 'wall');
   }
 
   /** Build as much of a line (walls, mines, ditches, trenches, wire) as is valid and affordable. Returns tiles built. */

@@ -445,6 +445,23 @@ export function bodyGeometry(kind: StructureKind, owner: number): THREE.BufferGe
           box(0.25, 0.02, 0.12, -0.15, 0.045, 0.1, 0x3b3a44),
         ]),
       );
+    case 'mortar':
+      // Sandbag ring around a mortar tube on a baseplate, with a radar mast.
+      return cached(`mortar${owner}`, () => {
+        const parts = [box(1.9, 0.06, 1.9, 0, 0.03, 0, 0x8a7a5a)];
+        for (let k = 0; k < 10; k++) {
+          const a = (k / 10) * Math.PI * 2;
+          parts.push(box(0.55, 0.32, 0.3, Math.sin(a) * 0.78, 0.2, Math.cos(a) * 0.78, k % 2 ? 0xb39a6a : 0xa58c5e, { ry: a }));
+        }
+        parts.push(
+          cylinder(0.22, 0.26, 0.08, 0, 0.1, 0, 0x2f322b, 10),
+          cylinder(0.07, 0.08, 0.95, 0, 0.5, 0.1, 0x3a3e34, 8, { rx: -0.5 }),
+          box(0.04, 1.4, 0.04, 0.62, 0.7, -0.62, COLORS.metal),
+          box(0.42, 0.22, 0.03, 0.62, 1.42, -0.62, 0xd8d8d0, { rx: 0.4 }),
+          box(0.5, 0.1, 0.04, -0.55, 0.42, 0.62, team),
+        );
+        return merge(parts);
+      });
     case 'ramp':
       // Steel assault ramp rising toward +z (the wall it leans on), in the owner's colours.
       return cached(`ramp${owner}`, () =>

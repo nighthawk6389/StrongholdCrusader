@@ -39,6 +39,9 @@ export function buildTerrain(map: GameMap): THREE.Mesh {
         case Tile.Oil:
           hex = pick(COLORS.oil, hv);
           break;
+        case Tile.Ruin:
+          hex = pick([0x9f9a8e, 0xa8a294, 0x968f82], hv);
+          break;
         default:
           hex = pick(COLORS.sand, hv);
       }
@@ -111,11 +114,13 @@ export function buildScatter(map: GameMap): THREE.Group {
   type Item = { x: number; z: number; h: number };
   const rocks: Item[] = [];
   const scrub: Item[] = [];
+  const ruins: Item[] = [];
   for (let tz = 0; tz < map.height; tz++) {
     for (let tx = 0; tx < map.width; tx++) {
       const t = map.tileAt(tx, tz);
       const h = hash2(tx, tz, map.seed + 17);
       if (t === Tile.Rock) rocks.push({ x: tx + 0.5, z: tz + 0.5, h });
+      else if (t === Tile.Ruin) ruins.push({ x: tx + 0.5, z: tz + 0.5, h });
       else if (t === Tile.Sand && h > 0.988 && map.isWalkableTile(tx, tz) && map.treeAt[map.idx(tx, tz)] < 0) {
         scrub.push({ x: tx + 0.5, z: tz + 0.5, h });
       }
@@ -140,6 +145,25 @@ export function buildScatter(map: GameMap): THREE.Group {
   rockMesh.castShadow = true;
   rockMesh.receiveShadow = true;
   g.add(rockMesh);
+
+  // Ruins: broken concrete wall stumps of uneven height, a few with rebar sticking out.
+  const ruinMesh = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0),
+    new THREE.MeshLambertMaterial({ color: 0xb8b2a4, flatShading: true }),
+    Math.max(1, ruins.length),
+  );
+  ruinMesh.count = ruins.length;
+  ruins.forEach((r, i) => {
+    e.set(0, (r.h - 0.5) * 0.3, (r.h - 0.5) * 0.12);
+    q.setFromEuler(e);
+    s.set(0.95, 0.5 + r.h * 1.3, 0.95 - r.h * 0.25);
+    v.set(r.x, map.heightAt(r.x, r.z) - 0.05, r.z);
+    m4.compose(v, q, s);
+    ruinMesh.setMatrixAt(i, m4);
+  });
+  ruinMesh.castShadow = true;
+  ruinMesh.receiveShadow = true;
+  g.add(ruinMesh);
 
   const scrubMesh = new THREE.InstancedMesh(
     new THREE.IcosahedronGeometry(0.28, 0),

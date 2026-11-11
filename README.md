@@ -43,9 +43,19 @@ the render preset. `?seed=123` reshuffles the map's details.
   - **The Broker** (trader): high taxes, sells everything, hires PMC teams when the cash piles up.
   - **Warden** (fortress): gun towers on every wall, extra searchlights, a big garrison, late heavy assaults
     with tanks.
-- **Maps** (skirmish), all mirrored so both sides start alike: **Oasis Basin** (balanced), **Dune Sea** (open
-  dunes, scarce timber), **Rocky Pass** (two ridges, three passes) and **Oil Fields** (oil everywhere, little
-  farmland).
+- **Maps** (skirmish), all mirrored so both sides start alike, with a new layout every game: **Oasis Basin**
+  (balanced), **Dune Sea** (open dunes, scarce timber), **Rocky Pass** (two ridges, three passes), **Oil Fields**
+  (oil everywhere, little farmland), **Ruined Town** (a bombed-out town in the middle: broken walls block movement
+  and bullets, and quarries can salvage their concrete) and **Salt Flats** (dead flat, with water, wood and stone
+  out on the north and south edges).
+- **How the AI plays** (Normal and up): it scouts your base and sizes up your army from what it has actually
+  seen (no map hacks), swings its main force round to the side of your base with the fewest guns while a few
+  soldiers feint at the gate, attacks early when it clearly outnumbers you, keeps feeding a winning assault and
+  pulls a broken one back to regroup, sends special forces over your walls at night to blow up your generators
+  and gun towers, hunts your Commander if it catches it in the open (with strike drones too), answers your
+  artillery with mortar pits, puts idle hands to work on more scrap yards and factories, and juggles taxes and
+  rations to squeeze the most money out of its people without letting morale crash. Hard attacks earlier, more
+  often and harder.
 - **Hold the Line:** six escalating waves attack from the east over about 15 minutes, two of them at night.
   Waves with combat engineers blow holes in your walls and gates, and the night waves bring special forces.
   The later waves bring armor: an armored car, then a tank, and finally two tanks and a howitzer. Lose your HQ
@@ -69,8 +79,11 @@ Grow your outpost:
 - **Arrivals:** civilians arrive while **morale** is above 50 and there's free housing.
 - **Production:** build lumber camps (near trees), a quarry (touching rock), orchards (on fertile ground by
   oases) and goat ranches.
+- **Where to build:** farms, work sites (lumber camps, quarries, scrap yards, oil derricks) and stores (depots,
+  ration stores) can go anywhere on the map, however far the resources are. Everything else must stay within
+  40 tiles of your HQ.
 - **Hauling:** workers physically carry goods to the nearest depot or ration store, so build stores near your
-  producers.
+  producers. A worker who can't reach a store tries the next nearest one.
 - **Morale:** set **rations** and **taxes** from the morale panel. Food variety boosts morale, and running out
   of food or taxing hard drives people away.
 - **Night:** work slows to about a third. Turn on **night shifts** in the morale panel to keep working at
@@ -123,11 +136,15 @@ Siege warfare:
 - **Motor Pool:** builds vehicles from steel, fuel and funds, each crewed by an idle civilian.
   - **Armored Car:** fast, armored scout with a machine gun.
   - **Battle Tank:** heavy armor and a main gun that knocks down walls and gates.
-  - **Howitzer:** stop it to deploy, then it lobs shells over walls at anything your side can see.
+  - **Howitzer:** stop it to deploy, then it lobs shells over walls at anything your side can see, from a little
+    beyond gun-tower range (30 tiles).
   - **Breacher:** an armored dozer. It plows through minefields (mines in front of the blade are shoved aside),
     fills an anti-tank ditch in a second or two, and pushes an **assault ramp** against an enemy wall (two per
     Breacher). Infantry climb the ramp onto the wall top and down the defenders' own stairs. Order it to attack
     a wall, or drive it there yourself and press **G**. Destroy an enemy ramp to close the way.
+- **Mortar Pit:** the answer to artillery. It fires on its own: first at any enemy gun that has shelled within
+  its reach (its radar plots the gun from its shells, even in the dark), then at enemies your side can see.
+  It outranges a howitzer a little. Upgrade it with a second tube to fire faster.
 - **Contracts Office:** hire a ready-made PMC team for cash: a fire team, machine gunners, snipers, sappers,
   an AT team or an armored car. They turn up at once and need no civilians or weapons, but cost two to three
   times as much, and you can sign one contract a minute.
