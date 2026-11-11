@@ -15,6 +15,24 @@ interface Searchlight {
   id: number;
   head: THREE.Group;
   beam: THREE.Mesh;
+  halo: THREE.Sprite;
+}
+
+/** A soft round glow (white centre fading out), shared by every lamp halo. */
+function glowTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.25, 'rgba(255,255,255,0.55)');
+  grad.addColorStop(0.6, 'rgba(255,255,255,0.12)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 interface GunMount {
@@ -524,6 +542,16 @@ export function footprintBase(sim: Sim, tx: number, tz: number, w: number, h: nu
 /** Renders structures and keeps them in sync with sim add/remove events. */
 export class StructureRenderer {
   readonly group = new THREE.Group();
+  /** Soft additive glow around lit lamps at night (a cheap stand-in for bloom). */
+  private haloMat = new THREE.SpriteMaterial({
+    map: glowTexture(),
+    color: 0xffd8a0,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    fog: false,
+  });
   /** Emissive material for lamp heads (driven by day/night). */
   readonly lampMaterial = new THREE.MeshLambertMaterial({ color: 0x555555, emissive: COLORS.lamp, emissiveIntensity: 0 });
   /** Emissive material for building windows (driven by day/night). */
@@ -638,6 +666,11 @@ export class StructureRenderer {
       lamp.position.set(0, 3.1, 0.16);
       lamp.rotation.x = 0.35;
       mesh.add(lamp);
+      const halo = new THREE.Sprite(this.haloMat);
+      halo.position.set(0, 3.12, 0.34);
+      halo.scale.setScalar(1.15);
+      mesh.add(halo);
+      lamp.userData.halo = halo;
       let light: THREE.SpotLight | null = null;
       if (this.lightBudget > 0) {
         this.lightBudget--;
@@ -658,12 +691,16 @@ export class StructureRenderer {
       );
       const lens = new THREE.Mesh(new THREE.CircleGeometry(0.3, 12), this.lampMaterial);
       lens.position.z = 0.28;
+      const halo = new THREE.Sprite(this.haloMat);
+      halo.position.z = 0.4;
+      halo.scale.setScalar(0.95);
+      lens.userData.halo = halo;
       const beam = new THREE.Mesh(this.beamGeo, this.beamMat);
       beam.rotation.x = 0.12;
       beam.renderOrder = 5;
-      head.add(housing, lens, beam);
+      head.add(housing, lens, beam, lens.userData.halo as THREE.Sprite);
       root.add(head);
-      this.searchlights.push({ id: s.id, head, beam });
+      this.searchlights.push({ id: s.id, head, beam, halo: lens.userData.halo as THREE.Sprite });
     } else if (s.kind === 'guntower') {
       const gun = new THREE.Mesh(
         cached('hmg', () =>
@@ -719,13 +756,17 @@ export class StructureRenderer {
       const powered = this.sim.structureById(f.id)?.powered ?? false;
       if (f.light) f.light.intensity = powered ? 45 * lightsOn : 0;
       f.lamp.material = powered ? this.lampMaterial : this.lampOff;
+      const halo = f.lamp.userData.halo as THREE.Sprite | undefined;
+      if (halo) halo.visible = powered && lightsOn > 0.02;
     }
+    this.haloMat.opacity = 0.55 * lightsOn;
     this.beamMat.opacity = 0.16 * lightsOn;
     for (const sl of this.searchlights) {
       const s = this.sim.structureById(sl.id);
       if (!s) continue;
       sl.head.rotation.y = this.sim.vision.beamAngle(s);
       sl.beam.visible = s.powered && lightsOn > 0.02;
+      sl.halo.visible = sl.beam.visible;
     }
     for (const g of this.guns) {
       const s = this.sim.structureById(g.id);

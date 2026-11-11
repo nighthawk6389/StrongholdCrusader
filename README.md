@@ -10,12 +10,10 @@ soldiers.
 > (StrongholdCrusader) for now; rename it on GitHub before any public launch.
 
 - **Design & technical plan:** [docs/PLAN.md](docs/PLAN.md)
-- **Status:** **M0** (foundations), **M1** (economy), **M2** (fortifications & combat), **M3**
-  (skirmish vs an AI commander), **M4** (night & stealth), **M5** (full direct control: aimed fire, gun
-  towers, drones), **M6a** (siege depth: vehicles, artillery, mines, ditches, fuel trenches, wire) and **M6b**
-  (five AI commanders, four maps, the Commander's Trail, PMC hires, the Breacher) are playable, plus two playtest
-  rounds. **M7a** (sound, settings, offline/install) and **M7b** (tutorial, the last three commanders, phone tuning) are
-  done; next up is **M7c** (final name, art pass, launch).
+- **Release checklist (0.9.0 launch candidate):** [docs/RELEASE.md](docs/RELEASE.md)
+- **Status:** 0.9.0 launch candidate. Every milestone from M0 (foundations) to M7c (branding, polish,
+  release hardening) is done; what's left before going public is on the release checklist (name check,
+  repository rename, Vercel and domain).
 
 ## Play locally
 

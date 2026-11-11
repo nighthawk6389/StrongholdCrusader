@@ -130,6 +130,12 @@ export type SimEvent =
   /** Feedback for a player action that didn't happen (shown as a toast). */
   | { type: 'notice'; owner: number; text: string };
 
+/** Does placing or removing this kind of structure change where units can walk (so cached paths go stale)? */
+function changesPaths(kind: StructureKind): boolean {
+  const def = STRUCTURE_DEFS[kind];
+  return def.blocks || def.deckH !== undefined || kind === 'gate' || def.trap === 'ditch';
+}
+
 export interface SimInit {
   map: GameMap;
   seed: number;
@@ -308,7 +314,8 @@ export class Sim {
         }
       }
     }
-    map.version++;
+    // Paths only care about what blocks or lifts you: mines, wire and trenches leave them alone.
+    if (changesPaths(kind)) map.version++;
     const door = this.economy.findDoor(tx, tz, w, h, owner);
     if (door) {
       s.doorX = door.x;
@@ -334,7 +341,7 @@ export class Sim {
         map.structOwner[i] = 0;
       }
     }
-    map.version++;
+    if (changesPaths(s.kind)) map.version++;
     // Anyone standing on a vanished deck drops to the ground.
     const u = this.units;
     for (let i = 0; i < u.count; i++) {

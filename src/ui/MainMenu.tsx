@@ -4,6 +4,7 @@ import { DEFAULT_SEED, TRAIL, trailSetup, type MatchSetup } from '../game/setup'
 import { OPPONENTS, PERSONALITIES, type Difficulty, type OpponentKey } from '../sim/ai';
 import { MAPS, MAP_KEYS, type MapKey } from '../sim/maps';
 import { SettingsPanel } from './SettingsPanel';
+import { AboutPanel } from './AboutPanel';
 import { tutorialDone } from '../game/tutorial';
 
 const DIFFS: { key: Difficulty; name: string }[] = [
@@ -41,6 +42,7 @@ export function MainMenu({
   const [opponent, setOpponent] = useState<OpponentKey>('sarge');
   const [map, setMap] = useState<MapKey>('basin');
   const [settings, setSettings] = useState(false);
+  const [about, setAbout] = useState(false);
   const next = Math.min(trailDone, TRAIL.length - 1);
   const finished = trailDone >= TRAIL.length;
   const foe = PERSONALITIES[opponent];
@@ -53,12 +55,17 @@ export function MainMenu({
     <div className="menu-screen">
       <div className="menu-card panel">
         <div className="menu-top">
-          <div className="menu-kicker">Prototype · M7</div>
+          <div className="brand">
+            <img src="/icon.svg" alt="" className="brand-emblem" width={58} height={58} />
+            <h1 className="wordmark" aria-label="Garrison Zero">
+              <span className="wm-top">Garrison</span>
+              <span className="wm-bottom">Zero</span>
+            </h1>
+          </div>
           <button type="button" className="btn menu-settings" onClick={() => setSettings(true)} title="Settings">
             ⚙ Settings
           </button>
         </div>
-        <h1>Garrison Zero</h1>
         <p className="muted">
           Build an outpost in the desert, wall it in, arm your people, and take the fight to a rival commander, by
           day and by night. Take direct control of any soldier when it counts.
@@ -167,9 +174,15 @@ export function MainMenu({
             <span className="mode-desc">No pressure. Build, experiment with walls, skirmish with a hostile patrol.</span>
           </button>
         </div>
-        <p className="menu-foot muted">Best in landscape on phones · desktop: mouse + keyboard</p>
+        <p className="menu-foot muted">
+          Best in landscape on phones · desktop: mouse + keyboard ·{' '}
+          <button type="button" className="linkish" onClick={() => setAbout(true)}>
+            About · v{__APP_VERSION__}
+          </button>
+        </p>
       </div>
       {settings && <SettingsPanel onClose={() => setSettings(false)} />}
+      {about && <AboutPanel onClose={() => setAbout(false)} />}
     </div>
   );
 }

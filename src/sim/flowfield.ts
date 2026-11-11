@@ -112,27 +112,41 @@ export function isBreachable(map: GameMap, i: number, team: number): boolean {
 
 export function buildFlowField(map: GameMap, spec: FieldSpec): FlowField {
   const w = map.width;
-  const n = w * map.height;
+  const h = map.height;
+  const n = w * h;
   const dist = new Float32Array(2 * n).fill(Infinity);
   const dir = new Int8Array(2 * n).fill(UNREACHABLE);
   const heap = new MinHeap(2048);
   const { team, breach } = spec;
+  const stairs = !spec.ground;
+  const climb = !!spec.climb;
 
-  /** Can a unit stand on tile i of `layer` (breach tiles count as passable for routing)? */
-  const passable = (x: number, z: number, layer: number): boolean => {
-    if (!map.inBounds(x, z)) return false;
-    const i = z * w + x;
-    if (layer === 1) return map.deck[i] === 1;
-    const b = map.blocked[i];
-    if (b === Block.Free || (b === Block.Gate && map.gateOwner[i] === team)) return true;
-    return breach && isBreachable(map, i, team);
-  };
-  const enterCost = (i: number, layer: number): number =>
-    layer === 0 && breach && isBreachable(map, i, team) ? BREACH_COST : 0;
-  const diagonalOk = (x: number, z: number, d: number, layer: number): boolean => {
-    if ((d & 1) === 0 || layer === 1) return true; // deck chains may run diagonally
-    return passable(x + DIR_X[d], z, 0) && passable(x, z + DIR_Z[d], 0);
-  };
+  // Passability, worked out once: a grid padded with a blocked border (so neighbour lookups need no
+  // bounds checks), ground layer then deck layer; plus the extra cost of breaching each tile.
+  const pw = w + 2;
+  const pn = pw * (h + 2);
+  const pass = new Uint8Array(2 * pn);
+  const enter = new Float32Array(n);
+  for (let z = 0; z < h; z++) {
+    for (let x = 0; x < w; x++) {
+      const i = z * w + x;
+      const b = map.blocked[i];
+      let ok = b === Block.Free || (b === Block.Gate && map.gateOwner[i] === team);
+      if (breach && isBreachable(map, i, team)) {
+        enter[i] = BREACH_COST;
+        ok = true;
+      }
+      const pi = (z + 1) * pw + x + 1;
+      pass[pi] = ok ? 1 : 0;
+      pass[pn + pi] = map.deck[i] === 1 ? 1 : 0;
+    }
+  }
+  const pOff = [0, 0, 0, 0, 0, 0, 0, 0];
+  const tOff = [0, 0, 0, 0, 0, 0, 0, 0];
+  for (let d = 0; d < 8; d++) {
+    pOff[d] = DIR_Z[d] * pw + DIR_X[d];
+    tOff[d] = DIR_Z[d] * w + DIR_X[d];
+  }
 
   const start = spec.goalLayer * n + spec.goal;
   dist[start] = 0;
@@ -145,20 +159,23 @@ export function buildFlowField(map: GameMap, spec: FieldSpec): FlowField {
     const tile = cur - layer * n;
     const cx = tile % w;
     const cz = (tile - cx) / w;
+    const pi = (cz + 1) * pw + cx + 1;
+    const lp = layer * pn;
+    const ln = layer * n;
     // Walking forward from the neighbour INTO `cur` costs the step plus entering `cur`.
-    const entering = enterCost(tile, layer);
+    const entering = layer === 0 ? enter[tile] : 0;
     for (let d = 0; d < 8; d++) {
-      const nx = cx + DIR_X[d];
-      const nz = cz + DIR_Z[d];
-      if (!passable(nx, nz, layer) || !diagonalOk(cx, cz, d, layer)) continue;
-      const ni = layer * n + nz * w + nx;
+      if (pass[lp + pi + pOff[d]] !== 1) continue;
+      // Diagonals on the ground can't cut a corner (deck chains may run diagonally).
+      if ((d & 1) === 1 && layer === 0 && (pass[pi + DIR_X[d]] !== 1 || pass[pi + DIR_Z[d] * pw] !== 1)) continue;
+      const ni = ln + tile + tOff[d];
       const nd = d0 + DIR_COST[d] + entering;
       if (nd < dist[ni]) {
         dist[ni] = nd;
         heap.push(nd, ni);
       }
     }
-    if (map.stairs[tile] && !spec.ground) {
+    if (stairs && map.stairs[tile]) {
       const other = (1 - layer) * n + tile;
       const nd = d0 + 1;
       if (nd < dist[other]) {
@@ -166,14 +183,14 @@ export function buildFlowField(map: GameMap, spec: FieldSpec): FlowField {
         heap.push(nd, other);
       }
     }
-    if (spec.climb) {
+    if (climb) {
       // Neighbour on the other layer steps INTO cur: climbing up if cur is a deck, dropping if not.
       const cost = layer === 1 ? CLIMB_UP_COST : CLIMB_DOWN_COST;
+      const op = (1 - layer) * pn;
+      const on = (1 - layer) * n;
       for (let d = 0; d < 8; d += 2) {
-        const nx = cx + DIR_X[d];
-        const nz = cz + DIR_Z[d];
-        if (!passable(nx, nz, 1 - layer)) continue;
-        const ni = (1 - layer) * n + nz * w + nx;
+        if (pass[op + pi + pOff[d]] !== 1) continue;
+        const ni = on + tile + tOff[d];
         const nd = d0 + cost;
         if (nd < dist[ni]) {
           dist[ni] = nd;
@@ -193,28 +210,30 @@ export function buildFlowField(map: GameMap, spec: FieldSpec): FlowField {
     const tile = node - layer * n;
     const x = tile % w;
     const z = (tile - x) / w;
+    const pi = (z + 1) * pw + x + 1;
+    const lp = layer * pn;
+    const ln = layer * n;
     let best = -1;
     let bestD = dist[node];
     for (let d = 0; d < 8; d++) {
-      const nx = x + DIR_X[d];
-      const nz = z + DIR_Z[d];
-      if (!passable(nx, nz, layer) || !diagonalOk(x, z, d, layer)) continue;
-      const nd = dist[layer * n + nz * w + nx];
+      if (pass[lp + pi + pOff[d]] !== 1) continue;
+      if ((d & 1) === 1 && layer === 0 && (pass[pi + DIR_X[d]] !== 1 || pass[pi + DIR_Z[d] * pw] !== 1)) continue;
+      const nd = dist[ln + tile + tOff[d]];
       if (nd < bestD) {
         bestD = nd;
         best = d;
       }
     }
-    if (map.stairs[tile] && !spec.ground && dist[(1 - layer) * n + tile] < bestD) {
+    if (stairs && map.stairs[tile] && dist[(1 - layer) * n + tile] < bestD) {
       bestD = dist[(1 - layer) * n + tile];
       best = SWITCH_LAYER;
     }
-    if (spec.climb) {
+    if (climb) {
+      const op = (1 - layer) * pn;
+      const on = (1 - layer) * n;
       for (let d = 0; d < 8; d += 2) {
-        const nx = x + DIR_X[d];
-        const nz = z + DIR_Z[d];
-        if (!passable(nx, nz, 1 - layer)) continue;
-        const nd = dist[(1 - layer) * n + nz * w + nx];
+        if (pass[op + pi + pOff[d]] !== 1) continue;
+        const nd = dist[on + tile + tOff[d]];
         if (nd < bestD) {
           bestD = nd;
           best = CLIMB_BASE + d;

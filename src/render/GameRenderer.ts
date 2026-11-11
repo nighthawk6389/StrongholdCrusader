@@ -168,6 +168,7 @@ export class GameRenderer {
     this.dayNight.nvg = this.nvg;
     const focus = f.controlled >= 0 ? this.tmp.copy(this.director.look) : this.rts.target;
     this.dayNight.update(this.sim.cycle, focus);
+    this.dayNight.followCamera(this.camera.position);
     const fog = this.scene.fog as THREE.Fog;
     const camDist = this.camera.position.distanceTo(this.director.look);
     fog.near = camDist * 1.4 + 10;

@@ -1,6 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="12" fill="#1b1712"/>
-  <path d="M10 50V26h8v6h6v-6h6v6h4v-6h6v6h6v-6h8v24z" fill="#d9b26f"/>
-  <rect x="28" y="38" width="8" height="12" rx="4" fill="#1b1712"/>
-  <circle cx="48" cy="14" r="6" fill="#e9e3d0"/>
+  <!-- The "zero": a thick ring, broken at the bottom where the tower stands. -->
+  <path d="M22.2 54.4A24 24 0 1 1 41.8 54.4" fill="none" stroke="#d9b26f" stroke-width="5.5" stroke-linecap="round"/>
+  <!-- Garrison tower with crenellations and a gate. -->
+  <path d="M21 56V30h4.5v4h4v-4h5v4h4v-4H43v26z" fill="#d9b26f"/>
+  <path d="M28.5 56v-8.5a3.5 3.5 0 0 1 7 0V56z" fill="#1b1712"/>
+  <rect x="30.2" y="38" width="3.6" height="5" rx="1" fill="#1b1712"/>
+  <!-- Night: a crescent moon inside the ring. -->
+  <path d="M44.5 15.5a6 6 0 1 0 4.2 9.4a5 5 0 1 1-4.2-9.4z" fill="#ece5d2"/>
 </svg>
