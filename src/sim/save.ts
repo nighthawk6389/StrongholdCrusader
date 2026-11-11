@@ -11,7 +11,7 @@ import type { Sim } from './sim';
  */
 
 /** Bump when a change to the sim's state would make older saves restore wrongly (they're then discarded). */
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 export interface SimSave {
   v: number;

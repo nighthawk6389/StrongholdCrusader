@@ -150,7 +150,9 @@ export class Vision {
       const cx = s.tx + s.w / 2;
       const cz = s.tz + s.h / 2;
       // Burning buildings light their surroundings.
-      if (s.hp < def.hp * 0.35 && s.kind !== 'wall') disc(cx, cz, 4, 0.7);
+      if (s.hp < def.hp * 0.35 && s.kind !== 'wall' && !def.trap) disc(cx, cz, 4, 0.7);
+      // Burning fuel trenches light up the night.
+      if (s.burn > 0) disc(cx, cz, 3.5, 0.85);
       if (!def.light || !s.powered) continue;
       if (def.light.kind === 'area') disc(cx, cz, def.light.range, 0.75);
       else if (def.light.kind === 'flood') cone(cx, cz, s.rot, FLOOD_COS, def.light.range, 1);

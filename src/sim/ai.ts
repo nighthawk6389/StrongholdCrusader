@@ -59,7 +59,7 @@ export const DIFFICULTY: Record<Difficulty, AiTuning> = {
 
 // ------------------------------------------------------------------ personality
 
-type Near = 'trees' | 'fertile' | 'rock' | 'home' | 'producers';
+type Near = 'trees' | 'fertile' | 'rock' | 'oil' | 'home' | 'producers';
 
 interface BuildStep {
   kind: StructureKind | 'fortFront' | 'fortRing' | 'nightKit' | 'gunTowers';
@@ -79,7 +79,7 @@ export interface Personality {
 /** Old Sarge: balanced, methodical, walls up early, steady infantry pushes. */
 export const OLD_SARGE: Personality = {
   name: 'Old Sarge',
-  mix: { [UnitKind.Rifleman]: 5, [UnitKind.Gunner]: 2, [UnitKind.Marksman]: 1, [UnitKind.Engineer]: 2 },
+  mix: { [UnitKind.Rifleman]: 5, [UnitKind.Gunner]: 2, [UnitKind.Marksman]: 1, [UnitKind.Engineer]: 2, [UnitKind.AT]: 1 },
   build: [
     { kind: 'lumber', count: 1, near: 'trees' },
     { kind: 'orchard', count: 1, near: 'fertile' },
@@ -100,6 +100,8 @@ export const OLD_SARGE: Personality = {
     { kind: 'gunTowers' },
     { kind: 'generator', count: 2, near: 'home' },
     { kind: 'dronebay', count: 1, near: 'home' },
+    { kind: 'derrick', count: 1, near: 'oil' },
+    { kind: 'motorpool', count: 1, near: 'home' },
     { kind: 'fortRing' },
     { kind: 'scrapyard', count: 2, near: 'home' },
     { kind: 'house', count: 5, near: 'home' },
@@ -118,7 +120,7 @@ export const OLD_SARGE: Personality = {
 };
 
 /** Build steps that only go ahead with steel to spare. */
-const EXTRAS: StructureKind[] = ['generator', 'dronebay'];
+const EXTRAS: StructureKind[] = ['generator', 'dronebay', 'derrick', 'motorpool'];
 const SPARE_STEEL = 18;
 
 const RECIPE_FOR: Partial<Record<number, number>> = {
@@ -126,6 +128,7 @@ const RECIPE_FOR: Partial<Record<number, number>> = {
   [UnitKind.Gunner]: 1,
   [UnitKind.Marksman]: 2,
   [UnitKind.Engineer]: 3,
+  [UnitKind.AT]: 5,
 };
 
 // ------------------------------------------------------------------ controller
@@ -233,6 +236,7 @@ export class AiCommander implements Controller {
       [Res.Timber, 90],
       [Res.Concrete, walling ? 400 : 50],
       [Res.Steel, 30],
+      [Res.Fuel, 30],
     ];
     for (const g of GEAR_RES) keep.push([g, 6]);
     for (const [res, k] of keep) {
@@ -246,11 +250,26 @@ export class AiCommander implements Controller {
       sim.enqueue({ type: 'trade', owner: this.owner, res: Res.Produce, amount: 10 });
       return;
     }
+    // Tanks need fuel: buy it if there's no derrick keeping up.
+    const pool = sim.structures.some((s) => s.owner === this.owner && s.kind === 'motorpool');
+    if (pool && this.difficulty !== 'easy' && p.stock[Res.Fuel] < 12 && p.funds > 100) {
+      sim.enqueue({ type: 'trade', owner: this.owner, res: Res.Fuel, amount: 5 });
+      return;
+    }
     // Rich but short of weapons: buy the one the army mix needs most.
     if (p.funds > 190 && p.stored('gear') < p.gearCap - 2) {
       const gear = UNIT_TYPES[this.neededKind(sim)].gear;
       if (gear !== null && p.stock[gear] < 4) sim.enqueue({ type: 'trade', owner: this.owner, res: gear, amount: 2 });
     }
+  }
+
+  /** Army-mix weight for a unit type. AT teams only join once the enemy fields armor. */
+  private weight(sim: Sim, k: number): number {
+    const w = this.personality.mix[k] ?? 0;
+    if (k !== UnitKind.AT) return w;
+    const u = sim.units;
+    for (let i = 0; i < u.count; i++) if (u.alive[i] && u.owner[i] === this.enemy && UNIT_TYPES[u.kind[i]].vehicle) return w * 2;
+    return 0;
   }
 
   /** The unit type furthest below the personality's army mix (counting weapons in stock). */
@@ -264,7 +283,7 @@ export class AiCommander implements Controller {
     let best: number = UnitKind.Rifleman;
     let bestScore = Infinity;
     for (const k of RECRUITABLE) {
-      const weight = this.personality.mix[k] ?? 0;
+      const weight = this.weight(sim, k);
       if (!weight) continue;
       const score = ((have.get(k) ?? 0) + p.stock[UNIT_TYPES[k].gear!]) / weight;
       if (score < bestScore) {
@@ -513,8 +532,8 @@ export class AiCommander implements Controller {
       }
       return best;
     }
-    if (near === 'fertile' || near === 'rock') {
-      const want = near === 'fertile' ? Tile.Fertile : Tile.Rock;
+    if (near === 'fertile' || near === 'rock' || near === 'oil') {
+      const want = near === 'fertile' ? Tile.Fertile : near === 'oil' ? Tile.Oil : Tile.Rock;
       let best: { x: number; z: number } | null = null;
       let bestD = limit;
       for (let tz = Math.max(0, hz - limit); tz < Math.min(map.height, hz + limit); tz++) {
@@ -588,7 +607,8 @@ export class AiCommander implements Controller {
     this.attackGroup = this.attackGroup.filter((id) => u.isAlive(id) && sim.combat.assault[id]);
 
     // What should the arms factories make? Whatever is furthest below the desired mix.
-    const mix = this.personality.mix;
+    const mix: Partial<Record<number, number>> = {};
+    for (const k of RECRUITABLE) mix[k] = this.weight(sim, k);
     let needKind: number = UnitKind.Rifleman;
     let needScore = Infinity;
     for (const k of RECRUITABLE) {
@@ -608,9 +628,35 @@ export class AiCommander implements Controller {
       }
     }
 
+    // Armor (Normal and up): tanks, a scout car, and on Hard a howitzer. With a decent infantry
+    // force already, he saves up for the next tank instead of recruiting more riflemen.
+    const pool = sim.structures.find((s) => s.owner === this.owner && s.kind === 'motorpool');
+    let saving = false;
+    if (pool && this.difficulty !== 'easy') {
+      const n = (k: number): number => byKind.get(k) ?? 0;
+      const hard = this.difficulty === 'hard';
+      const want =
+        n(UnitKind.Tank) < (hard ? 2 : 1)
+          ? UnitKind.Tank
+          : n(UnitKind.ArmoredCar) < 1
+            ? UnitKind.ArmoredCar
+            : hard && n(UnitKind.Howitzer) < 1
+              ? UnitKind.Howitzer
+              : -1;
+      if (want >= 0) {
+        const t = UNIT_TYPES[want];
+        // Only hold back infantry when the tank is nearly paid for (materials in hand, half the cash).
+        saving = army.length >= 10 && p.stock[Res.Fuel] >= t.fuel && p.stock[Res.Steel] >= t.steel && p.funds >= t.funds * 0.5;
+        if (p.idle >= 1 && !sim.economy.recruitBlocker(this.owner, want) && p.funds >= t.funds + 10) {
+          sim.enqueue({ type: 'recruit', owner: this.owner, barracks: pool.id, kind: want, count: 1 });
+          saving = false;
+        }
+      }
+    }
+
     // Recruit one soldier per decision while weapons, funds and idle hands allow.
     const barracks = sim.structures.find((s) => s.owner === this.owner && s.kind === 'barracks');
-    if (barracks && p.idle >= 2) {
+    if (barracks && p.idle >= 2 && !saving) {
       let best = -1;
       let bestScore = Infinity;
       for (const k of RECRUITABLE) {
@@ -642,7 +688,9 @@ export class AiCommander implements Controller {
       k++;
     }
     if (deck.length && this.garrison.size < this.tuning.garrison) {
-      const pick = [...free].sort((a, b) => this.garrisonRank(u.kind[a]) - this.garrisonRank(u.kind[b]) || a - b)[0];
+      const pick = [...free]
+        .filter((i) => !UNIT_TYPES[u.kind[i]].vehicle)
+        .sort((a, b) => this.garrisonRank(u.kind[a]) - this.garrisonRank(u.kind[b]) || a - b)[0];
       if (pick !== undefined) {
         const t = deck[this.garrison.size % deck.length];
         this.garrison.add(pick);
@@ -669,7 +717,11 @@ export class AiCommander implements Controller {
     if (sim.elapsed < this.nextAttackAt || this.attackGroup.length > 0) return;
     const enemyWalls = sim.structures.some((s) => s.owner === this.enemy && STRUCTURE_DEFS[s.kind].armored);
     const engineers = free.filter((i) => u.kind[i] === UnitKind.Engineer).length;
-    const ready = free.length >= this.attackSize && (!enemyWalls || engineers > 0 || free.length >= this.attackSize * 1.5);
+    // Armor counts for more than one rifleman, and tanks/howitzers can breach walls themselves.
+    const worth = (k: number): number => (k === UnitKind.Tank ? 4 : k === UnitKind.Howitzer ? 3 : k === UnitKind.ArmoredCar ? 2 : 1);
+    const strength = free.reduce((a, i) => a + worth(u.kind[i]), 0);
+    const breachers = engineers + free.filter((i) => UNIT_TYPES[u.kind[i]].siege || UNIT_TYPES[u.kind[i]].artillery).length;
+    const ready = strength >= this.attackSize && (!enemyWalls || breachers > 0 || strength >= this.attackSize * 1.5);
     if (!ready) return;
     sim.enqueue({ type: 'assault', owner: this.owner, ids: free, target: this.enemy });
     this.attackGroup = [...free];

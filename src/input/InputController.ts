@@ -235,7 +235,7 @@ export class InputController {
 
     if (e.pointerType === 'mouse') {
       if (e.button === 1) this.rotatingMouse = true;
-      if (e.button === 0 && this.game.placing === 'wall') {
+      if (e.button === 0 && this.game.placingLine()) {
         const g = this.game.renderer.pickGround(e.clientX, e.clientY);
         if (g) this.game.wallStart(g.x, g.z);
       }
@@ -476,7 +476,7 @@ export class InputController {
     if (this.game.placing) {
       const g = this.game.renderer.pickGround(x, y);
       if (!g) return;
-      if (this.game.placing === 'wall' && !this.game.wallAnchor) this.game.wallStart(g.x, g.z);
+      if (this.game.placingLine() && !this.game.wallAnchor) this.game.wallStart(g.x, g.z);
       else this.game.previewPlacementAt(g.x, g.z);
       return;
     }
@@ -505,7 +505,7 @@ export class InputController {
     }
     if (!p) return;
     const s = game.sim.structureAt(Math.floor(p.x), Math.floor(p.z));
-    if (s && s.owner !== game.player) {
+    if (s && s.owner !== game.player && (s.kind !== 'mines' || game.sim.traps.knows(game.player, s))) {
       game.commandAt(p, -1, s.id);
       return;
     }
@@ -517,7 +517,7 @@ export class InputController {
     const g = this.game.renderer.pickPoint(x, y);
     if (!g) return false;
     const s = this.game.sim.structureAt(Math.floor(g.x), Math.floor(g.z));
-    if (!s) {
+    if (!s || (s.kind === 'mines' && !this.game.sim.traps.knows(this.game.player, s))) {
       this.game.deselectStructure();
       return false;
     }

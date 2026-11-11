@@ -132,10 +132,10 @@ export class GameRenderer {
     if (f.controlled >= 0 && this.sim.units.isAlive(f.controlled)) {
       const t = UNIT_TYPES[this.sim.units.kind[f.controlled]];
       const p = this.units.unitPosition(f.controlled, f.alpha, this.tmp);
-      this.ots.mode = t.fly ? 'drone' : 'soldier';
+      this.ots.mode = t.fly ? 'drone' : t.vehicle ? 'vehicle' : 'soldier';
       this.ots.update(p, this.eye, this.look);
       fov = this.ots.aiming ? 62 / t.zoom : 62;
-      if (!t.fly) {
+      if (!t.fly && !t.vehicle) {
         // Flashlight from just above the shoulder along the aim direction.
         this.tmp2.copy(p).add(this.ots.forward(this.look.clone()).multiplyScalar(14));
         this.tmp2.y = this.sim.map.heightAt(this.tmp2.x, this.tmp2.z);

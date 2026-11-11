@@ -1,6 +1,7 @@
 import { CYCLE_SEC, TICK_SEC, cycleInfo, phaseStartSec, type CycleInfo, type PhaseName } from './clock';
 import { Combat } from './combat';
 import { Drones } from './drones';
+import { Traps, WIRE_SLOW } from './traps';
 import { Economy } from './economy';
 import { AT_GOAL, CLIMB_BASE, DIR_X, DIR_Z, FlowFieldCache, SWITCH_LAYER, fieldKey } from './flowfield';
 import { Vision } from './vision';
@@ -61,8 +62,10 @@ export type Command =
   | { type: 'launchDrone'; owner: number; bay: number; kind: number }
   | { type: 'release'; owner: number; id: number }
   | { type: 'build'; owner: number; kind: StructureKind; tx: number; tz: number; rot?: number }
-  /** Wall line: flat [tx0, tz0, tx1, tz1, ...]. */
-  | { type: 'buildWall'; owner: number; tiles: number[] }
+  /** Line of walls (or minefield, ditch, fuel trench, wire): flat [tx0, tz0, tx1, tz1, ...]. */
+  | { type: 'buildWall'; owner: number; tiles: number[]; kind?: StructureKind }
+  /** Set your fuel trench alight (needs one of your soldiers within range). */
+  | { type: 'ignite'; owner: number; id: number }
   | { type: 'demolish'; owner: number; id: number }
   | { type: 'setActive'; owner: number; id: number; active: boolean }
   | { type: 'setRations'; owner: number; level: number }
@@ -113,6 +116,10 @@ export type SimEvent =
   | { type: 'taunt'; owner: number; name: string; text: string }
   | { type: 'flare'; owner: number; x: number; z: number }
   | { type: 'launched'; owner: number; unit: number; kind: number }
+  /** A howitzer shell in flight (lands `flight` seconds later). */
+  | { type: 'shell'; owner: number; fromX: number; fromZ: number; fromY: number; toX: number; toZ: number; toY: number; flight: number }
+  /** A fuel trench caught fire. */
+  | { type: 'ignited'; id: number; x: number; z: number }
   /** Feedback for a player action that didn't happen (shown as a toast). */
   | { type: 'notice'; owner: number; text: string };
 
@@ -151,6 +158,7 @@ export class Sim {
   readonly combat: Combat;
   readonly vision: Vision;
   readonly drones: Drones;
+  readonly traps: Traps;
   director: WaveDirector | null = null;
   /** Player whose victory/defeat is tracked. */
   defender = 1;
@@ -179,6 +187,7 @@ export class Sim {
     this.combat = new Combat(this);
     this.vision = new Vision(this);
     this.drones = new Drones(this);
+    this.traps = new Traps(this);
     this.cellHead = new Int32Array(this.map.width * this.map.height).fill(-1);
     this.cellNext = new Int32Array(this.units.alive.length).fill(-1);
   }
@@ -258,6 +267,9 @@ export class Sim {
       status: def.jobs ? 'noWorker' : 'ok',
       recipe: 0,
       powered: !def.power || def.power > 0,
+      burn: 0,
+      seenBy: 0,
+      defuse: 0,
       aim: rot,
       cooldown: 0,
       ammo: def.turret?.mag ?? 0,
@@ -273,6 +285,8 @@ export class Sim {
         if (kind === 'gate') {
           map.blocked[i] = Block.Gate;
           map.gateOwner[i] = owner;
+        } else if (def.trap === 'ditch') {
+          map.blocked[i] = Block.Ditch;
         } else if (def.blocks) {
           map.blocked[i] = Block.Structure;
         }
@@ -300,7 +314,7 @@ export class Sim {
     for (let z = s.tz; z < s.tz + s.h; z++) {
       for (let x = s.tx; x < s.tx + s.w; x++) {
         const i = map.idx(x, z);
-        if (map.blocked[i] === Block.Structure || map.blocked[i] === Block.Gate) map.blocked[i] = Block.Free;
+        if (map.blocked[i] === Block.Structure || map.blocked[i] === Block.Gate || map.blocked[i] === Block.Ditch) map.blocked[i] = Block.Free;
         map.gateOwner[i] = 0;
         map.deck[i] = 0;
         map.deckH[i] = 0;
@@ -366,7 +380,8 @@ export class Sim {
     const map = this.map;
     const u = this.units;
     const team = u.owner[i];
-    let goalLayer = layer;
+    const vehicle = UNIT_TYPES[u.kind[i]].vehicle;
+    let goalLayer = vehicle ? 0 : layer;
     let goal = map.nearestOnLayer(Math.floor(x), Math.floor(z), goalLayer, team, 6);
     if (goal < 0 && goalLayer === 1) {
       goalLayer = 0;
@@ -380,7 +395,7 @@ export class Sim {
     const shared = fieldTile >= 0 && map.walkable(fieldTile % map.width, Math.floor(fieldTile / map.width), goalLayer, team);
     const climb = UNIT_TYPES[u.kind[i]].climber;
     // Climbers go over walls rather than through them.
-    u.field[i] = fieldKey(map, { goal: shared ? fieldTile : goal, goalLayer, team, breach: breach && !climb, climb });
+    u.field[i] = fieldKey(map, { goal: shared ? fieldTile : goal, goalLayer, team, breach: breach && !climb, climb, ground: vehicle });
     u.stuck[i] = 0;
     return true;
   }
@@ -462,7 +477,7 @@ export class Sim {
       }
     }
 
-    const suppressed = u.suppressed[i] > 0 ? 0.6 : 1;
+    const suppressed = (u.suppressed[i] > 0 ? 0.6 : 1) * (this.traps.onEnemyWire(i) ? WIRE_SLOW : 1);
     const speed = type.speed * speedMul * suppressed * Math.min(1, 0.3 + dist / 1.0);
     u.vx[i] = u.vx[i] * 0.35 + dirX * speed * 0.65;
     u.vz[i] = u.vz[i] * 0.35 + dirZ * speed * 0.65;
@@ -496,6 +511,7 @@ export class Sim {
     this.updateMovement();
     this.drones.update();
     this.combat.update();
+    this.traps.update();
     this.resolveOverlaps();
     this.updateElevation();
     this.economy.update();
@@ -595,8 +611,8 @@ export class Sim {
             }
             continue;
           }
-          // Small arms can't hurt walls: only units with charges take those orders.
-          if (armored && u.charges[id] === 0) continue;
+          // Small arms can't hurt walls: only charges and heavy guns take those orders.
+          if (armored && u.charges[id] === 0 && !t.siege) continue;
           if (!t.armed) continue;
           u.order[id] = Order.Breach;
           u.targetStruct[id] = s.id;
@@ -626,7 +642,8 @@ export class Sim {
           u.targetStruct[id] = -1;
         }
         const k = len > 1 ? 1 / len : 1;
-        const speed = t.speed * (c.aim && !t.fly ? 0.5 : 1) * (u.suppressed[id] > 0 ? 0.6 : 1);
+        const speed =
+          t.speed * (c.aim && !t.fly && !t.vehicle ? 0.5 : 1) * (u.suppressed[id] > 0 ? 0.6 : 1) * (this.traps.onEnemyWire(id) ? WIRE_SLOW : 1);
         u.vx[id] = u.plantTimer[id] > 0 ? 0 : c.mx * k * speed;
         u.vz[id] = u.plantTimer[id] > 0 ? 0 : c.mz * k * speed;
         u.heading[id] = wrapAngle(c.yaw);
@@ -656,8 +673,21 @@ export class Sim {
         else this.economy.build(c.owner, c.kind, c.tx, c.tz, c.rot ?? 0);
         break;
       }
+      case 'ignite': {
+        const s = this.structureById(c.id);
+        if (!s || s.owner !== c.owner || s.kind !== 'trench') break;
+        let near = false;
+        for (let i = 0; i < u.count && !near; i++) {
+          if (u.alive[i] && u.owner[i] === c.owner && UNIT_TYPES[u.kind[i]].armed) {
+            near = Math.hypot(u.x[i] - s.tx, u.z[i] - s.tz) <= FLARE_REACH;
+          }
+        }
+        if (!near) this.emit({ type: 'buildFailed', owner: c.owner, reason: 'None of your soldiers is close enough to light it' });
+        else this.traps.ignite(s);
+        break;
+      }
       case 'buildWall': {
-        const built = this.economy.buildWall(c.owner, c.tiles);
+        const built = this.economy.buildWall(c.owner, c.tiles, c.kind ?? 'wall');
         if (built === 0) this.emit({ type: 'buildFailed', owner: c.owner, reason: this.economy.lastWallReason });
         break;
       }
@@ -700,6 +730,7 @@ export class Sim {
         }
         p.funds -= FLARE_COST;
         this.vision.addFlare(c.x, c.z, c.owner);
+        this.traps.igniteNear(c.x, c.z, 1.5);
         this.emit({ type: 'flare', owner: c.owner, x: c.x, z: c.z });
         break;
       }
@@ -905,9 +936,9 @@ export class Sim {
         }
       }
     }
-    // Walking onto stairs takes you up.
+    // Walking onto stairs takes you up (not in a vehicle).
     const tile = map.idx(Math.floor(u.x[i]), Math.floor(u.z[i]));
-    if (map.stairs[tile] && u.layer[i] === 0 && map.deck[tile]) u.layer[i] = 1;
+    if (map.stairs[tile] && u.layer[i] === 0 && map.deck[tile] && !UNIT_TYPES[u.kind[i]].vehicle) u.layer[i] = 1;
   }
 
   /** Squad follower: keep a slot behind the leader, re-pathing as they move. */
@@ -1066,6 +1097,11 @@ export class Sim {
     const moving = (k: number): boolean => u.vx[k] !== 0 || u.vz[k] !== 0;
     if (u.order[i] === Order.Control) return 0;
     if (u.order[j] === Order.Control) return 1;
+    // Vehicles shoulder infantry aside, not the other way round.
+    const vi = UNIT_TYPES[u.kind[i]].vehicle;
+    const vj = UNIT_TYPES[u.kind[j]].vehicle;
+    if (vi && !vj) return 0.1;
+    if (vj && !vi) return 0.9;
     if (moving(i) && !moving(j)) return 0.2;
     if (moving(j) && !moving(i)) return 0.8;
     return 0.5;
@@ -1122,7 +1158,8 @@ export class Sim {
     }
     mix(this.structures.length);
     mix(this.vision.flares.length);
-    for (const s of this.structures) mix(Math.round(s.hp) * 2 + (s.powered ? 1 : 0));
+    for (const s of this.structures) mix(Math.round(s.hp) * 4 + (s.powered ? 1 : 0) + (s.burn > 0 ? 2 : 0));
+    mix(this.combat.shells.length);
     for (let i = 0; i < u.count; i++) {
       if (!u.alive[i]) continue;
       mix(i);

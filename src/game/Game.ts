@@ -7,7 +7,7 @@ import { clearGame, writeGame, type StoredGame } from './saveSlot';
 import type { Sim, SimEvent } from '../sim/sim';
 import { PRICES, RES_INFO, Res, STRUCTURE_DEFS, costText, footprint, type ResId, type StructureKind } from '../sim/structures';
 import type { Difficulty } from '../sim/ai';
-import { DRONE_KINDS, RECRUITABLE, UNIT_TYPES, UnitKind } from '../sim/unitTypes';
+import { DRONE_KINDS, RECRUITABLE, UNIT_TYPES, UnitKind, VEHICLES } from '../sim/unitTypes';
 import { DRONE_COST } from '../sim/drones';
 import { Order } from '../sim/units';
 import { GameRenderer, detectQuality } from '../render/GameRenderer';
@@ -66,6 +66,7 @@ export interface GameActions {
   toggleSlowMo(): void;
   flareAtCrosshair(): void;
   launchDrone(kind: number): void;
+  igniteSelected(): void;
 }
 
 function isTouchDevice(): boolean {
@@ -393,9 +394,10 @@ export class Game implements GameActions {
         timber: p.stock[Res.Timber],
         concrete: p.stock[Res.Concrete],
         steel: p.stock[Res.Steel],
+        fuel: p.stock[Res.Fuel],
         produce: p.stock[Res.Produce],
         meat: p.stock[Res.Meat],
-        gear: [Res.Rifle, Res.MG, Res.Scoped, Res.Charges].map((r) => Math.floor(p.stock[r])),
+        gear: [Res.Rifle, Res.MG, Res.Scoped, Res.Charges, Res.Launcher].map((r) => Math.floor(p.stock[r])),
         materialsCap: p.materialsCap,
         foodCap: p.foodCap,
         gearCap: p.gearCap,
@@ -438,6 +440,8 @@ export class Game implements GameActions {
     const u = this.sim.units;
     const c = this.controlled;
     const base = {
+      deploy: null,
+      artillery: false,
       ammo: 0,
       mag: 0,
       reload: null,
@@ -457,7 +461,9 @@ export class Game implements GameActions {
       const t = UNIT_TYPES[u.kind[c]];
       return {
         ...base,
-        kind: t.fly ? 'drone' : 'soldier',
+        kind: t.fly ? 'drone' : t.vehicle ? 'vehicle' : 'soldier',
+        deploy: t.artillery ? u.deploy[c] : null,
+        artillery: !!t.artillery,
         name: t.name,
         hp: u.hp[c] / t.hp,
         ammo: u.ammo[c],
@@ -506,7 +512,7 @@ export class Game implements GameActions {
           if (e.owner !== this.player) this.toast(`Wave ${e.index}/${e.total} incoming from the east! (${e.size} troops)`, 4);
           break;
         case 'structureDestroyed':
-          if (e.owner === this.player) this.toast(`Your ${STRUCTURE_DEFS[e.kind].name} was destroyed`);
+          if (e.owner === this.player && !STRUCTURE_DEFS[e.kind].trap) this.toast(`Your ${STRUCTURE_DEFS[e.kind].name} was destroyed`);
           break;
         case 'result':
           setHud({ result: { result: e.result, reason: e.reason } });
@@ -560,11 +566,11 @@ export class Game implements GameActions {
   private placingInfo(): PlacingInfo | null {
     if (!this.placing) return null;
     const def = STRUCTURE_DEFS[this.placing];
-    if (this.placing === 'wall') {
+    if (this.placingLine()) {
       const tiles = this.wallTiles();
       const valid = tiles.filter((t) => t.ok).length;
       return {
-        kind: 'wall',
+        kind: this.placing,
         name: def.name,
         cost: `${costText(def.cost)} per tile`,
         valid: valid > 0,
@@ -662,8 +668,23 @@ export class Game implements GameActions {
           : null,
       turret: def.turret && mine ? { crewed: this.sim.combat.crewed(s), ammo: s.ammo, mag: def.turret.mag } : null,
       controllable: mine && CONTROLLABLE_STRUCTURES.includes(s.kind),
+      ignite: mine && s.kind === 'trench' && s.burn === 0,
+      burning: s.burn > 0,
       recruit:
-        s.kind === 'barracks' && mine
+        s.kind === 'motorpool' && mine
+          ? VEHICLES.map((k) => {
+              const t = UNIT_TYPES[k];
+              return {
+                kind: k,
+                name: t.name,
+                blurb: t.blurb,
+                cost: `${t.steel} steel · ${t.fuel} fuel · $${t.funds}`,
+                stock: 0,
+                note: 'crewed by an idle civilian',
+                blocker: this.sim.economy.recruitBlocker(this.player, k),
+              };
+            })
+          : s.kind === 'barracks' && mine
           ? RECRUITABLE.map((k) => {
               const t = UNIT_TYPES[k];
               return {
@@ -697,9 +718,12 @@ export class Game implements GameActions {
     }
     if (enemyStructure >= 0) {
       const s = this.sim.structureById(enemyStructure);
-      const canBreach = (id: number): boolean => this.sim.units.charges[id] > 0 || !!UNIT_TYPES[this.sim.units.kind[id]].blast;
+      const canBreach = (id: number): boolean => {
+        const t = UNIT_TYPES[this.sim.units.kind[id]];
+        return this.sim.units.charges[id] > 0 || !!t.blast || t.siege || !!t.artillery || (s?.kind === 'ditch' && t.charges > 0);
+      };
       if (s && STRUCTURE_DEFS[s.kind].armored && !ids.some(canBreach)) {
-        this.toast('Only combat engineers, operators and strike drones can breach walls and gates');
+        this.toast('Walls and gates need engineers, operators, AT teams, tanks, howitzers or strike drones');
         return;
       }
       this.sim.enqueue({ type: 'attackStructure', owner: this.player, ids, structure: enemyStructure });
@@ -827,7 +851,7 @@ export class Game implements GameActions {
   /** Preview the current building centred on a ground point (or extend the wall line). */
   previewPlacementAt(x: number, z: number): void {
     if (!this.placing) return;
-    if (this.placing === 'wall') {
+    if (this.placingLine()) {
       if (!this.wallAnchor) {
         // Hover preview of a single tile.
         const tx = Math.floor(x);
@@ -855,7 +879,7 @@ export class Game implements GameActions {
   /** Build at the previewed spot (stays in placement mode for repeat building). */
   confirmPlacing(): void {
     if (!this.placing) return;
-    if (this.placing === 'wall') {
+    if (this.placingLine()) {
       const tiles = this.wallTiles().filter((t) => t.ok);
       if (tiles.length === 0) {
         this.toast('Nothing buildable on that line');
@@ -863,7 +887,7 @@ export class Game implements GameActions {
       }
       const flat: number[] = [];
       for (const t of tiles) flat.push(t.x, t.z);
-      this.sim.enqueue({ type: 'buildWall', owner: this.player, tiles: flat });
+      this.sim.enqueue({ type: 'buildWall', owner: this.player, tiles: flat, kind: this.placing });
       // Chain the next segment from where this one ended.
       const end = this.wallEnd ?? this.wallAnchor;
       this.wallAnchor = isTouchDevice() && end ? { ...end } : null;
@@ -910,7 +934,7 @@ export class Game implements GameActions {
 
   recruit(kind: number, count: number): void {
     const s = this.sim.structureById(this.selectedStructure);
-    if (!s || s.kind !== 'barracks') return;
+    if (!s || (s.kind !== 'barracks' && s.kind !== 'motorpool')) return;
     const blocker = this.sim.economy.recruitBlocker(this.player, kind);
     if (blocker) {
       this.toast(blocker);
@@ -1086,6 +1110,18 @@ export class Game implements GameActions {
       return;
     }
     this.sim.enqueue({ type: 'flare', owner: this.player, x: g.x, z: g.z });
+  }
+
+  igniteSelected(): void {
+    const s = this.sim.structureById(this.selectedStructure);
+    if (!s || s.kind !== 'trench') return;
+    this.sim.enqueue({ type: 'ignite', owner: this.player, id: s.id });
+    setTimeout(() => this.pushHud(), 120);
+  }
+
+  /** Placing something drawn as a line (walls, mines, ditches, trenches, wire)? */
+  placingLine(): boolean {
+    return !!this.placing && !!STRUCTURE_DEFS[this.placing].line;
   }
 
   launchDrone(kind: number): void {

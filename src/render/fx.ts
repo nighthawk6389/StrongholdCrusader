@@ -35,6 +35,10 @@ export class Fx {
   private v1 = new THREE.Vector3();
   private v2 = new THREE.Vector3();
   private flareMeshes: THREE.Mesh[] = [];
+  /** Howitzer shells in flight: arc from gun to impact. */
+  private shells: { mesh: THREE.Mesh; fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; t: number; T: number }[] = [];
+  private shellGeo = new THREE.SphereGeometry(0.12, 6, 4);
+  private shellMat = new THREE.MeshBasicMaterial({ color: 0x2a2620 });
   private flareLights: THREE.PointLight[] = [];
 
   constructor(private map: GameMap) {
@@ -143,6 +147,12 @@ export class Fx {
           break;
         }
         case 'death':
+          if (UNIT_TYPES[e.kind]?.vehicle) {
+            // A vehicle brews up: fireball and a column of black smoke.
+            this.blast(e.x, e.z);
+            for (let k = 0; k < 4; k++) this.puff(e.x + (Math.random() - 0.5) * 0.8, e.y + 0.6 + k * 0.4, e.z + (Math.random() - 0.5) * 0.8, 0x1e1c1a, 0.9, 1.4);
+            break;
+          }
           if (UNIT_TYPES[e.kind]?.fly) {
             // A drone shot down: a puff of smoke where it was, then it drops out of the sky.
             this.puff(e.x, e.y, e.z, 0x3a3a3a, 0.7, 0.8);
@@ -154,6 +164,23 @@ export class Fx {
           break;
         case 'explosion':
           this.blast(e.x, e.z);
+          break;
+        case 'shell': {
+          // Muzzle blast at the gun, then a shell arcing toward the target.
+          this.puff(e.fromX, e.fromY + 0.4, e.fromZ, 0xd8cbb0, 0.7, 0.7);
+          let s = this.shells.find((x) => !x.mesh.visible);
+          if (!s) {
+            const mesh = new THREE.Mesh(this.shellGeo, this.shellMat);
+            this.group.add(mesh);
+            s = { mesh, fx: 0, fy: 0, fz: 0, tx: 0, ty: 0, tz: 0, t: 0, T: 1 };
+            this.shells.push(s);
+          }
+          Object.assign(s, { fx: e.fromX, fy: e.fromY, fz: e.fromZ, tx: e.toX, ty: e.toY, tz: e.toZ, t: 0, T: e.flight });
+          s.mesh.visible = true;
+          break;
+        }
+        case 'ignited':
+          this.puff(e.x, this.map.heightAt(e.x, e.z) + 0.5, e.z, 0xff9a3a, 0.8, 0.5);
           break;
         case 'structureDamaged':
           if (Math.random() < 0.25) this.puff(e.x + (Math.random() - 0.5), this.map.heightAt(e.x, e.z) + 1, e.z + (Math.random() - 0.5), 0xb8ad99, 0.5, 0.5);
@@ -227,6 +254,18 @@ export class Fx {
   }
 
   update(dt: number): void {
+    for (const s of this.shells) {
+      if (!s.mesh.visible) continue;
+      s.t += dt;
+      const k = Math.min(1, s.t / s.T);
+      const d = Math.hypot(s.tx - s.fx, s.tz - s.fz);
+      s.mesh.position.set(
+        s.fx + (s.tx - s.fx) * k,
+        s.fy + (s.ty - s.fy) * k + 4 * (d * 0.28) * k * (1 - k),
+        s.fz + (s.tz - s.fz) * k,
+      );
+      if (k >= 1) s.mesh.visible = false;
+    }
     for (const t of this.tracers) {
       if (!t.mesh.visible) continue;
       t.life -= dt;

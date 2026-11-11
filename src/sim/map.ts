@@ -17,6 +17,8 @@ export const Block = {
   Structure: 2,
   /** Gatehouse: walkable on the ground only for `gateOwner`'s team. */
   Gate: 3,
+  /** Anti-tank ditch: nobody walks or drives across, but shots and sight pass over it. */
+  Ditch: 4,
 } as const;
 
 /** Navigation layers: the ground, and the walkable tops of walls/towers/gatehouses. */

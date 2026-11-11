@@ -114,6 +114,8 @@ export class UnitStore {
   readonly battery = new Float32Array(MAX_UNITS);
   /** Drones: the bay they launched from (where they recharge). */
   readonly home = new Int32Array(MAX_UNITS).fill(-1);
+  /** Artillery: how set up it is (0 = limbered, 1 = ready to fire). */
+  readonly deploy = new Float32Array(MAX_UNITS);
 
   spawn(kind: number, owner: number, x: number, z: number, heading: number): number {
     let id = -1;
@@ -165,6 +167,7 @@ export class UnitStore {
     this.leader[id] = -1;
     this.battery[id] = UNIT_TYPES[kind].battery;
     this.home[id] = -1;
+    this.deploy[id] = 0;
     if (UNIT_TYPES[kind].fly) this.elev[id] = this.pelev[id] = UNIT_TYPES[kind].fly;
     return id;
   }

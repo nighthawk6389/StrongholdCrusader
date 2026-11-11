@@ -6,6 +6,7 @@ import {
   PRICES,
   RES_COUNT,
   RES_INFO,
+  Res,
   STRUCTURE_DEFS,
   footprint,
   resIdsFor,
@@ -114,7 +115,8 @@ export class PlayerEconomy {
       (c.funds ?? 0) <= this.funds + 1e-9 &&
       (c.timber ?? 0) <= this.stock[0] + 1e-9 &&
       (c.concrete ?? 0) <= this.stock[1] + 1e-9 &&
-      (c.steel ?? 0) <= this.stock[4] + 1e-9
+      (c.steel ?? 0) <= this.stock[4] + 1e-9 &&
+      (c.fuel ?? 0) <= this.stock[Res.Fuel] + 1e-9
     );
   }
 
@@ -123,6 +125,17 @@ export class PlayerEconomy {
     this.stock[0] -= c.timber ?? 0;
     this.stock[1] -= c.concrete ?? 0;
     this.stock[4] -= c.steel ?? 0;
+    this.stock[Res.Fuel] -= c.fuel ?? 0;
+  }
+
+  /** Why `c` can't be paid, or null. */
+  shortOf(c: Cost): string | null {
+    if ((c.timber ?? 0) > this.stock[0] + 1e-9) return 'Not enough timber';
+    if ((c.concrete ?? 0) > this.stock[1] + 1e-9) return 'Not enough concrete';
+    if ((c.steel ?? 0) > this.stock[4] + 1e-9) return 'Not enough steel';
+    if ((c.fuel ?? 0) > this.stock[Res.Fuel] + 1e-9) return 'Not enough fuel';
+    if ((c.funds ?? 0) > this.funds + 1e-9) return 'Not enough funds';
+    return null;
   }
 }
 
@@ -222,6 +235,13 @@ export class Economy {
       }
       if (fertile < Math.ceil(w * h * 0.6)) return { ok: false, reason: 'Needs fertile ground' };
     }
+    if (def.requires === 'onOil') {
+      let oil = 0;
+      for (let z = tz; z < tz + h; z++) {
+        for (let x = tx; x < tx + w; x++) if (map.tileAt(x, z) === Tile.Oil) oil++;
+      }
+      if (oil === 0) return { ok: false, reason: 'Must sit on an oil seep' };
+    }
     if (def.requires === 'besideWall' && this.stairsFacing(tx, tz, owner) === null) {
       return { ok: false, reason: 'Must be right next to your wall' };
     }
@@ -229,12 +249,8 @@ export class Economy {
       return { ok: false, reason: 'No access' };
     }
     const p = this.player(owner);
-    if (!p.canAfford(def.cost)) {
-      if ((def.cost.timber ?? 0) > p.stock[0]) return { ok: false, reason: 'Not enough timber' };
-      if ((def.cost.concrete ?? 0) > p.stock[1]) return { ok: false, reason: 'Not enough concrete' };
-      if ((def.cost.steel ?? 0) > p.stock[4]) return { ok: false, reason: 'Not enough steel' };
-      return { ok: false, reason: 'Not enough funds' };
-    }
+    const short = p.shortOf(def.cost);
+    if (short) return { ok: false, reason: short };
     return { ok: true };
   }
 
@@ -260,10 +276,11 @@ export class Economy {
     return this.territory(owner, x + 0.5, z + 0.5);
   }
 
-  /** Build as much of a wall line as is valid and affordable. Returns tiles built. */
-  buildWall(owner: number, tiles: number[]): number {
+  /** Build as much of a line (walls, mines, ditches, trenches, wire) as is valid and affordable. Returns tiles built. */
+  buildWall(owner: number, tiles: number[], kind: StructureKind = 'wall'): number {
     const p = this.player(owner);
-    const cost = STRUCTURE_DEFS.wall.cost;
+    if (!STRUCTURE_DEFS[kind].line) return 0;
+    const cost = STRUCTURE_DEFS[kind].cost;
     let built = 0;
     this.lastWallReason = 'Nothing to build';
     for (let k = 0; k + 1 < tiles.length; k += 2) {
@@ -275,11 +292,11 @@ export class Economy {
         continue;
       }
       if (!p.canAfford(cost)) {
-        this.lastWallReason = 'Not enough concrete';
+        this.lastWallReason = p.shortOf(cost) ?? 'Not enough';
         break;
       }
       p.pay(cost);
-      const s = this.sim.placeStructure('wall', owner, x, z);
+      const s = this.sim.placeStructure(kind, owner, x, z);
       if (s) {
         this.displaceUnits(s);
         built++;
@@ -449,23 +466,34 @@ export class Economy {
     return out;
   }
 
+  /** What one `kind` costs to train (soldiers: a weapon from the armory; vehicles: steel and fuel). */
+  trainCost(kind: number): { funds: number; steel: number; fuel: number; gear: ResId | null } {
+    const t = UNIT_TYPES[kind];
+    return { funds: t.funds, steel: t.steel, fuel: t.fuel, gear: t.gear };
+  }
+
   /** Why recruiting can't proceed right now, or null if it can. */
   recruitBlocker(owner: number, kind: number): string | null {
     const t = UNIT_TYPES[kind];
     const p = this.player(owner);
-    if (t.gear === null) return 'Cannot be trained';
-    if (p.stock[t.gear] < 1) return `No ${RES_INFO[t.gear].name.toLowerCase()} in the armory`;
+    if (t.vehicle) {
+      if (p.stock[Res.Steel] < t.steel) return 'Not enough steel';
+      if (p.stock[Res.Fuel] < t.fuel) return 'Not enough fuel';
+    } else {
+      if (t.gear === null) return 'Cannot be trained';
+      if (p.stock[t.gear] < 1) return `No ${RES_INFO[t.gear].name.toLowerCase()} in the armory`;
+    }
     if (p.funds < t.funds) return 'Not enough funds';
-    if (this.idleCivilians(owner).length === 0) return 'No idle civilians';
+    if (this.idleCivilians(owner).length === 0) return t.vehicle ? 'No idle civilians to crew it' : 'No idle civilians';
     return null;
   }
 
-  /** Send idle civilians to the barracks; gear and funds are paid up front. Returns how many. */
+  /** Send idle civilians to the barracks (soldiers) or motor pool (vehicles); costs are paid up front. Returns how many. */
   recruit(owner: number, barracksId: number, kind: number, count: number): number {
     const b = this.sim.structureById(barracksId);
-    if (!b || b.owner !== owner || b.kind !== 'barracks') return 0;
     const t = UNIT_TYPES[kind];
-    if (t.gear === null) return 0;
+    if (!b || b.owner !== owner || b.kind !== (t.vehicle ? 'motorpool' : 'barracks')) return 0;
+    if (t.gear === null && !t.vehicle) return 0;
     const p = this.player(owner);
     const u = this.sim.units;
     const d = this.door(b);
@@ -475,7 +503,9 @@ export class Economy {
       const idle = this.idleCivilians(owner);
       idle.sort((a, c) => Math.hypot(u.x[a] - d.x, u.z[a] - d.z) - Math.hypot(u.x[c] - d.x, u.z[c] - d.z) || a - c);
       const i = idle[0];
-      p.stock[t.gear]--;
+      if (t.gear !== null) p.stock[t.gear]--;
+      p.stock[Res.Steel] -= t.steel;
+      p.stock[Res.Fuel] -= t.fuel;
       p.funds -= t.funds;
       u.task[i] = Task.Recruit;
       u.dest[i] = b.id;
@@ -488,6 +518,26 @@ export class Economy {
     return n;
   }
 
+  /** Nearest tile centre whose whole 3×3 neighbourhood is free ground, or null. */
+  private openGround(x: number, z: number): { x: number; z: number } | null {
+    const map = this.sim.map;
+    const cx = Math.floor(x);
+    const cz = Math.floor(z);
+    for (let r = 0; r <= 10; r++) {
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          let open = true;
+          for (let oz = -1; oz <= 1 && open; oz++) {
+            for (let ox = -1; ox <= 1 && open; ox++) open = map.isWalkableTile(cx + dx + ox, cz + dz + oz);
+          }
+          if (open) return { x: cx + dx + 0.5, z: cz + dz + 0.5 };
+        }
+      }
+    }
+    return null;
+  }
+
   private updateRecruit(i: number): void {
     const u = this.sim.units;
     const b = this.sim.structureById(u.dest[i]);
@@ -498,6 +548,8 @@ export class Economy {
         const t = UNIT_TYPES[kind];
         const p = this.player(u.owner[i]);
         if (t.gear !== null) p.stock[t.gear]++;
+        p.stock[Res.Steel] += t.steel;
+        p.stock[Res.Fuel] += t.fuel;
         p.funds += t.funds;
       }
       u.task[i] = Task.Idle;
@@ -512,6 +564,14 @@ export class Economy {
     }
     if (!r) return;
     u.convert(i, kind);
+    if (UNIT_TYPES[kind].vehicle) {
+      // Vehicles roll out onto open ground (the door can be a cramped gap between buildings).
+      const spot = this.openGround(d.x, d.z);
+      if (spot) {
+        u.x[i] = u.px[i] = spot.x;
+        u.z[i] = u.pz[i] = spot.z;
+      }
+    }
     this.sim.emit({ type: 'recruited', owner: u.owner[i], unit: i, kind });
     // Muster a little way from the door.
     const a = this.sim.rng.next() * Math.PI * 2;

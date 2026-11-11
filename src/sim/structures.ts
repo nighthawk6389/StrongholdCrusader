@@ -13,9 +13,11 @@ export const Res = {
   Scoped: 7,
   Charges: 8,
   NVKit: 9,
+  Fuel: 10,
+  Launcher: 11,
 } as const;
 export type ResId = (typeof Res)[keyof typeof Res];
-export const RES_COUNT = 10;
+export const RES_COUNT = 12;
 
 export type StoreKind = 'materials' | 'food' | 'gear';
 
@@ -47,6 +49,8 @@ export const RES_INFO: ResInfo[] = [
   res(Res.Scoped, 'scoped', 'Scoped rifles', 'gear'),
   res(Res.Charges, 'charges', 'Breach kits', 'gear'),
   res(Res.NVKit, 'nvkit', 'Night-ops kits', 'gear'),
+  res(Res.Fuel, 'fuel', 'Fuel', 'materials'),
+  res(Res.Launcher, 'launcher', 'AT launchers', 'gear'),
 ];
 
 /** Trade Post buying price per unit (selling pays half). */
@@ -61,6 +65,8 @@ export const PRICES: Record<ResId, number> = {
   [Res.Scoped]: 50,
   [Res.Charges]: 40,
   [Res.NVKit]: 70,
+  [Res.Fuel]: 8,
+  [Res.Launcher]: 60,
 };
 
 export const FOOD_RES: ResId[] = RES_INFO.filter((r) => r.store === 'food').map((r) => r.id);
@@ -98,17 +104,24 @@ export type StructureKind =
   | 'kennel'
   | 'generator'
   | 'guntower'
-  | 'dronebay';
+  | 'dronebay'
+  | 'derrick'
+  | 'motorpool'
+  | 'mines'
+  | 'ditch'
+  | 'trench'
+  | 'wire';
 
 export interface Cost {
   funds?: number;
   timber?: number;
   concrete?: number;
   steel?: number;
+  fuel?: number;
 }
 
 /** Hard placement requirement. */
-export type Requirement = 'none' | 'nearRock' | 'fertile' | 'besideWall';
+export type Requirement = 'none' | 'nearRock' | 'fertile' | 'besideWall' | 'onOil';
 
 export interface ProducerSpec {
   output: ResId;
@@ -171,6 +184,14 @@ export interface StructureDef {
   bay?: { capacity: number };
   /** Height a shot has to clear to pass over it (default: deck + parapet, else 2.2). */
   top?: number;
+  /** Placed by dragging a line, one tile each (walls, minefields, ditches, trenches, wire). */
+  line?: boolean;
+  /** Ground trap or obstacle (see Traps). */
+  trap?: 'mine' | 'ditch' | 'trench' | 'wire';
+  /** Hidden from the enemy until spotted (minefields). */
+  hidden?: boolean;
+  /** Trains vehicles (crew from idle civilians). */
+  vehicles?: boolean;
 }
 
 export interface TurretSpec {
@@ -362,6 +383,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
       { output: Res.Scoped, input: Res.Steel, inputAmount: 3, work: 13 },
       { output: Res.Charges, input: Res.Steel, inputAmount: 2, work: 11 },
       { output: Res.NVKit, input: Res.Steel, inputAmount: 3, work: 15 },
+      { output: Res.Launcher, input: Res.Steel, inputAmount: 4, work: 16 },
     ],
   },
   armory: {
@@ -402,6 +424,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     cost: { concrete: 1 },
     deckH: 1.55,
     armored: true,
+    line: true,
   },
   tower: {
     kind: 'tower',
@@ -565,6 +588,97 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     bay: { capacity: 3 },
     top: 1.3,
   },
+  derrick: {
+    kind: 'derrick',
+    name: 'Oil Derrick',
+    description: 'Pumps fuel for vehicles and fuel trenches. Must sit on an oil seep (the dark patches).',
+    w: 2,
+    h: 2,
+    blocks: true,
+    hp: 400,
+    buildable: true,
+    category: 'industry',
+    cost: { timber: 10, steel: 4 },
+    jobs: 1,
+    producer: { output: Res.Fuel, work: 10, batch: 4 },
+    requires: 'onOil',
+    top: 2.6,
+  },
+  motorpool: {
+    kind: 'motorpool',
+    name: 'Motor Pool',
+    description: 'Builds armored cars, battle tanks and howitzers from steel, fuel and funds. An idle civilian crews each one.',
+    w: 3,
+    h: 3,
+    blocks: true,
+    hp: 900,
+    buildable: true,
+    category: 'military',
+    cost: { timber: 16, concrete: 12, steel: 8 },
+    vehicles: true,
+  },
+  mines: {
+    kind: 'mines',
+    name: 'Minefield',
+    description: 'Drag to lay mines. Hidden from the enemy; goes off under the first enemy to step on it (tanks too). Engineers and dogs find them.',
+    w: 1,
+    h: 1,
+    blocks: false,
+    hp: 60,
+    buildable: true,
+    category: 'defense',
+    cost: { steel: 2 },
+    top: 0.05,
+    line: true,
+    trap: 'mine',
+    hidden: true,
+  },
+  ditch: {
+    kind: 'ditch',
+    name: 'Anti-Tank Ditch',
+    description: 'Drag to dig a ditch nobody can cross, tanks included. Bullets fly over it. Enemy engineers can fill it in.',
+    w: 1,
+    h: 1,
+    blocks: true,
+    hp: 500,
+    buildable: true,
+    category: 'defense',
+    cost: { funds: 3 },
+    armored: true,
+    top: 0,
+    line: true,
+    trap: 'ditch',
+  },
+  trench: {
+    kind: 'trench',
+    name: 'Fuel Trench',
+    description: 'Drag to pour a trench of fuel. Select it and Ignite (or hit it with a flare) to set it ablaze: it burns anyone standing in it.',
+    w: 1,
+    h: 1,
+    blocks: false,
+    hp: 100,
+    buildable: true,
+    category: 'defense',
+    cost: { fuel: 2 },
+    top: 0.05,
+    line: true,
+    trap: 'trench',
+  },
+  wire: {
+    kind: 'wire',
+    name: 'Razor Wire',
+    description: 'Drag to string wire: enemy infantry crossing it slow to a crawl. Vehicles flatten it.',
+    w: 1,
+    h: 1,
+    blocks: false,
+    hp: 80,
+    buildable: true,
+    category: 'defense',
+    cost: { steel: 1 },
+    top: 0.4,
+    line: true,
+    trap: 'wire',
+  },
 };
 
 /** Height a shot must clear to pass over a structure of this kind (above the ground it stands on). */
@@ -616,6 +730,12 @@ export interface Structure {
   target: number;
   /** Aimed by the player until this tick (gun towers, searchlights). */
   manualUntil: number;
+  /** Fuel trenches: seconds left burning (0 = not lit). */
+  burn: number;
+  /** Minefields: bitmask of sides that have spotted it (1 << owner). */
+  seenBy: number;
+  /** Minefields: seconds of defusing by enemy engineers so far. */
+  defuse: number;
 }
 
 /** Footprint size for a kind at a rotation (gatehouses swap w/h at a quarter turn). */
@@ -630,6 +750,7 @@ export function costText(c: Cost): string {
   if (c.timber) parts.push(`${c.timber} timber`);
   if (c.concrete) parts.push(`${c.concrete} concrete`);
   if (c.steel) parts.push(`${c.steel} steel`);
+  if (c.fuel) parts.push(`${c.fuel} fuel`);
   if (c.funds) parts.push(`$${c.funds}`);
   return parts.join(' · ') || 'free';
 }

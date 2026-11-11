@@ -95,17 +95,19 @@ export interface FieldSpec {
   breach: boolean;
   /** Can scale walls: step between the ground and any adjacent wall top. */
   climb?: boolean;
+  /** Vehicles: ground only (no stairs, no wall tops). */
+  ground?: boolean;
 }
 
 export function fieldKey(map: GameMap, s: FieldSpec): number {
   const n = map.width * map.height;
-  return (((s.team * 2 + (s.breach ? 1 : 0)) * 2 + (s.climb ? 1 : 0)) * 2 + s.goalLayer) * n + s.goal;
+  return ((((s.team * 2 + (s.breach ? 1 : 0)) * 2 + (s.climb ? 1 : 0)) * 2 + (s.ground ? 1 : 0)) * 2 + s.goalLayer) * n + s.goal;
 }
 
 /** Enemy structure tile that attackers may route through in breach mode. */
 export function isBreachable(map: GameMap, i: number, team: number): boolean {
   const b = map.blocked[i];
-  return (b === Block.Structure || b === Block.Gate) && map.structOwner[i] !== team && map.structOwner[i] !== 0;
+  return (b === Block.Structure || b === Block.Gate || b === Block.Ditch) && map.structOwner[i] !== team && map.structOwner[i] !== 0;
 }
 
 export function buildFlowField(map: GameMap, spec: FieldSpec): FlowField {
@@ -156,7 +158,7 @@ export function buildFlowField(map: GameMap, spec: FieldSpec): FlowField {
         heap.push(nd, ni);
       }
     }
-    if (map.stairs[tile]) {
+    if (map.stairs[tile] && !spec.ground) {
       const other = (1 - layer) * n + tile;
       const nd = d0 + 1;
       if (nd < dist[other]) {
@@ -203,7 +205,7 @@ export function buildFlowField(map: GameMap, spec: FieldSpec): FlowField {
         best = d;
       }
     }
-    if (map.stairs[tile] && dist[(1 - layer) * n + tile] < bestD) {
+    if (map.stairs[tile] && !spec.ground && dist[(1 - layer) * n + tile] < bestD) {
       bestD = dist[(1 - layer) * n + tile];
       best = SWITCH_LAYER;
     }
@@ -261,11 +263,13 @@ export class FlowFieldCache {
     let rest = (key - goal) / n;
     const goalLayer = rest % 2;
     rest = (rest - goalLayer) / 2;
+    const ground = rest % 2 === 1;
+    rest = (rest - (ground ? 1 : 0)) / 2;
     const climb = rest % 2 === 1;
     rest = (rest - (climb ? 1 : 0)) / 2;
     const breach = rest % 2 === 1;
     const team = (rest - (breach ? 1 : 0)) / 2;
-    return { goal, goalLayer, team, breach, climb };
+    return { goal, goalLayer, team, breach, climb, ground };
   }
 
   clear(): void {

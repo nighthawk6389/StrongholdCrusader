@@ -2,6 +2,18 @@
 
 import { Res, type ResId } from './structures';
 
+export interface Artillery {
+  /** Can't hit anything closer than this. */
+  minRange: number;
+  /** Shell speed (tiles/s along the ground). */
+  shellSpeed: number;
+  /** Miss distance at full range (tiles). */
+  scatter: number;
+  /** Seconds to set up after moving before it can fire. */
+  deploySec: number;
+  blast: { damage: number; radius: number; structDamage: number };
+}
+
 export interface UnitType {
   id: number;
   key: string;
@@ -65,6 +77,27 @@ export interface UnitType {
   /** One-way strike drones: warhead that goes off on impact. */
   blast: { damage: number; radius: number; structDamage: number } | null;
 
+  // --- Vehicles & heavy weapons (M6)
+  /** Ground vehicle: built at the Motor Pool, never climbs or takes stairs, flattens wire. */
+  vehicle: boolean;
+  /** Share of small-arms damage that gets through (1 = soft target). AP weapons and explosives ignore it. */
+  armor: number;
+  /** Armor-piercing weapon (AT rockets, tank guns). */
+  ap: boolean;
+  /** Damage multiplier against anything that isn't a vehicle (shaped charges are poor anti-personnel). */
+  infantryMul: number;
+  /** Splash radius around each hit (tiles; 0 = none). */
+  splash: number;
+  /** Can damage walls, towers and gates by shooting at them. */
+  siege: boolean;
+  /** Indirect fire: lobs shells over walls after deploying. */
+  artillery: Artillery | null;
+  /** Hitbox for aimed fire as [radius, height] (null = a soldier's body and head). */
+  hitbox: [number, number] | null;
+  /** Extra materials to build one (vehicles). */
+  steel: number;
+  fuel: number;
+
   armed: boolean;
   controllable: boolean;
   selectable: boolean;
@@ -93,6 +126,16 @@ const base = {
   fly: 0,
   battery: 0,
   blast: null,
+  vehicle: false,
+  armor: 1,
+  ap: false,
+  infantryMul: 1,
+  splash: 0,
+  siege: false,
+  artillery: null as Artillery | null,
+  hitbox: null as [number, number] | null,
+  steel: 0,
+  fuel: 0,
   armed: true,
   controllable: true,
   selectable: true,
@@ -330,6 +373,129 @@ export const UNIT_TYPES: UnitType[] = [
     funds: 0,
     blurb: 'One-way attack drone: dives onto its target and explodes. Hurts walls and gates too.',
   },
+  {
+    ...base,
+    id: 9,
+    key: 'car',
+    name: 'Armored Car',
+    speed: 4.2,
+    hp: 360,
+    radius: 0.36,
+    range: 22,
+    damage: 14,
+    cooldown: 2,
+    autoRange: 17,
+    autoDamage: 9,
+    autoCooldown: 3,
+    autoJitter: 2,
+    spread: 0.1,
+    suppress: 1.2,
+    structDamage: 5,
+    sight: 20,
+    nightVision: 0.5,
+    mag: 200,
+    reloadSec: 5,
+    vehicle: true,
+    armor: 0.4,
+    hitbox: [0.62, 1.1],
+    gear: null,
+    funds: 60,
+    steel: 6,
+    fuel: 4,
+    blurb: 'Fast, armored scout with a machine gun. Rifles barely scratch it; mines and rockets do.',
+  },
+  {
+    ...base,
+    id: 10,
+    key: 'tank',
+    name: 'Battle Tank',
+    speed: 2.1,
+    hp: 1500,
+    radius: 0.38,
+    range: 30,
+    damage: 170,
+    cooldown: 60,
+    autoRange: 20,
+    autoDamage: 120,
+    autoCooldown: 64,
+    autoJitter: 8,
+    spread: 0.025,
+    suppress: 2,
+    structDamage: 200,
+    sight: 18,
+    nightVision: 0.6,
+    mag: 1,
+    reloadSec: 3,
+    zoom: 2.5,
+    vehicle: true,
+    armor: 0.12,
+    ap: true,
+    splash: 1.3,
+    siege: true,
+    hitbox: [0.85, 1.3],
+    gear: null,
+    funds: 160,
+    steel: 20,
+    fuel: 10,
+    blurb: 'Heavy armor and a main gun that knocks down walls and gates. Only rockets, mines and charges hurt it.',
+  },
+  {
+    ...base,
+    id: 11,
+    key: 'howitzer',
+    name: 'Howitzer',
+    speed: 1.5,
+    hp: 320,
+    radius: 0.36,
+    range: 56,
+    damage: 0,
+    cooldown: 120,
+    autoRange: 56,
+    autoDamage: 0,
+    autoCooldown: 130,
+    autoJitter: 10,
+    spread: 0,
+    structDamage: 0,
+    sight: 10,
+    mag: 1,
+    reloadSec: 6,
+    vehicle: true,
+    armor: 0.5,
+    artillery: { minRange: 9, shellSpeed: 16, scatter: 2.2, deploySec: 3, blast: { damage: 80, radius: 2.4, structDamage: 260 } },
+    hitbox: [0.7, 1.0],
+    gear: null,
+    funds: 130,
+    steel: 16,
+    fuel: 4,
+    blurb: 'Long-range gun: deploys, then lobs shells over walls at anything your side can see. Weak up close.',
+  },
+  {
+    ...base,
+    id: 12,
+    key: 'at',
+    name: 'AT Specialist',
+    speed: 2.3,
+    hp: 100,
+    range: 24,
+    damage: 170,
+    cooldown: 30,
+    autoRange: 17,
+    autoDamage: 140,
+    autoCooldown: 56,
+    autoJitter: 10,
+    spread: 0.03,
+    structDamage: 70,
+    mag: 1,
+    reloadSec: 2.6,
+    zoom: 2,
+    ap: true,
+    infantryMul: 0.45,
+    splash: 0.5,
+    siege: true,
+    gear: Res.Launcher,
+    funds: 35,
+    blurb: 'Anti-tank rockets: the answer to armor. Also dents walls and gates.',
+  },
 ];
 
 export const UnitKind = {
@@ -342,10 +508,17 @@ export const UnitKind = {
   Operator: 6,
   ReconDrone: 7,
   StrikeDrone: 8,
+  ArmoredCar: 9,
+  Tank: 10,
+  Howitzer: 11,
+  AT: 12,
 } as const;
+
+/** Vehicles the Motor Pool builds, in menu order. */
+export const VEHICLES = [UnitKind.ArmoredCar, UnitKind.Tank, UnitKind.Howitzer];
 
 /** Drone kinds a Drone Bay can launch, in menu order. */
 export const DRONE_KINDS = [UnitKind.ReconDrone, UnitKind.StrikeDrone];
 
 /** Units the barracks can train, in menu order. */
-export const RECRUITABLE = [UnitKind.Rifleman, UnitKind.Gunner, UnitKind.Marksman, UnitKind.Engineer, UnitKind.Operator];
+export const RECRUITABLE = [UnitKind.Rifleman, UnitKind.Gunner, UnitKind.Marksman, UnitKind.Engineer, UnitKind.AT, UnitKind.Operator];

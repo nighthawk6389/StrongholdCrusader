@@ -9,6 +9,7 @@ export interface EcoSnapshot {
   timber: number;
   concrete: number;
   steel: number;
+  fuel: number;
   produce: number;
   meat: number;
   /** Armory stock: rifles, machine guns, scoped rifles, breach kits. */
@@ -51,6 +52,8 @@ export interface RecruitOption {
   cost: string;
   /** Matching weapons in the armory. */
   stock: number;
+  /** Shown instead of the armory count (vehicles). */
+  note?: string;
   /** Why it can't be trained right now (null = it can). */
   blocker: string | null;
 }
@@ -81,6 +84,9 @@ export interface BuildingInfo {
   turret: { crewed: boolean; ammo: number; mag: number } | null;
   /** You can take direct control of it (gun towers, searchlights). */
   controllable: boolean;
+  /** Fuel trench: can be lit / is burning. */
+  ignite: boolean;
+  burning: boolean;
 }
 
 export interface DroneOption {
@@ -94,7 +100,11 @@ export interface DroneOption {
 
 /** What you're possessing: a soldier, a drone, a gun tower or a searchlight. */
 export interface ControlInfo {
-  kind: 'soldier' | 'drone' | 'turret' | 'light';
+  kind: 'soldier' | 'drone' | 'turret' | 'light' | 'vehicle';
+  /** Howitzer set-up progress 0..1 (null for anything else). */
+  deploy: number | null;
+  /** Howitzer (fires shells at the ground under the crosshair). */
+  artillery: boolean;
   name: string;
   /** Health 0..1. */
   hp: number;
@@ -233,6 +243,7 @@ export const useHud = create<HudState>(() => ({
     timber: 0,
     concrete: 0,
     steel: 0,
+    fuel: 0,
     produce: 0,
     meat: 0,
     gear: [0, 0, 0, 0],

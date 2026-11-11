@@ -69,6 +69,7 @@ const ICON_PATHS: Record<string, ReactNode> = {
     </g>
   ),
   power: <path d="M13 2L4 14h6l-1 8 9-12h-6z" fill="currentColor" />,
+  fuel: <path d="M12 3c3.2 4.6 6 8 6 11.2a6 6 0 0 1-12 0C6 11 8.8 7.6 12 3z" fill="currentColor" />,
   build: (
     <path d="M14 4l6 6-2 2-2-2-7 7.5a2 2 0 0 1-3-3L13 7l-1-1z" fill="currentColor" />
   ),
@@ -217,6 +218,12 @@ function ResourceBar({ game }: { game: GameActions }) {
         <Icon name="steel" />
         {fmt(eco.steel)}
       </span>
+      {eco.fuel > 0 && (
+        <span className="res" title="Fuel (vehicles, fuel trenches) from an Oil Derrick">
+          <Icon name="fuel" />
+          {fmt(eco.fuel)}
+        </span>
+      )}
       <span
         className={`res ${eco.foodSeconds < 60 && eco.rationLevel > 0 ? 'warn' : ''}`}
         title={`Food: produce ${fmt(eco.produce)}, meat ${fmt(eco.meat)} (${fmt(food)}/${eco.foodCap})`}
@@ -424,7 +431,7 @@ function PlacementPanel({ game }: { game: GameActions }) {
   if (placing.wall) {
     const w = placing.wall;
     if (!w.anchored) {
-      status = isTouch ? 'Tap where the wall starts' : 'Drag along the ground to draw a wall';
+      status = isTouch ? 'Tap where the line starts' : 'Drag along the ground to draw a line';
       ok = true;
     } else if (isTouch && !w.ended) {
       status = 'Now tap where it ends';
@@ -495,7 +502,7 @@ function BuildingPanel({ game }: { game: GameActions }) {
         {b.storage && !b.enemy && <div className="small">{b.storage}</div>}
         {b.kind === 'armory' && !b.enemy && (
           <div className="small gear-list">
-            Rifles {eco.gear[0]} · MGs {eco.gear[1]} · Scoped {eco.gear[2]} · Breach kits {eco.gear[3]}
+            Rifles {eco.gear[0]} · MGs {eco.gear[1]} · Scoped {eco.gear[2]} · Breach kits {eco.gear[3]} · AT launchers {eco.gear[4]}
           </div>
         )}
         {b.recipes && !b.enemy && (
@@ -532,7 +539,7 @@ function BuildingPanel({ game }: { game: GameActions }) {
                 <div className="recruit-name">{r.name}</div>
                 <div className="recruit-cost">
                   {r.cost}
-                  <span className="muted"> · {r.stock} in armory</span>
+                  <span className="muted"> · {r.note ?? `${r.stock} in armory`}</span>
                 </div>
                 <div className="row nowrap">
                   <Btn className="primary" disabled={!!r.blocker} onClick={() => game.recruit(r.kind, 1)}>
@@ -575,7 +582,13 @@ function BuildingPanel({ game }: { game: GameActions }) {
         {b.recruit && b.recruit.every((r) => r.blocker) && (
           <div className="muted small">{b.recruit[0].blocker}: weapons come from an Arms Factory (needs steel).</div>
         )}
+        {b.burning && <div className="small badge bad">🔥 Burning</div>}
         <div className="row">
+          {b.ignite && (
+            <Btn className="danger" onClick={() => game.igniteSelected()} title="Set it alight (needs one of your soldiers nearby)">
+              🔥 Ignite
+            </Btn>
+          )}
           {b.controllable && (
             <Btn className="primary" onClick={() => game.takeControl()} title="Aim it yourself (F)">
               Take control{!useHud.getState().isTouch && <kbd>F</kbd>}
@@ -697,6 +710,10 @@ function ControlOverlay({ game }: { game: GameActions }) {
         return 'Mouse aim · LMB fire · RMB zoom · R reload · Esc exit';
       case 'light':
         return 'Mouse to point the beam · Esc exit';
+      case 'vehicle':
+        return c.artillery
+          ? 'WASD drive · stop to deploy · aim at the ground · LMB fire a shell · Esc exit'
+          : 'WASD drive · mouse aim · LMB fire · RMB zoom · Esc exit';
       default:
         return `WASD move · LMB fire · RMB aim · R reload${c.charges ? ' · G plant charge' : ''} · V flare${c.nvgAvailable ? ' · N night vision' : ''} · T slow-mo · Esc exit`;
     }
@@ -753,6 +770,14 @@ function ControlOverlay({ game }: { game: GameActions }) {
         </div>
       )}
       {c?.diving && <div className="panel plant-progress">Diving…</div>}
+      {c?.deploy !== null && c?.deploy !== undefined && c.deploy < 1 && (
+        <div className="panel plant-progress">
+          {c.deploy > 0 ? 'Deploying…' : 'Stop to deploy the gun'}
+          <div className="reload-bar">
+            <div style={{ width: `${c.deploy * 100}%` }} />
+          </div>
+        </div>
+      )}
       {s.isTouch ? (
         <div className="touch-controls">
           {c?.kind !== 'turret' && c?.kind !== 'light' && <div className="move-hint">Drag here to move</div>}

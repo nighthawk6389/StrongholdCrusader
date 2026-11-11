@@ -386,8 +386,79 @@ export function bodyGeometry(kind: StructureKind, owner: number): THREE.BufferGe
       return cached('wall', () =>
         merge([box(1.0, 1.45, 1.0, 0, 0.725, 0, COLORS.concrete), box(1.04, 0.1, 1.04, 0, 1.5, 0, COLORS.concreteDark)]),
       );
+    case 'derrick':
+      return cached(`derrick${owner}`, () =>
+        merge([
+          box(1.9, 0.1, 1.9, 0, 0.05, 0, COLORS.asphalt),
+          // A-frame and walking beam of a pumpjack
+          box(0.1, 1.5, 0.1, -0.25, 0.8, -0.2, COLORS.metal, { rz: 0.25 }),
+          box(0.1, 1.5, 0.1, 0.25, 0.8, -0.2, COLORS.metal, { rz: -0.25 }),
+          box(0.14, 0.14, 1.9, 0, 1.55, 0, 0x8a3b2a),
+          box(0.3, 0.55, 0.22, 0, 1.4, 0.95, 0x8a3b2a),
+          box(0.12, 0.9, 0.12, 0, 0.95, -0.8, 0x3a3a3a),
+          cylinder(0.25, 0.25, 0.2, 0, 0.5, -0.8, 0x3a3a3a, 10, { rx: Math.PI / 2 }),
+          cylinder(0.05, 0.05, 1.0, 0, 0.6, 0.95, COLORS.metal, 6),
+          // Storage tank
+          cylinder(0.35, 0.35, 0.8, 0.65, 0.5, 0.6, 0x2f3530, 10),
+          box(0.5, 0.25, 0.03, -0.6, 0.35, 0.96, team),
+        ]),
+      );
+    case 'motorpool':
+      return cached(`motorpool${owner}`, () =>
+        merge([
+          box(2.9, 0.08, 2.9, 0, 0.04, 0, COLORS.asphalt),
+          box(2.6, 1.5, 2.2, 0, 0.75, -0.3, 0x6f765e),
+          box(2.75, 0.14, 2.35, 0, 1.55, -0.3, 0x4f5640),
+          box(1.6, 1.2, 0.05, 0, 0.6, 0.82, 0x2a2c24),
+          box(1.7, 0.08, 0.06, 0, 1.24, 0.84, 0x9a9a8a),
+          box(2.62, 0.12, 0.05, 0, 1.38, 0.83, team),
+          // Fuel pump out front
+          box(0.25, 0.6, 0.2, 1.1, 0.34, 1.15, 0xc8a23a),
+          box(0.2, 0.12, 0.05, 1.1, 0.52, 1.26, 0x222222),
+        ]),
+      );
+    case 'mines':
+      return cached('mines', () =>
+        merge([
+          cylinder(0.32, 0.4, 0.06, -0.22, 0.03, -0.18, 0xa48a62, 8),
+          cylinder(0.32, 0.4, 0.06, 0.22, 0.03, 0.2, 0xa48a62, 8),
+          cylinder(0.1, 0.1, 0.05, -0.22, 0.07, -0.18, 0x4a4a42, 8),
+          cylinder(0.1, 0.1, 0.05, 0.22, 0.07, 0.2, 0x4a4a42, 8),
+          box(0.04, 0.3, 0.04, 0.38, 0.15, -0.38, 0x7a6a4a),
+          box(0.14, 0.1, 0.01, 0.38, 0.27, -0.37, 0xd03a2a),
+        ]),
+      );
+    case 'ditch':
+      return cached('ditch', () =>
+        merge([
+          box(1.0, 0.05, 1.0, 0, 0.0, 0, 0x3a2c1e),
+          box(0.7, 0.05, 0.7, 0, 0.01, 0, 0x1f1812),
+          box(1.0, 0.16, 0.12, 0, 0.06, -0.46, 0x9c8058),
+          box(1.0, 0.16, 0.12, 0, 0.06, 0.46, 0x9c8058),
+        ]),
+      );
+    case 'trench':
+      return cached('trench', () =>
+        merge([
+          box(1.0, 0.04, 1.0, 0, 0.0, 0, 0x5a4a36),
+          box(0.8, 0.04, 0.8, 0, 0.02, 0, 0x14110d),
+          box(0.25, 0.02, 0.12, -0.15, 0.045, 0.1, 0x3b3a44),
+        ]),
+      );
+    case 'wire':
+      return cached('wire', () =>
+        merge([
+          box(0.05, 0.5, 0.05, -0.42, 0.25, 0, 0x5a4a32),
+          box(0.05, 0.5, 0.05, 0.42, 0.25, 0, 0x5a4a32),
+          cylinder(0.22, 0.22, 0.96, 0, 0.24, 0, 0x8d8f88, 7, { rz: Math.PI / 2 }),
+          cylinder(0.16, 0.16, 0.96, 0, 0.24, 0.03, 0xa7a9a2, 7, { rz: Math.PI / 2 }),
+        ]),
+      );
   }
 }
+
+/** Kinds drawn as instanced tiles (built in lines). */
+const LINE_KINDS: StructureKind[] = ['wall', 'mines', 'ditch', 'trench', 'wire'];
 
 /** Lowest ground height under a footprint, so buildings never float. */
 export function footprintBase(sim: Sim, tx: number, tz: number, w: number, h: number): number {
@@ -430,8 +501,13 @@ export class StructureRenderer {
 
   private bodyMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   private objects = new Map<number, THREE.Object3D>();
-  private wallMesh: THREE.InstancedMesh | null = null;
+  private lineMeshes = new Map<StructureKind, THREE.InstancedMesh>();
   private wallsDirty = true;
+  /** Which enemy mines you've spotted (changes as engineers and dogs find them). */
+  private mineSig = -1;
+  private frame = 0;
+  private flames: THREE.InstancedMesh;
+  private flameMat = new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 0.85, depthWrite: false });
   private lightBudget: number;
   private readonly windowGeo = new THREE.BoxGeometry(1.6, 0.18, 1.82);
   private readonly lampGeo = new THREE.BoxGeometry(0.42, 0.24, 0.04);
@@ -442,6 +518,13 @@ export class StructureRenderer {
   ) {
     this.group.name = 'structures';
     this.lightBudget = maxLights;
+    const flame = new THREE.ConeGeometry(0.3, 1.1, 6);
+    flame.translate(0, 0.55, 0);
+    this.flames = new THREE.InstancedMesh(flame, this.flameMat, 256);
+    this.flames.count = 0;
+    this.flames.frustumCulled = false;
+    this.flames.renderOrder = 3;
+    this.group.add(this.flames);
     // Player floodlights get priority for the limited real-light budget.
     const sorted = [...sim.structures].sort(
       (a, b) => (a.kind === 'floodlight' && a.owner === 1 ? 0 : 1) - (b.kind === 'floodlight' && b.owner === 1 ? 0 : 1),
@@ -464,7 +547,7 @@ export class StructureRenderer {
 
   private add(s: Structure): void {
     if (this.objects.has(s.id)) return;
-    if (s.kind === 'wall') {
+    if (LINE_KINDS.includes(s.kind)) {
       this.wallsDirty = true;
       this.objects.set(s.id, new THREE.Object3D());
       return;
@@ -565,6 +648,7 @@ export class StructureRenderer {
 
   /** Per-frame: lamps follow power, searchlight beams sweep. `lightsOn` is 0 by day, 1 at night. */
   update(lightsOn: number): void {
+    this.updateTraps();
     for (const f of this.floodlights) {
       const powered = this.sim.structureById(f.id)?.powered ?? false;
       if (f.light) f.light.intensity = powered ? 45 * lightsOn : 0;
@@ -594,23 +678,69 @@ export class StructureRenderer {
     return g.gun.getWorldPosition(out);
   }
 
+  /** Viewing side: enemy mines stay hidden until it has spotted them. */
+  team = 1;
+
+  private visibleLine(s: Structure): boolean {
+    return s.kind !== 'mines' || this.sim.traps.knows(this.team, s);
+  }
+
   private rebuildWalls(): void {
     this.wallsDirty = false;
-    if (this.wallMesh) {
-      this.group.remove(this.wallMesh);
-      this.wallMesh.dispose();
-    }
-    const walls = this.sim.structures.filter((s) => s.kind === 'wall');
-    const mesh = new THREE.InstancedMesh(bodyGeometry('wall', 0), this.bodyMat, Math.max(1, walls.length));
     const m4 = new THREE.Matrix4();
-    walls.forEach((s, i) => {
-      m4.makeTranslation(s.tx + 0.5, footprintBase(this.sim, s.tx, s.tz, 1, 1), s.tz + 0.5);
-      mesh.setMatrixAt(i, m4);
-    });
-    mesh.count = walls.length;
-    mesh.castShadow = mesh.receiveShadow = true;
-    this.wallMesh = mesh;
-    this.group.add(mesh);
+    for (const kind of LINE_KINDS) {
+      const old = this.lineMeshes.get(kind);
+      if (old) {
+        this.group.remove(old);
+        old.dispose();
+      }
+      const tiles = this.sim.structures.filter((s) => s.kind === kind && this.visibleLine(s));
+      if (tiles.length === 0) {
+        this.lineMeshes.delete(kind);
+        continue;
+      }
+      const mesh = new THREE.InstancedMesh(bodyGeometry(kind, 0), this.bodyMat, tiles.length);
+      tiles.forEach((s, i) => {
+        m4.makeTranslation(s.tx + 0.5, footprintBase(this.sim, s.tx, s.tz, 1, 1), s.tz + 0.5);
+        mesh.setMatrixAt(i, m4);
+      });
+      mesh.count = tiles.length;
+      mesh.castShadow = kind === 'wall' || kind === 'wire';
+      mesh.receiveShadow = true;
+      this.lineMeshes.set(kind, mesh);
+      this.group.add(mesh);
+    }
+  }
+
+  /** Per-frame traps: refresh which enemy mines you know about; flicker flames on burning trenches. */
+  private updateTraps(): void {
+    if (++this.frame % 15 === 0) {
+      let sig = 0;
+      for (const s of this.sim.structures) if (s.kind === 'mines' && this.visibleLine(s)) sig += s.id;
+      if (sig !== this.mineSig) {
+        this.mineSig = sig;
+        this.wallsDirty = true;
+      }
+    }
+    if (this.wallsDirty) this.rebuildWalls();
+    let n = 0;
+    const m4 = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const p = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    for (const s of this.sim.structures) {
+      if (s.burn <= 0 || n >= 256) continue;
+      const base = footprintBase(this.sim, s.tx, s.tz, 1, 1);
+      for (let k = 0; k < 2; k++) {
+        const f = 0.65 + Math.random() * 0.6;
+        p.set(s.tx + 0.3 + k * 0.4, base + 0.35 * f, s.tz + 0.35 + ((k * 7 + s.id) % 3) * 0.15);
+        q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, Math.random() * 6);
+        sc.set(f, f * (0.9 + Math.random() * 0.5), f);
+        this.flames.setMatrixAt(n++, m4.compose(p, q, sc));
+      }
+    }
+    this.flames.count = n;
+    this.flames.instanceMatrix.needsUpdate = true;
   }
 }
 

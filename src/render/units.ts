@@ -54,6 +54,15 @@ function soldierParts(): { team: THREE.BufferGeometry; gear: THREE.BufferGeometr
       box(0.045, 0.06, 0.5, 0.08, 0.76, 0.3, 0x141414),
       box(0.06, 0.06, 0.22, 0.08, 0.76, 0.64, 0x2a2a2a),
     ]),
+    // AT specialist: launcher tube over the shoulder, spare rocket on the back.
+    merge([
+      head(),
+      box(0.28, 0.3, 0.14, 0, 0.66, -0.17, 0x4f5a3a),
+      box(0.1, 0.1, 0.95, 0.15, 0.95, 0.05, 0x3d4a2c),
+      box(0.13, 0.13, 0.12, 0.15, 0.95, 0.5, 0x2a2a28),
+      box(0.07, 0.07, 0.5, -0.06, 0.78, -0.26, 0x6a5a3a),
+      band(),
+    ]),
   ];
   const leg = merge([
     box(0.13, 0.4, 0.15, 0, -0.2, 0, COLORS.pants),
@@ -94,6 +103,61 @@ function droneParts(): { bodies: THREE.BufferGeometry[]; rotors: THREE.BufferGeo
   return { bodies: [recon, strike], rotors: [reconRotors, strikeRotor] };
 }
 
+/** Vehicles: [armored car, battle tank, howitzer]. White parts take the team tint. */
+function vehicleParts(): THREE.BufferGeometry[] {
+  const OLIVE = 0x5c6446;
+  const DARK = 0x2b2d26;
+  const wheel = (x: number, z: number): THREE.BufferGeometry => cylinder(0.2, 0.2, 0.14, x, 0.2, z, 0x1c1c1c, 8, { rz: Math.PI / 2 });
+  const car = merge([
+    box(0.9, 0.42, 1.55, 0, 0.5, 0, OLIVE),
+    box(0.8, 0.26, 0.7, 0, 0.84, -0.1, 0x6a7252),
+    box(0.5, 0.12, 0.05, 0, 0.88, 0.26, 0x1e2a30),
+    cylinder(0.16, 0.18, 0.14, 0, 1.03, -0.1, DARK, 8),
+    box(0.05, 0.05, 0.5, 0, 1.06, 0.18, 0x151515),
+    wheel(-0.47, 0.52),
+    wheel(0.47, 0.52),
+    wheel(-0.47, -0.52),
+    wheel(0.47, -0.52),
+  ]);
+  const tank = merge([
+    // Tracks and hull
+    box(0.32, 0.36, 2.0, -0.62, 0.2, 0, 0x262622),
+    box(0.32, 0.36, 2.0, 0.62, 0.2, 0, 0x262622),
+    box(1.0, 0.36, 1.85, 0, 0.42, 0, OLIVE),
+    box(1.28, 0.08, 1.95, 0, 0.62, 0, 0x4e563a),
+    // Turret, mantlet and main gun
+    box(0.82, 0.32, 0.92, 0, 0.82, -0.12, 0x656d4d),
+    box(0.3, 0.24, 0.16, 0, 0.82, 0.38, DARK),
+    cylinder(0.055, 0.065, 1.35, 0, 0.84, 1.08, 0x2a2b25, 8, { rx: Math.PI / 2 }),
+    cylinder(0.09, 0.09, 0.16, 0, 0.84, 1.72, 0x2a2b25, 8, { rx: Math.PI / 2 }),
+    box(0.22, 0.12, 0.22, 0.24, 1.04, -0.3, DARK),
+  ]);
+  const howitzer = merge([
+    cylinder(0.32, 0.32, 0.12, -0.5, 0.32, 0.1, 0x1c1c1c, 10, { rz: Math.PI / 2 }),
+    cylinder(0.32, 0.32, 0.12, 0.5, 0.32, 0.1, 0x1c1c1c, 10, { rz: Math.PI / 2 }),
+    box(0.9, 0.1, 0.3, 0, 0.36, 0.1, OLIVE),
+    box(0.5, 0.42, 0.06, 0, 0.6, 0.3, 0x6a7252),
+    box(0.3, 0.26, 0.45, 0, 0.52, 0.05, OLIVE),
+    // Split trail
+    box(0.08, 0.08, 1.1, -0.22, 0.14, -0.55, OLIVE, { ry: 0.18 }),
+    box(0.08, 0.08, 1.1, 0.22, 0.14, -0.55, OLIVE, { ry: -0.18 }),
+    // Long barrel raised for a lob
+    cylinder(0.06, 0.075, 1.9, 0, 1.0, 0.75, 0x2a2b25, 8, { rx: Math.PI / 2 - 0.55 }),
+  ]);
+  return [car, tank, howitzer];
+}
+
+/** Team-coloured markings for each vehicle (tinted per instance; the rest keeps its paint). */
+function vehicleTeamParts(): THREE.BufferGeometry[] {
+  return [
+    merge([box(0.82, 0.08, 0.2, 0, 0.62, 0.8, 0xffffff), box(0.06, 0.2, 0.8, -0.46, 0.55, 0, 0xffffff), box(0.06, 0.2, 0.8, 0.46, 0.55, 0, 0xffffff)]),
+    merge([box(1.0, 0.1, 0.2, 0, 0.5, 0.95, 0xffffff), box(0.6, 0.1, 0.05, 0, 0.9, -0.59, 0xffffff), box(0.06, 0.12, 0.6, -0.42, 0.84, -0.12, 0xffffff), box(0.06, 0.12, 0.6, 0.42, 0.84, -0.12, 0xffffff)]),
+    merge([box(0.46, 0.06, 0.06, 0, 0.82, 0.32, 0xffffff), box(0.3, 0.05, 0.3, 0, 0.66, 0.05, 0xffffff)]),
+  ];
+}
+
+const VEHICLE_VARIANT: Record<number, number> = { [UnitKind.ArmoredCar]: 0, [UnitKind.Tank]: 1, [UnitKind.Howitzer]: 2 };
+
 /** Civilian: shirt (tinted per job), head + hair. Legs are shared with soldiers. */
 function civilianParts(): { shirt: THREE.BufferGeometry; head: THREE.BufferGeometry } {
   const shirt = merge([
@@ -124,6 +188,7 @@ const GEAR_VARIANT: Record<number, number> = {
   [UnitKind.Marksman]: 2,
   [UnitKind.Engineer]: 3,
   [UnitKind.Operator]: 4,
+  [UnitKind.AT]: 5,
 };
 
 const CARGO_COLORS: Record<number, number> = {
@@ -156,6 +221,8 @@ export class UnitRenderer {
   private barBg: THREE.InstancedMesh;
   private barFg: THREE.InstancedMesh;
   private droneBody: THREE.InstancedMesh[];
+  private vehicleBody: THREE.InstancedMesh[];
+  private vehicleTeam: THREE.InstancedMesh[];
   private droneRotor: THREE.InstancedMesh[];
   private shadows: THREE.InstancedMesh;
   private phase = new Float32Array(MAX_UNITS);
@@ -262,6 +329,19 @@ export class UnitRenderer {
     this.shadows.count = 0;
     this.shadows.renderOrder = 1;
     this.group.add(this.shadows);
+
+    const vmesh = (g: THREE.BufferGeometry): THREE.InstancedMesh => {
+      const im = new THREE.InstancedMesh(g, mat, 128);
+      im.frustumCulled = false;
+      im.castShadow = castShadows;
+      im.count = 0;
+      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      for (let i = 0; i < 128; i++) im.setColorAt(i, this.col.setHex(0xffffff));
+      this.group.add(im);
+      return im;
+    };
+    this.vehicleBody = vehicleParts().map(vmesh);
+    this.vehicleTeam = vehicleTeamParts().map(vmesh);
   }
 
   /** Draw a drone; returns false when this unit isn't one. */
@@ -307,7 +387,7 @@ export class UnitRenderer {
   update(s: UnitDrawState): void {
     const u = this.sim.units;
     const map = this.sim.map;
-    const gearN = [0, 0, 0, 0, 0];
+    const gearN = [0, 0, 0, 0, 0, 0];
     let n = 0; // soldiers
     let c = 0; // civilians
     let legs = 0;
@@ -315,6 +395,7 @@ export class UnitRenderer {
     let rings = 0;
     let bars = 0;
     const drones = [0, 0];
+    const vehicles = [0, 0, 0];
     for (let i = 0; i < u.count; i++) {
       if (!u.alive[i] || !s.visible(i)) continue;
       const x = u.px[i] + (u.x[i] - u.px[i]) * s.alpha;
@@ -335,6 +416,36 @@ export class UnitRenderer {
       const isCiv = kind === UnitKind.Civilian;
       const isCmd = kind === UnitKind.Commander;
       const k = isCmd ? 1.15 : isCiv ? 0.95 : 1;
+      if (UNIT_TYPES[kind].vehicle) {
+        const v = VEHICLE_VARIANT[kind] ?? 0;
+        if (vehicles[v] < 128) {
+          this.pos.set(x, y, z);
+          this.quat.setFromAxisAngle(this.yAxis, heading);
+          this.m.compose(this.pos, this.quat, this.scl.set(1, 1, 1));
+          this.vehicleBody[v].setMatrixAt(vehicles[v], this.m);
+          this.vehicleTeam[v].setMatrixAt(vehicles[v], this.m);
+          this.vehicleTeam[v].setColorAt(vehicles[v], this.col.setHex(TEAM_COLORS[u.owner[i]] ?? 0xffffff));
+          vehicles[v]++;
+        }
+        const selected = s.selected.has(i);
+        const k2 = v === 1 ? 2.6 : 2.1;
+        if (selected) {
+          this.pos.set(x, y + 0.06, z);
+          this.m.compose(this.pos, this.quat.identity(), this.scl.set(k2, 1, k2));
+          this.rings.setMatrixAt(rings++, this.m);
+        }
+        const frac = u.hp[i] / UNIT_TYPES[kind].hp;
+        if (selected || frac < 0.999) {
+          this.pos.set(x, y + 1.55, z);
+          this.m.compose(this.pos, s.cameraQuat, this.scl.set(1.6, 1.4, 1));
+          this.barBg.setMatrixAt(bars, this.m);
+          this.local.makeTranslation(-0.3, 0, 0).scale(this.scl.set(Math.max(frac, 0.001), 1, 1));
+          this.barFg.setMatrixAt(bars, this.tmp.multiplyMatrices(this.m, this.local));
+          this.barFg.setColorAt(bars, this.col.setHSL(0.33 * frac, 0.75, 0.5));
+          bars++;
+        }
+        continue;
+      }
       if (UNIT_TYPES[kind].fly) {
         this.drawDrone(i, x, y, z, heading, s.dt, drones);
         const selected = s.selected.has(i);
@@ -425,6 +536,13 @@ export class UnitRenderer {
     for (const im of [this.team, ...this.gear, this.legL, this.legR, this.civShirt, this.civHead, this.cargo]) {
       im.instanceMatrix.needsUpdate = true;
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    }
+    for (const set of [this.vehicleBody, this.vehicleTeam]) {
+      set.forEach((im, v) => {
+        im.count = vehicles[v];
+        im.instanceMatrix.needsUpdate = true;
+        if (im.instanceColor) im.instanceColor.needsUpdate = true;
+      });
     }
     this.droneBody.forEach((im, v) => {
       im.count = drones[v];

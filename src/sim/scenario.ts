@@ -55,6 +55,7 @@ export const HOLD_WAVES: Wave[] = [
       { kind: UnitKind.Gunner, n: 3 },
       { kind: UnitKind.Engineer, n: 3 },
       { kind: UnitKind.Marksman, n: 2 },
+      { kind: UnitKind.ArmoredCar, n: 1 },
     ],
   },
   {
@@ -65,6 +66,7 @@ export const HOLD_WAVES: Wave[] = [
       { kind: UnitKind.Engineer, n: 4 },
       { kind: UnitKind.Marksman, n: 3 },
       { kind: UnitKind.Operator, n: 3 },
+      { kind: UnitKind.Tank, n: 1 },
     ],
   },
   {
@@ -74,6 +76,8 @@ export const HOLD_WAVES: Wave[] = [
       { kind: UnitKind.Gunner, n: 5 },
       { kind: UnitKind.Engineer, n: 5 },
       { kind: UnitKind.Marksman, n: 4 },
+      { kind: UnitKind.Tank, n: 2 },
+      { kind: UnitKind.Howitzer, n: 1 },
     ],
   },
 ];
@@ -216,6 +220,8 @@ export function createScenario(mode: GameMode, seed = 1337, difficulty: Difficul
     eco.stock[Res.Produce] = 60;
     eco.stock[Res.Rifle] = 6;
     eco.stock[Res.MG] = 1;
+    eco.stock[Res.Launcher] = 2;
+    eco.stock[Res.Fuel] = 10;
     for (let i = 0; i < 8; i++) {
       const kind = i < 2 ? UnitKind.Gunner : UnitKind.Rifleman;
       sim.spawnUnit(kind, PLAYER, P.x + 2.6 + Math.floor(i / 4) * 0.8, P.z - 1.5 + (i % 4) * 0.8, Math.PI / 2);

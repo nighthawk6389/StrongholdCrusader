@@ -11,8 +11,9 @@ soldiers.
 
 - **Design & technical plan:** [docs/PLAN.md](docs/PLAN.md)
 - **Status:** **M0** (foundations), **M1** (economy), **M2** (fortifications & combat), **M3**
-  (skirmish vs an AI commander), **M4** (night & stealth) and **M5** (full direct control: aimed fire, gun
-  towers, drones) are playable. Next up is **M6** (content & siege depth).
+  (skirmish vs an AI commander), **M4** (night & stealth), **M5** (full direct control: aimed fire, gun
+  towers, drones) and **M6a** (siege depth: vehicles, artillery, mines, ditches, fuel trenches, wire) are
+  playable. Next up is **M6b** (AI personalities, maps, Commander's Trail, PMC hires).
 
 ## Play locally
 
@@ -32,7 +33,8 @@ the render preset. `?seed=123` picks a different map.
   a small starting bonus. He never cheats on vision.
 - **Hold the Line:** six escalating waves attack from the east over about 15 minutes, two of them at night.
   Waves with combat engineers blow holes in your walls and gates, and the night waves bring special forces.
-  Lose your HQ or your Commander and it's over.
+  The later waves bring armor: an armored car, then a tank, and finally two tanks and a howitzer. Lose your HQ
+  or your Commander and it's over.
 - **Sandbox:** no waves. Build at your own pace and skirmish with the hostile patrol.
 
 The start screen picks the mode. You can also link straight to a mode with `?mode=skirmish&difficulty=normal`,
@@ -69,7 +71,9 @@ Grow your outpost:
   - Rifleman: all-rounder.
   - Machine Gunner: suppresses, so targets move and shoot worse.
   - Marksman: long range.
-  - Combat Engineer: breach charges for walls and gates.
+  - Combat Engineer: breach charges for walls and gates. Also finds and clears enemy mines and fills ditches.
+  - AT Specialist: anti-tank rockets (launchers from the Arms Factory). The answer to armor; also dents walls
+    and gates.
   - SF Operator: needs a night-ops kit. Has night vision, a silenced rifle and one demolition charge, is hard
     to spot in the dark, and climbs walls without stairs.
 
@@ -88,6 +92,23 @@ Fight at night:
   - **K9 kennels** sniff out everyone close by, even operators lying still.
   - Unsilenced gunfire gives the shooter away for a few seconds.
 - **Night vision:** take control of an SF Operator or a Marksman at night to see through their optics.
+
+Siege warfare:
+- **Fuel:** an **Oil Derrick** on an oil seep (the dark patches) pumps fuel for vehicles and fuel trenches.
+- **Motor Pool:** builds vehicles from steel, fuel and funds, each crewed by an idle civilian.
+  - **Armored Car:** fast, armored scout with a machine gun.
+  - **Battle Tank:** heavy armor and a main gun that knocks down walls and gates.
+  - **Howitzer:** stop it to deploy, then it lobs shells over walls at anything your side can see.
+- **Armor:** rifles and machine guns barely scratch vehicles. AT rockets, tank guns, mines, charges and strike
+  drones hurt them.
+- **Traps and obstacles** (drag a line, like walls):
+  - **Minefield:** hidden from the enemy; goes off under the first enemy to step on it.
+  - **Anti-Tank Ditch:** nobody crosses it, but shots fly over. Enemy engineers can fill it in.
+  - **Fuel Trench:** select it and **Ignite** (or hit it with a flare or an explosion). It burns anyone standing
+    in it and lights up the night.
+  - **Razor Wire:** slows enemy infantry to a crawl; vehicles flatten it.
+- Old Sarge (Normal and up) builds a Motor Pool and brings tanks; on Hard, a howitzer too. He trains AT teams
+  once you field armor.
 
 Take direct control:
 - **Any soldier:** press **F** (or tap **Take control**) and the rest of your selection follows you as a squad.

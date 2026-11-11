@@ -90,7 +90,7 @@ export class OtsCameraRig {
   pitch = -0.08;
   aiming = false;
   /** 'drone': centred chase camera that can look steeply down (to pick a dive target). */
-  mode: 'soldier' | 'drone' | 'turret' = 'soldier';
+  mode: 'soldier' | 'drone' | 'turret' | 'vehicle' = 'soldier';
 
   constructor(private map: GameMap) {}
 
@@ -111,9 +111,24 @@ export class OtsCameraRig {
     const rz = fx;
     const drone = this.mode === 'drone';
     const turret = this.mode === 'turret';
-    const back = turret ? (this.aiming ? 0.7 : 1.0) : drone ? (this.aiming ? 1.4 : 2.8) : this.aiming ? 1.25 : 2.3;
-    const side = drone || turret ? 0 : this.aiming ? 0.42 : 0.6;
-    const up = turret ? 0.9 : drone ? 1.25 : this.aiming ? 1.15 : 1.3;
+    const vehicle = this.mode === 'vehicle';
+    const back = vehicle
+      ? this.aiming
+        ? 2.2
+        : 4.6
+      : turret
+        ? this.aiming
+          ? 0.7
+          : 1.0
+        : drone
+          ? this.aiming
+            ? 1.4
+            : 2.8
+          : this.aiming
+            ? 1.25
+            : 2.3;
+    const side = drone || turret || vehicle ? 0 : this.aiming ? 0.42 : 0.6;
+    const up = vehicle ? (this.aiming ? 1.9 : 2.5) : turret ? 0.9 : drone ? 1.25 : this.aiming ? 1.15 : 1.3;
     // Camera boom: shorten it if a wall/building/rock sits between the unit and the camera.
     // (Units up on a wall or tower already look over everything around them.)
     const ex = -fx * back + rx * side;

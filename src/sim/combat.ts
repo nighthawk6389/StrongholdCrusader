@@ -119,10 +119,20 @@ export class Combat {
           u.ammo[i] = type.mag;
         }
       }
+      if (type.vehicle) u.suppressed[i] = 0;
+      if (type.artillery) {
+        // Any movement packs the gun up again.
+        if (u.x[i] !== u.px[i] || u.z[i] !== u.pz[i]) u.deploy[i] = 0;
+        else if (u.order[i] === Order.Control) u.deploy[i] = Math.min(1, u.deploy[i] + TICK_SEC / type.artillery.deploySec);
+      }
       if (!type.armed || u.order[i] === Order.Control) continue;
       if (u.cooldown[i] > 0) u.cooldown[i]--;
       if (u.repath[i] > 0) u.repath[i]--;
       if (this.raidCooldown[i] > 0) this.raidCooldown[i]--;
+      if (type.artillery) {
+        this.doArtillery(i);
+        continue;
+      }
       switch (u.order[i]) {
         case Order.Attack:
           this.doAttack(i);
@@ -138,6 +148,7 @@ export class Combat {
       }
     }
     this.updateTurrets();
+    this.updateShells();
   }
 
   // ------------------------------------------------------------------ targeting
@@ -171,7 +182,9 @@ export class Combat {
       const d = Math.hypot(dx, dz);
       if (d > range) continue;
       // Prefer soldiers over civilians.
-      const score = d * (UNIT_TYPES[u.kind[j]].armed ? 1 : 1.4);
+      const tj = UNIT_TYPES[u.kind[j]];
+      const ap = UNIT_TYPES[u.kind[i]].ap && UNIT_TYPES[u.kind[i]].infantryMul < 1;
+      const score = d * (tj.armed ? 1 : 1.4) * (ap ? (tj.vehicle ? 0.3 : 1.6) : 1);
       if (score < bestScore && this.los(i, j)) {
         bestScore = score;
         best = j;
@@ -297,17 +310,23 @@ export class Combat {
     if (!s || s.owner === u.owner[i]) return this.finishBreach(i);
     const type = UNIT_TYPES[u.kind[i]];
     const def = STRUCTURE_DEFS[s.kind];
-    const engineer = u.charges[i] > 0;
-    if (!engineer && def.armored) return this.finishBreach(i);
+    const ditch = def.trap === 'ditch';
+    // Engineers fill ditches with a shovel (no charge used); walls and gates take a charge.
+    const engineer = u.charges[i] > 0 || (ditch && type.charges > 0 && !type.vehicle);
+    if (!engineer && def.armored && !type.siege) return this.finishBreach(i);
 
-    // Planting in progress.
+    // Planting (or filling) in progress.
     if (u.plantTimer[i] > 0) {
       u.vx[i] = u.vz[i] = 0;
       u.plantTimer[i] -= TICK_SEC;
       if (u.plantTimer[i] <= 0) {
         u.plantTimer[i] = 0;
-        u.charges[i]--;
-        this.explode(s, i);
+        if (ditch) {
+          sim.damageStructure(s, s.hp + 1);
+        } else {
+          u.charges[i]--;
+          this.explode(s, i);
+        }
         if (u.charges[i] === 0 || !sim.structureById(s.id)) this.finishBreach(i);
       }
       return;
@@ -326,8 +345,11 @@ export class Combat {
       const cz = s.tz + s.h / 2;
       u.heading[i] = Math.atan2(cx - u.x[i], cz - u.z[i]);
       if (u.cooldown[i] === 0) {
-        this.shotAt(i, cx, cz, 0.8);
+        const hx = Math.min(Math.max(u.x[i], s.tx + 0.2), s.tx + s.w - 0.2);
+        const hz = Math.min(Math.max(u.z[i], s.tz + 0.2), s.tz + s.h - 0.2);
+        this.shotAt(i, hx, hz, 0.8);
         if (!type.silenced) sim.vision.reveal[i] = NOISE_SEC;
+        if (type.splash > 0) sim.emit({ type: 'explosion', x: hx, z: hz, owner: u.owner[i] });
         sim.damageStructure(s, type.structDamage);
         u.cooldown[i] = type.autoCooldown + sim.rng.int(type.autoJitter + 1);
       }
@@ -442,7 +464,9 @@ export class Combat {
     if (r === Nav.Blocked) {
       const obstacle = sim.structureById(sim.navObstacle);
       if (!obstacle) return;
-      if (engineer || !STRUCTURE_DEFS[obstacle.kind].armored) {
+      const t = UNIT_TYPES[u.kind[i]];
+      const canFill = STRUCTURE_DEFS[obstacle.kind].trap === 'ditch' && t.charges > 0;
+      if (engineer || canFill || t.siege || !STRUCTURE_DEFS[obstacle.kind].armored) {
         u.order[i] = Order.Breach;
         u.targetStruct[i] = obstacle.id;
         u.repath[i] = 0;
@@ -498,9 +522,10 @@ export class Combat {
     sim.emit({ type: 'explosion', x: bx, z: bz, owner: u.owner[i] });
     for (let j = 0; j < u.count; j++) {
       if (!u.alive[j] || u.owner[j] === u.owner[i]) continue;
-      if (Math.hypot(u.x[j] - bx, u.z[j] - bz) < 1.6) this.damageUnit(j, CHARGE_SPLASH, i);
+      if (Math.hypot(u.x[j] - bx, u.z[j] - bz) < 1.6) this.damageUnit(j, CHARGE_SPLASH, i, true);
     }
     sim.damageStructure(s, CHARGE_DAMAGE);
+    sim.traps.igniteNear(bx, bz, 1.6);
   }
 
   // ------------------------------------------------------------------ shooting
@@ -603,6 +628,8 @@ export class Combat {
     const endT = hit >= 0 ? hitT : maxT;
     const toX = ox + dx * endT;
     const toZ = oz + dz * endT;
+    const sType = shooter >= 0 ? UNIT_TYPES[u.kind[shooter]] : null;
+    if (sType && sType.splash > 0) this.splash(toX, toZ, owner, damage * 0.45, sType.splash, hit, sType.ap);
     sim.emit({
       type: 'shot',
       unit: shooter,
@@ -621,7 +648,9 @@ export class Combat {
     const crit = aimed && hitPerp < 0.35 ? 2 : 1;
     const cover = u.layer[hit] === 1 ? DECK_COVER : 1;
     if (suppress > 0) u.suppressed[hit] = Math.max(u.suppressed[hit], suppress * (cover < 1 ? 0.5 : 1));
-    this.damageUnit(hit, damage * crit * cover, shooter);
+    const st = shooter >= 0 ? UNIT_TYPES[u.kind[shooter]] : null;
+    const soft = !UNIT_TYPES[u.kind[hit]].vehicle;
+    this.damageUnit(hit, damage * crit * cover * (st && soft ? st.infantryMul : 1), shooter, !!st?.ap);
     return hit;
   }
 
@@ -702,6 +731,24 @@ export class Combat {
         }
         continue;
       }
+      if (type.hitbox) {
+        // Vehicles: one box-ish cylinder, no weak spot.
+        if (hl < 1e-6) continue;
+        const [vr, vh] = type.hitbox;
+        const tc = along;
+        if (tc < o.startT || tc >= hitT + vr) continue;
+        const px = ex + dx * tc - bx;
+        const pz = ez + dz * tc - bz;
+        const perp2 = px * px + pz * pz;
+        if (perp2 > vr * vr) continue;
+        const enter = Math.max(o.startT, tc - Math.sqrt(vr * vr - perp2) / Math.sqrt(hl));
+        const yy = ey + dy * enter;
+        if (enter >= hitT || yy < by - 0.05 || yy > by + vh) continue;
+        hit = j;
+        hitT = enter;
+        head = false;
+        continue;
+      }
       const th = raySphere(ex, ey, ez, dx, dy, dz, bx, by + HEAD_Y, bz, HEAD_R);
       if (th >= o.startT && th < hitT) {
         hit = j;
@@ -746,9 +793,22 @@ export class Combat {
     });
     if (hit >= 0) {
       if (o.suppress > 0) u.suppressed[hit] = Math.max(u.suppressed[hit], o.suppress);
-      this.damageUnit(hit, o.damage * (head ? o.headshot : 1), o.shooter);
-    } else if (block && block.owner !== o.owner && block.owner !== 0 && !STRUCTURE_DEFS[block.kind].armored && o.structDamage > 0) {
+      const st = o.shooter >= 0 ? UNIT_TYPES[u.kind[o.shooter]] : null;
+      const soft = !UNIT_TYPES[u.kind[hit]].vehicle;
+      this.damageUnit(hit, o.damage * (head ? o.headshot : 1) * (st && soft ? st.infantryMul : 1), o.shooter, !!st?.ap);
+    } else if (
+      block &&
+      block.owner !== o.owner &&
+      block.owner !== 0 &&
+      (!STRUCTURE_DEFS[block.kind].armored || (o.shooter >= 0 && UNIT_TYPES[u.kind[o.shooter]].siege)) &&
+      o.structDamage > 0
+    ) {
       sim.damageStructure(block, o.structDamage);
+    }
+    const sp = o.shooter >= 0 ? UNIT_TYPES[u.kind[o.shooter]] : null;
+    if (sp && sp.splash > 0) {
+      this.splash(x, z, o.owner, o.damage * 0.45, sp.splash, hit, sp.ap);
+      sim.emit({ type: 'explosion', x, z, owner: o.owner });
     }
     return { unit: hit, head, x, y, z };
   }
@@ -759,6 +819,22 @@ export class Combat {
     const u = sim.units;
     const t = UNIT_TYPES[u.kind[i]];
     if (t.mag === 0 || u.cooldown[i] > 0 || u.reload[i] > 0 || u.plantTimer[i] > 0) return;
+    if (t.artillery) {
+      if (u.deploy[i] < 1) return;
+      const base0 = sim.map.heightAt(u.x[i], u.z[i]);
+      const e = this.eyeFor(u.x[i], base0 + 1.2, u.z[i], c);
+      const g = this.groundPoint(e.x, e.y, e.z, c.yaw, c.pitch ?? -0.2, t.range + 8);
+      if (!g) return;
+      const d = Math.hypot(g.x - u.x[i], g.z - u.z[i]);
+      if (d < t.artillery.minRange || d > t.range) {
+        sim.emit({ type: 'notice', owner: u.owner[i], text: d < t.artillery.minRange ? 'Too close for the howitzer' : 'Out of range' });
+        u.cooldown[i] = 10;
+        return;
+      }
+      this.fireShell(i, g.x, g.z);
+      u.cooldown[i] = t.cooldown;
+      return;
+    }
     if (u.ammo[i] === 0) {
       u.reload[i] = t.reloadSec;
       return;
@@ -1010,7 +1086,7 @@ export class Combat {
       if (!u.alive[j] || u.owner[j] === owner) continue;
       const jy = sim.map.heightAt(u.x[j], u.z[j]) + u.elev[j] + 0.5;
       const d = Math.hypot(u.x[j] - x, u.z[j] - z, (jy - y) * 0.7);
-      if (d < b.radius) this.damageUnit(j, b.damage * (1 - (0.6 * d) / b.radius), -1);
+      if (d < b.radius) this.damageUnit(j, b.damage * (1 - (0.6 * d) / b.radius), -1, true);
     }
     for (const s of [...sim.structures]) {
       if (s.owner === owner || s.owner === 0) continue;
@@ -1019,10 +1095,177 @@ export class Combat {
     }
   }
 
-  damageUnit(j: number, dmg: number, attacker: number): void {
+  // ------------------------------------------------------------------ splash & artillery
+
+  /** Shells in flight (howitzers). */
+  readonly shells: { owner: number; shooter: number; kind: number; x: number; z: number; t: number; T: number }[] = [];
+
+  /** Area damage around an impact (not the unit that took the direct hit). */
+  private splash(x: number, z: number, owner: number, dmg: number, radius: number, skip: number, ap: boolean): void {
+    const u = this.sim.units;
+    for (let j = 0; j < u.count; j++) {
+      if (!u.alive[j] || u.owner[j] === owner || j === skip || UNIT_TYPES[u.kind[j]].fly) continue;
+      const d = Math.hypot(u.x[j] - x, u.z[j] - z);
+      if (d < radius) this.damageUnit(j, dmg * (1 - (0.5 * d) / radius), -1, ap);
+    }
+  }
+
+  /** Where a ray from the camera meets the ground, or null. */
+  groundPoint(ex: number, ey: number, ez: number, yaw: number, pitch: number, reach: number): { x: number; z: number } | null {
+    const map = this.sim.map;
+    const cp = Math.cos(pitch);
+    const dx = Math.sin(yaw) * cp;
+    const dy = Math.sin(pitch);
+    const dz = Math.cos(yaw) * cp;
+    for (let t = 0.5; t < reach * 1.5; t += 0.25) {
+      const x = ex + dx * t;
+      const z = ez + dz * t;
+      if (!map.inBounds(Math.floor(x), Math.floor(z))) return null;
+      if (ey + dy * t <= map.heightAt(x, z)) return { x, z };
+    }
+    return null;
+  }
+
+  /** Lob a shell at a point; it lands after a flight time, a little off the mark. */
+  fireShell(i: number, tx: number, tz: number): void {
+    const sim = this.sim;
+    const u = sim.units;
+    const t = UNIT_TYPES[u.kind[i]];
+    const art = t.artillery;
+    if (!art) return;
+    const d = Math.hypot(tx - u.x[i], tz - u.z[i]);
+    const miss = art.scatter * Math.min(1, d / t.range) * sim.rng.next();
+    const a = sim.rng.next() * Math.PI * 2;
+    const x = Math.min(Math.max(tx + Math.cos(a) * miss, 0.5), sim.map.width - 0.5);
+    const z = Math.min(Math.max(tz + Math.sin(a) * miss, 0.5), sim.map.height - 0.5);
+    const T = Math.max(0.8, d / art.shellSpeed);
+    this.shells.push({ owner: u.owner[i], shooter: i, kind: u.kind[i], x, z, t: 0, T });
+    u.heading[i] = Math.atan2(tx - u.x[i], tz - u.z[i]);
+    u.lastShot[i] = sim.tick;
+    sim.vision.reveal[i] = NOISE_SEC; // the muzzle blast gives it away
+    sim.emit({
+      type: 'shell',
+      owner: u.owner[i],
+      fromX: u.x[i],
+      fromZ: u.z[i],
+      fromY: sim.map.heightAt(u.x[i], u.z[i]) + 1.1,
+      toX: x,
+      toZ: z,
+      toY: sim.map.heightAt(x, z),
+      flight: T,
+    });
+  }
+
+  private updateShells(): void {
+    for (let k = this.shells.length - 1; k >= 0; k--) {
+      const s = this.shells[k];
+      s.t += TICK_SEC;
+      if (s.t < s.T) continue;
+      this.shells.splice(k, 1);
+      const art = UNIT_TYPES[s.kind].artillery;
+      if (art) this.blast(s.x, s.z, this.sim.map.heightAt(s.x, s.z), s.owner, art.blast);
+    }
+  }
+
+  /**
+   * Howitzers: pick something in range (a structure you ordered, the unit you ordered, or the
+   * nearest enemy your side can see), stop, deploy, then fire. Assaults bombard the walls in front of them.
+   */
+  private doArtillery(i: number): void {
+    const sim = this.sim;
+    const u = sim.units;
+    const t = UNIT_TYPES[u.kind[i]];
+    const art = t.artillery!;
+    const owner = u.owner[i];
+    let aim: { x: number; z: number } | null = null;
+    let approach = false;
+    switch (u.order[i]) {
+      case Order.Breach: {
+        const s = sim.structureById(u.targetStruct[i]);
+        if (!s || s.owner === owner) return this.finishBreach(i);
+        aim = { x: s.tx + s.w / 2, z: s.tz + s.h / 2 };
+        approach = true;
+        break;
+      }
+      case Order.Attack: {
+        const j = u.target[i];
+        if (!u.isAlive(j) || u.owner[j] === owner) {
+          u.order[i] = Order.Idle;
+          u.target[i] = -1;
+          return;
+        }
+        if (sim.vision.isSeen(owner, j)) aim = { x: u.x[j], z: u.z[j] };
+        approach = true;
+        break;
+      }
+      case Order.Assault: {
+        const s = this.siegeTarget(i, this.assaultTarget[i]);
+        if (s) aim = { x: s.tx + s.w / 2, z: s.tz + s.h / 2 };
+        else {
+          const goal = this.assaultGoal(this.assaultTarget[i]);
+          if (!goal) {
+            u.order[i] = Order.Idle;
+            this.assault[i] = 0;
+            return;
+          }
+          aim = { x: goal.x, z: goal.z };
+        }
+        approach = true;
+        break;
+      }
+      case Order.Move:
+      case Order.Follow:
+        return;
+      default: {
+        if ((sim.tick + i) % ENGAGE_INTERVAL === 0) u.target[i] = this.findTarget(i, t.range);
+        const j = u.target[i];
+        if (u.isAlive(j) && u.owner[j] !== owner && sim.vision.isSeen(owner, j)) aim = { x: u.x[j], z: u.z[j] };
+      }
+    }
+    if (!aim) return;
+    const d = Math.hypot(aim.x - u.x[i], aim.z - u.z[i]);
+    if (d > t.range * 0.95 || (approach && d < art.minRange)) {
+      if (!approach) return;
+      // Close in (or back off) until it's in range.
+      if (u.repath[i] === 0) {
+        sim.setDestination(i, aim.x, aim.z, 0, false);
+        u.repath[i] = 40;
+      }
+      if (d > t.range * 0.95) sim.navigate(i);
+      return;
+    }
+    if (d < art.minRange) return;
+    u.vx[i] = u.vz[i] = 0;
+    if (u.x[i] === u.px[i] && u.z[i] === u.pz[i]) u.deploy[i] = Math.min(1, u.deploy[i] + TICK_SEC / art.deploySec);
+    u.heading[i] = turnToward(u.heading[i], Math.atan2(aim.x - u.x[i], aim.z - u.z[i]), 1.5 * TICK_SEC);
+    if (u.deploy[i] < 1 || u.cooldown[i] > 0) return;
+    this.fireShell(i, aim.x, aim.z);
+    u.cooldown[i] = Math.min(255, t.autoCooldown + sim.rng.int(t.autoJitter + 1));
+  }
+
+  /** Assaulting artillery: the nearest enemy wall, tower, gate or building in range. */
+  private siegeTarget(i: number, enemy: number): Structure | undefined {
+    const u = this.sim.units;
+    const t = UNIT_TYPES[u.kind[i]];
+    let best: Structure | undefined;
+    let bestD = t.range * 0.95;
+    for (const s of this.sim.structures) {
+      if (s.owner !== enemy || STRUCTURE_DEFS[s.kind].trap) continue;
+      const d = Math.hypot(s.tx + s.w / 2 - u.x[i], s.tz + s.h / 2 - u.z[i]);
+      if (d < bestD && d > (t.artillery?.minRange ?? 0)) {
+        bestD = d;
+        best = s;
+      }
+    }
+    return best;
+  }
+
+  /** `ap`: armor-piercing (rockets, tank guns, explosives) ignores a vehicle's armor. */
+  damageUnit(j: number, dmg: number, attacker: number, ap = false): void {
     const sim = this.sim;
     const u = sim.units;
     if (!u.alive[j]) return;
+    if (!ap) dmg *= UNIT_TYPES[u.kind[j]].armor;
     u.hp[j] -= dmg;
     if (u.hp[j] <= 0) {
       sim.emit({
