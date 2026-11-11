@@ -384,6 +384,7 @@ export class Game implements GameActions {
     this.renderer.render({
       alpha: this.paused ? 1 : this.acc / TICK_SEC,
       dt,
+      gameDt: this.paused || this.sim.result ? 0 : dt * this.speed * (this.slowMo && (this.controlled >= 0 || this.controlledStruct >= 0) ? 0.5 : 1),
       selected: this.controlled >= 0 || this.controlledStruct >= 0 ? NO_SELECTION : this.selected,
       controlled: this.controlled,
       controlledStruct: this.controlledStruct,

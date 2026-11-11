@@ -15,6 +15,13 @@ describe('settings', () => {
     expect(s.invertLook).toBe(true);
   });
 
+  it('keeps the lighting-effects switch (on by default, older saves get the default)', () => {
+    expect(DEFAULT_SETTINGS.effects).toBe(true);
+    expect(sanitize({ effects: false }).effects).toBe(false);
+    expect(sanitize({ effects: 'off' }).effects).toBe(true);
+    expect(sanitize({ master: 0.5 }).effects).toBe(true);
+  });
+
   it('updates apply at once (even with no storage available)', () => {
     const before = getSettings().music;
     const after = updateSettings({ music: before === 0.2 ? 0.3 : 0.2 }).music;

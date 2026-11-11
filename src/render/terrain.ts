@@ -2,71 +2,81 @@ import * as THREE from 'three';
 import { Tile, type GameMap } from '../sim/map';
 import { hash2 } from '../sim/rng';
 import { COLORS } from './palette';
-import { paint } from './geometry';
+import type { GroundSurface } from './ground';
 
-function pick(list: readonly number[], h: number): number {
-  return list[Math.floor(h * list.length) % list.length];
+function smooth(e0: number, e1: number, x: number): number {
+  const t = Math.min(Math.max((x - e0) / (e1 - e0), 0), 1);
+  return t * t * (3 - 2 * t);
 }
 
-/** Flat-shaded tile terrain: two triangles per tile, coloured per tile for a crisp low-poly look. */
-export function buildTerrain(map: GameMap): THREE.Mesh {
+/** Rolling dunes beyond the map edge. */
+function farDunes(x: number, z: number): number {
+  return Math.sin(x * 0.045 + 1.3) * Math.cos(z * 0.038 - 0.7) * 1.7 + Math.sin((x + z) * 0.021) * 1.2 - 0.4;
+}
+
+/** Ground height anywhere: the map inside, easing into open dunes outside it. */
+function groundHeight(map: GameMap, x: number, z: number): number {
+  const cx = Math.min(Math.max(x, 0), map.width);
+  const cz = Math.min(Math.max(z, 0), map.height);
+  const edge = map.heightAt(cx, cz);
+  const d = Math.hypot(x - cx, z - cz);
+  if (d === 0) return edge;
+  return edge + (farDunes(x, z) - edge) * smooth(0, 45, d);
+}
+
+/** Smooth normal at a point from the surrounding heights (one tile either way). */
+function groundNormal(map: GameMap, x: number, z: number, out: THREE.Vector3): THREE.Vector3 {
+  const hl = groundHeight(map, x - 1, z);
+  const hr = groundHeight(map, x + 1, z);
+  const hd = groundHeight(map, x, z - 1);
+  const hu = groundHeight(map, x, z + 1);
+  return out.set(hl - hr, 2, hd - hu).normalize();
+}
+
+/**
+ * The playable ground: two triangles per tile (the split must match GameMap.heightAt) with smooth
+ * normals. Its look comes from the GroundSurface shader, not from per-tile colours.
+ */
+export function buildTerrain(map: GameMap, ground: GroundSurface): THREE.Mesh {
   const { width, height } = map;
   const tileCount = width * height;
   const pos = new Float32Array(tileCount * 6 * 3);
-  const col = new Float32Array(tileCount * 6 * 3);
-  const c = new THREE.Color();
-  let p = 0;
+  const nor = new Float32Array(tileCount * 6 * 3);
+  const w1 = width + 1;
 
+  // Per-corner smooth normals.
+  const cornerN = new Float32Array(w1 * (height + 1) * 3);
+  const n = new THREE.Vector3();
+  for (let vz = 0; vz <= height; vz++) {
+    for (let vx = 0; vx <= width; vx++) {
+      const k = (vz * w1 + vx) * 3;
+      groundNormal(map, vx, vz, n);
+      cornerN[k] = n.x;
+      cornerN[k + 1] = n.y;
+      cornerN[k + 2] = n.z;
+    }
+  }
+
+  let p = 0;
   for (let tz = 0; tz < height; tz++) {
     for (let tx = 0; tx < width; tx++) {
-      const h00 = map.vertexHeight(tx, tz);
-      const h10 = map.vertexHeight(tx + 1, tz);
-      const h01 = map.vertexHeight(tx, tz + 1);
-      const h11 = map.vertexHeight(tx + 1, tz + 1);
-      const t = map.tileAt(tx, tz);
-      const hv = hash2(tx, tz, map.seed);
-      let hex: number;
-      switch (t) {
-        case Tile.Rock:
-          hex = pick(COLORS.rock, hv);
-          break;
-        case Tile.Fertile:
-          hex = pick(COLORS.fertile, hv);
-          break;
-        case Tile.Water:
-          hex = COLORS.waterBed;
-          break;
-        case Tile.Oil:
-          hex = pick(COLORS.oil, hv);
-          break;
-        case Tile.Ruin:
-          hex = pick([0x9f9a8e, 0xa8a294, 0x968f82], hv);
-          break;
-        default:
-          hex = pick(COLORS.sand, hv);
-      }
-      c.setHex(hex);
-      if (t !== Tile.Water && t !== Tile.Fertile) c.offsetHSL(map.tint.hue, map.tint.sat, map.tint.light);
-      // Subtle height shading so dunes read even under flat light.
-      const avgH = (h00 + h10 + h01 + h11) * 0.25;
-      if (t === Tile.Sand) c.offsetHSL(0, 0, avgH * 0.018);
-
       // Triangles (00, 11, 10) and (00, 01, 11) — must match GameMap.heightAt.
-      const verts = [
-        [tx, h00, tz],
-        [tx + 1, h11, tz + 1],
-        [tx + 1, h10, tz],
-        [tx, h00, tz],
-        [tx, h01, tz + 1],
-        [tx + 1, h11, tz + 1],
+      const corners = [
+        [tx, tz],
+        [tx + 1, tz + 1],
+        [tx + 1, tz],
+        [tx, tz],
+        [tx, tz + 1],
+        [tx + 1, tz + 1],
       ];
-      for (const v of verts) {
-        pos[p] = v[0];
-        pos[p + 1] = v[1];
-        pos[p + 2] = v[2];
-        col[p] = c.r;
-        col[p + 1] = c.g;
-        col[p + 2] = c.b;
+      for (const [vx, vz] of corners) {
+        const k = (vz * w1 + vx) * 3;
+        pos[p] = vx;
+        pos[p + 1] = map.vertexHeight(vx, vz);
+        pos[p + 2] = vz;
+        nor[p] = cornerN[k];
+        nor[p + 1] = cornerN[k + 1];
+        nor[p + 2] = cornerN[k + 2];
         p += 3;
       }
     }
@@ -74,32 +84,139 @@ export function buildTerrain(map: GameMap): THREE.Mesh {
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  geo.computeVertexNormals();
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  const mesh = new THREE.Mesh(geo, mat);
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  const mesh = new THREE.Mesh(geo, ground.material);
   mesh.receiveShadow = true;
   mesh.name = 'terrain';
   return mesh;
 }
 
-export function buildWater(map: GameMap): THREE.Group {
-  const g = new THREE.Group();
-  const mat = new THREE.MeshLambertMaterial({
-    color: COLORS.water,
-    transparent: true,
-    opacity: 0.82,
-    emissive: 0x0b2a35,
-  });
-  for (const o of map.oases) {
-    const geo = new THREE.CircleGeometry(o.r + 2.2, 28);
-    geo.rotateX(-Math.PI / 2);
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(o.x, o.level - 0.18, o.z);
-    m.receiveShadow = true;
-    g.add(m);
+/**
+ * Open desert around the map, out to where the fog swallows it, so the world doesn't end at a cliff.
+ * The grid is one tile fine along the map edge (its vertices meet the terrain's exactly) and coarser
+ * further out. Purely visual: nothing can go there.
+ */
+export function buildSkirt(map: GameMap, ground: GroundSurface): THREE.Mesh {
+  const out = [1, 3, 6, 10, 16, 26, 40, 60, 90, 140, 220];
+  const axis = (size: number): number[] => {
+    const a: number[] = [];
+    for (let i = out.length - 1; i >= 0; i--) a.push(-out[i]);
+    for (let i = 0; i <= size; i++) a.push(i);
+    for (const d of out) a.push(size + d);
+    return a;
+  };
+  const xs = axis(map.width);
+  const zs = axis(map.height);
+  const nx = xs.length;
+  const pos: number[] = [];
+  const nor: number[] = [];
+  const n = new THREE.Vector3();
+  for (const z of zs) {
+    for (const x of xs) {
+      pos.push(x, groundHeight(map, x, z), z);
+      groundNormal(map, x, z, n);
+      nor.push(n.x, n.y, n.z);
+    }
   }
-  return g;
+  const idx: number[] = [];
+  for (let j = 0; j < zs.length - 1; j++) {
+    for (let i = 0; i < nx - 1; i++) {
+      const inside = xs[i] >= 0 && xs[i + 1] <= map.width && zs[j] >= 0 && zs[j + 1] <= map.height;
+      if (inside) continue;
+      const a = j * nx + i;
+      const b = a + 1;
+      const c = a + nx;
+      const d = c + 1;
+      idx.push(a, d, b, a, c, d);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setIndex(idx);
+  const mesh = new THREE.Mesh(geo, ground.material);
+  mesh.receiveShadow = true;
+  mesh.name = 'skirt';
+  return mesh;
+}
+
+/**
+ * Oasis water: a light sun glint, gentle animated ripples, shallows that let the bed show through at
+ * the rim, and the sky reflected at grazing angles.
+ */
+export class WaterRenderer {
+  readonly group = new THREE.Group();
+  private uniforms = { wTime: { value: 0 }, wSky: { value: new THREE.Color(0xdcccab) } };
+
+  constructor(map: GameMap) {
+    const mat = new THREE.MeshPhongMaterial({
+      color: COLORS.water,
+      transparent: true,
+      opacity: 0.86,
+      emissive: 0x0b2a35,
+      specular: 0x9a9a8a,
+      shininess: 90,
+      depthWrite: false,
+    });
+    const u = this.uniforms;
+    mat.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, u);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float rim;\nvarying vec3 vWPos;\nvarying float vRim;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRim = rim;\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+varying vec3 vWPos;
+varying float vRim;
+uniform float wTime;
+uniform vec3 wSky;
+float wHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float wNoise(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(wHash(i), wHash(i + vec2(1.0, 0.0)), u.x), mix(wHash(i + vec2(0.0, 1.0)), wHash(i + vec2(1.0, 1.0)), u.x), u.y); }
+float wWaves(vec2 p) { return wNoise(p * 2.6 + vec2(wTime * 0.5, wTime * 0.3)) + wNoise(p * 4.3 - vec2(wTime * 0.35, -wTime * 0.45)) * 0.5; }`,
+        )
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+float wRim = smoothstep(0.55, 1.0, vRim);
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.36, 0.62, 0.6), wRim * 0.6);
+diffuseColor.a *= 1.0 - wRim * 0.45;`,
+        )
+        .replace(
+          '#include <normal_fragment_begin>',
+          `#include <normal_fragment_begin>
+float w0 = wWaves(vWPos.xz);
+vec2 wg = vec2(wWaves(vWPos.xz + vec2(0.08, 0.0)) - w0, wWaves(vWPos.xz + vec2(0.0, 0.08)) - w0) / 0.08;
+normal = normalize(normal + (viewMatrix * vec4(-wg.x * 0.025, 0.0, -wg.y * 0.025, 0.0)).xyz);`,
+        )
+        .replace(
+          '#include <opaque_fragment>',
+          `float wFr = pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 3.0);
+outgoingLight = mix(outgoingLight, wSky, wFr * 0.55);
+#include <opaque_fragment>`,
+        );
+    };
+    mat.customProgramCacheKey = () => 'oasis-water';
+    for (const o of map.oases) {
+      const geo = new THREE.CircleGeometry(o.r + 2.2, 40);
+      geo.rotateX(-Math.PI / 2);
+      const rim = new Float32Array(geo.getAttribute('position').count).fill(1);
+      rim[0] = 0;
+      geo.setAttribute('rim', new THREE.BufferAttribute(rim, 1));
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(o.x, o.level - 0.18, o.z);
+      m.receiveShadow = true;
+      m.renderOrder = 1;
+      this.group.add(m);
+    }
+  }
+
+  update(time: number, sky: THREE.Color): void {
+    this.uniforms.wTime.value = time;
+    this.uniforms.wSky.value.copy(sky);
+  }
 }
 
 /** Rocks on rock tiles and sparse scrub on sand. All instanced. (Trees are sim objects: see TreeRenderer.) */
@@ -127,24 +244,70 @@ export function buildScatter(map: GameMap): THREE.Group {
     }
   }
 
-  const rockGeo = paint(new THREE.IcosahedronGeometry(0.7, 0), 0xffffff);
-  const rockMat = new THREE.MeshLambertMaterial({
-    color: new THREE.Color(COLORS.rockMesh).offsetHSL(map.tint.hue, map.tint.sat, map.tint.light),
-    flatShading: true,
+  // Boulders: three lumpy shapes, each instance turned, squashed and shaded a little differently, with
+  // a smaller stone beside some of them, half sunk into the ground so outcrops read as one mass.
+  const rockBase = new THREE.Color(COLORS.rockMesh).offsetHSL(map.tint.hue, map.tint.sat, map.tint.light);
+  const rockMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
+  // Layered strata and weathering in world space, so neighbouring boulders read as one outcrop.
+  rockMat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vRPos;\nvarying float vRLy;')
+      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvRPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\nvRLy = transformed.y;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vRPos;
+varying float vRLy;
+float rHash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+float band = sin(vRPos.y * 7.0 + sin(vRPos.x * 0.7) * 1.4 + cos(vRPos.z * 0.6) * 1.2);
+diffuseColor.rgb *= 0.9 + 0.1 * band + 0.06 * (rHash(floor(vRPos * 3.0)) - 0.5);
+diffuseColor.rgb *= mix(0.72, 1.06, smoothstep(-0.25, 0.6, vRLy));`,
+      );
+  };
+  rockMat.customProgramCacheKey = () => 'boulders';
+  const shapes = [0, 1, 2].map((variant) => {
+    const geo = new THREE.IcosahedronGeometry(0.7, 1);
+    const a = geo.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < a.count; i++) {
+      v.fromBufferAttribute(a, i);
+      // Same jitter for the same corner, so the faces stay joined.
+      const j = hash2(Math.round(v.x * 100), Math.round(v.y * 100) * 31 + Math.round(v.z * 100), 7 + variant * 13);
+      v.multiplyScalar(0.78 + j * 0.42);
+      if (v.y < 0) v.y *= 0.45;
+      a.setXYZ(i, v.x, v.y, v.z);
+    }
+    geo.computeVertexNormals();
+    return geo;
   });
-  const rockMesh = new THREE.InstancedMesh(rockGeo, rockMat, rocks.length);
-  rocks.forEach((r, i) => {
-    const k = 0.75 + r.h * 0.7;
-    e.set(r.h * 3, r.h * 17, r.h * 5);
-    q.setFromEuler(e);
-    s.set(k * 1.1, k * (0.8 + r.h * 0.9), k * 1.1);
-    v.set(r.x + (r.h - 0.5) * 0.3, map.heightAt(r.x, r.z) + 0.25 * k, r.z + (r.h - 0.5) * 0.3);
-    m4.compose(v, q, s);
-    rockMesh.setMatrixAt(i, m4);
+  const byShape: Item[][] = [[], [], []];
+  for (const r of rocks) {
+    byShape[Math.floor(r.h * 3) % 3].push(r);
+    if (r.h > 0.62) byShape[Math.floor(r.h * 7) % 3].push({ x: r.x + (r.h - 0.8) * 1.6, z: r.z - (r.h - 0.8) * 1.4, h: 1 - r.h });
+  }
+  const rc = new THREE.Color();
+  byShape.forEach((list, si) => {
+    const mesh = new THREE.InstancedMesh(shapes[si], rockMat, Math.max(1, list.length));
+    mesh.count = list.length;
+    list.forEach((r, i) => {
+      const k = 0.7 + r.h * 0.8;
+      e.set((r.h - 0.5) * 0.5, r.h * 17, (r.h - 0.5) * 0.4);
+      q.setFromEuler(e);
+      s.set(k * (1 + r.h * 0.25), k * (0.65 + r.h * 0.7), k * (1.15 - r.h * 0.2));
+      v.set(r.x + (r.h - 0.5) * 0.3, map.heightAt(r.x, r.z) + 0.08 * k, r.z + (r.h - 0.5) * 0.3);
+      m4.compose(v, q, s);
+      mesh.setMatrixAt(i, m4);
+      const t = hash2(Math.floor(r.x * 3), Math.floor(r.z * 3), map.seed + 23);
+      mesh.setColorAt(i, rc.copy(rockBase).offsetHSL((t - 0.5) * 0.025, (t - 0.5) * 0.08, (t - 0.5) * 0.12));
+    });
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    g.add(mesh);
   });
-  rockMesh.castShadow = true;
-  rockMesh.receiveShadow = true;
-  g.add(rockMesh);
 
   // Ruins: broken concrete wall stumps of uneven height, a few with rebar sticking out.
   const ruinMesh = new THREE.InstancedMesh(
@@ -253,93 +416,5 @@ export class TreeRenderer {
     crown.setMatrixAt(this.slot[index], this.zero);
     trunk.instanceMatrix.needsUpdate = true;
     crown.instanceMatrix.needsUpdate = true;
-  }
-}
-
-/**
- * Additive light pools on the ground, driven by the sim's light grid (floodlights, searchlights,
- * flares, fires). Cheap on phones: one extra draw call instead of dozens of real lights.
- */
-export class LightOverlay {
-  readonly mesh: THREE.Mesh;
-  private colors: Float32Array;
-  /** Ground colour per vertex (the overlay brightens the terrain's own colour, not white). */
-  private ground: Float32Array;
-  /** Corner index (cz * (w + 1) + cx) per vertex, so pools blend smoothly across tiles. */
-  private corner: Int32Array;
-  private cornerLight: Float32Array;
-  private lastVersion = -1;
-  private lastNight = -1;
-
-  constructor(
-    private map: GameMap,
-    terrain: THREE.Mesh,
-  ) {
-    const src = terrain.geometry.getAttribute('position') as THREE.BufferAttribute;
-    const pos = new Float32Array(src.array as Float32Array);
-    for (let i = 1; i < pos.length; i += 3) pos[i] += 0.04;
-    this.ground = new Float32Array((terrain.geometry.getAttribute('color') as THREE.BufferAttribute).array as Float32Array);
-    const verts = pos.length / 3;
-    this.corner = new Int32Array(verts);
-    const cw = map.width + 1;
-    for (let v = 0; v < verts; v++) this.corner[v] = Math.round(pos[v * 3 + 2]) * cw + Math.round(pos[v * 3]);
-    this.cornerLight = new Float32Array(cw * (map.height + 1));
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    this.colors = new Float32Array(pos.length);
-    geo.setAttribute('color', new THREE.BufferAttribute(this.colors, 3));
-    const mat = new THREE.MeshBasicMaterial({
-      vertexColors: true,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      polygonOffset: true,
-      polygonOffsetFactor: -1,
-    });
-    this.mesh = new THREE.Mesh(geo, mat);
-    this.mesh.renderOrder = 1;
-    this.mesh.frustumCulled = false;
-    this.mesh.visible = false;
-  }
-
-  update(light: Float32Array, version: number, night: number): void {
-    this.mesh.visible = night > 0.03;
-    if (!this.mesh.visible) return;
-    const n = Math.round(night * 20) / 20;
-    if (version === this.lastVersion && n === this.lastNight) return;
-    this.lastVersion = version;
-    this.lastNight = n;
-    const { width: w, height: h } = this.map;
-    const cw = w + 1;
-    const cl = this.cornerLight;
-    // Each corner takes the mean of the (up to four) tiles that touch it.
-    for (let cz = 0; cz <= h; cz++) {
-      for (let cx = 0; cx <= w; cx++) {
-        let sum = 0;
-        let cnt = 0;
-        for (let dz = -1; dz <= 0; dz++) {
-          const tz = cz + dz;
-          if (tz < 0 || tz >= h) continue;
-          for (let dx = -1; dx <= 0; dx++) {
-            const tx = cx + dx;
-            if (tx < 0 || tx >= w) continue;
-            sum += light[tz * w + tx];
-            cnt++;
-          }
-        }
-        cl[cz * cw + cx] = cnt ? sum / cnt : 0;
-      }
-    }
-    const c = this.colors;
-    const g = this.ground;
-    const corner = this.corner;
-    const k = 0.8 * n;
-    for (let v = 0, p = 0; v < corner.length; v++, p += 3) {
-      const l = cl[corner[v]] * k;
-      c[p] = g[p] * l * 1.05 + l * 0.05;
-      c[p + 1] = g[p + 1] * l * 0.95 + l * 0.04;
-      c[p + 2] = g[p + 2] * l * 0.8 + l * 0.02;
-    }
-    (this.mesh.geometry.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
   }
 }

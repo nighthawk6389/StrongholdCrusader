@@ -4,9 +4,11 @@ import { CameraDirector, OtsCameraRig, RtsCameraRig } from './cameras';
 import { getSettings } from '../game/settings';
 import { DayNight } from './daynight';
 import { Fx } from './fx';
-import { STRUCTURE_DEFS, type Structure, type StructureKind } from '../sim/structures';
+import { STRUCTURE_DEFS, maxHp, type Structure, type StructureKind } from '../sim/structures';
 import { PlacementGhost, SelectionFrame, StructureRenderer, WallLineGhost } from './structures';
-import { buildScatter, buildTerrain, buildWater, LightOverlay, TreeRenderer } from './terrain';
+import { buildScatter, buildSkirt, buildTerrain, TreeRenderer, WaterRenderer } from './terrain';
+import { GroundSurface } from './ground';
+import { PostFx } from './post';
 import { UNIT_TYPES } from '../sim/unitTypes';
 import { UnitRenderer } from './units';
 
@@ -16,6 +18,8 @@ export interface Quality {
   antialias: boolean;
   shadows: boolean;
   maxFloodlights: number;
+  /** Post-processing: ambient occlusion, bloom, colour grade (high quality only, can be switched off). */
+  post: boolean;
 }
 
 export function detectQuality(): Quality {
@@ -24,14 +28,17 @@ export function detectQuality(): Quality {
   const forced = params.get('quality') ?? (chosen === 'auto' ? null : chosen);
   const coarse = matchMedia('(pointer: coarse)').matches;
   const low = forced ? forced === 'low' : coarse || (navigator.hardwareConcurrency ?? 8) <= 4;
+  const post = params.get('post') ? params.get('post') === '1' : getSettings().effects;
   return low
-    ? { name: 'low', pixelRatio: Math.min(devicePixelRatio, 1.5), antialias: false, shadows: false, maxFloodlights: 4 }
-    : { name: 'high', pixelRatio: Math.min(devicePixelRatio, 2), antialias: true, shadows: true, maxFloodlights: 8 };
+    ? { name: 'low', pixelRatio: Math.min(devicePixelRatio, 1.5), antialias: false, shadows: false, maxFloodlights: 4, post: false }
+    : { name: 'high', pixelRatio: Math.min(devicePixelRatio, 2), antialias: true, shadows: true, maxFloodlights: 8, post };
 }
 
 export interface FrameState {
   alpha: number;
   dt: number;
+  /** Game time this frame (0 while paused; scaled by game speed). Defaults to dt. */
+  gameDt?: number;
   selected: ReadonlySet<number>;
   /** Possessed unit id or -1. */
   controlled: number;
@@ -51,12 +58,15 @@ export class GameRenderer {
   readonly fx: Fx;
   readonly dayNight: DayNight;
   readonly terrain: THREE.Mesh;
+  readonly ground: GroundSurface;
+  readonly water: WaterRenderer;
+  /** High-quality post-processing, or null (plain render). */
+  readonly post: PostFx | null;
   readonly structures: StructureRenderer;
   readonly trees: TreeRenderer;
   readonly ghost: PlacementGhost;
   readonly wallGhost: WallLineGhost;
   readonly selectionFrame: SelectionFrame;
-  readonly lightOverlay: LightOverlay;
   /** Viewing team (enemies it can't see are hidden). */
   team = 1;
   /** True while looking through night-vision optics. */
@@ -70,6 +80,9 @@ export class GameRenderer {
   private look = new THREE.Vector3();
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
+  /** Sim tick of the last ground-wear pass. */
+  private wearTick = 0;
+  private clock = 0;
 
   constructor(
     readonly canvas: HTMLCanvasElement,
@@ -90,10 +103,10 @@ export class GameRenderer {
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 400);
     this.scene.background = new THREE.Color(0xdcccab);
 
-    this.terrain = buildTerrain(sim.map);
-    this.scene.add(this.terrain, buildWater(sim.map), buildScatter(sim.map));
-    this.lightOverlay = new LightOverlay(sim.map, this.terrain);
-    this.scene.add(this.lightOverlay.mesh);
+    this.ground = new GroundSurface(sim.map, quality.name);
+    this.terrain = buildTerrain(sim.map, this.ground);
+    this.water = new WaterRenderer(sim.map);
+    this.scene.add(this.terrain, buildSkirt(sim.map, this.ground), this.water.group, buildScatter(sim.map));
     this.trees = new TreeRenderer(sim.map);
     this.scene.add(this.trees.group);
     this.structures = new StructureRenderer(sim, quality.maxFloodlights);
@@ -105,13 +118,14 @@ export class GameRenderer {
 
     this.units = new UnitRenderer(sim, quality.shadows);
     this.scene.add(this.units.group);
-    this.fx = new Fx(sim.map);
+    this.fx = new Fx(sim.map, quality.name === 'low');
     this.scene.add(this.fx.group);
     this.dayNight = new DayNight(this.scene, this.structures, quality.shadows);
 
     this.rts = new RtsCameraRig(sim.map);
     this.ots = new OtsCameraRig(sim.map);
     this.director = new CameraDirector(this.camera);
+    this.post = quality.post ? new PostFx(this.renderer, this.scene, this.camera) : null;
     this.resize();
   }
 
@@ -119,6 +133,7 @@ export class GameRenderer {
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h, false);
+    this.post?.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -128,7 +143,10 @@ export class GameRenderer {
     for (const e of f.events) if (e.type === 'treeFelled') this.trees.fell(e.index);
     const cs = f.controlledStruct >= 0 ? this.sim.structureById(f.controlledStruct) : undefined;
     this.fx.handle(f.events, f.controlled, cs ? { x: cs.tx + cs.w / 2, z: cs.tz + cs.h / 2 } : null);
-    this.fx.update(f.dt);
+    const gdt = f.gameDt ?? f.dt;
+    this.fx.update(f.dt, gdt, this.camera);
+    this.ambientFx(gdt);
+    this.updateGround(f.events);
 
     let fov = 40;
     if (f.controlled >= 0 && this.sim.units.isAlive(f.controlled)) {
@@ -169,14 +187,17 @@ export class GameRenderer {
     const focus = f.controlled >= 0 ? this.tmp.copy(this.director.look) : this.rts.target;
     this.dayNight.update(this.sim.cycle, focus);
     this.dayNight.followCamera(this.camera.position);
+    this.clock += f.dt;
+    this.water.update(this.clock, (this.scene.fog as THREE.Fog).color);
     const fog = this.scene.fog as THREE.Fog;
     const camDist = this.camera.position.distanceTo(this.director.look);
     fog.near = camDist * 1.4 + 10;
     fog.far = camDist * 3.2 + 60;
 
     const vision = this.sim.vision;
-    this.lightOverlay.update(vision.light, vision.lightVersion, this.dayNight.night);
+    this.ground.setLight(vision.light, vision.lightVersion, this.dayNight.night);
     this.fx.updateFlares(vision.flares, this.dayNight.night);
+    this.fx.particles.setLight(this.nvg ? 1.6 : 1 - 0.82 * this.dayNight.night);
     const team = this.team;
     const u = this.sim.units;
     const owner = u.owner;
@@ -192,7 +213,90 @@ export class GameRenderer {
       visible: (i) => (owner[i] === team || seen[i] === 1) && !crewed(i),
     });
     this.renderer.toneMappingExposure = this.nvg ? 1 + 0.8 * this.dayNight.night : 1;
-    this.renderer.render(this.scene, this.camera);
+    if (this.post) this.post.render(f.dt, this.nvg ? 0 : this.dayNight.night);
+    else this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * Effects that run on their own: burning fuel trenches, smoke from badly damaged buildings,
+   * factory chimneys and the hub's cooking fire, dust behind moving vehicles.
+   */
+  private ambientFx(dt: number): void {
+    if (dt <= 0) return;
+    const p = this.fx.particles;
+    const sim = this.sim;
+    const map = sim.map;
+    const chance = (rate: number): boolean => Math.random() < rate * dt;
+    for (const s of sim.structures) {
+      if (s.kind === 'mines') continue;
+      const cx = s.tx + s.w / 2;
+      const cz = s.tz + s.h / 2;
+      if (s.burn > 0) {
+        const y = map.heightAt(cx, cz);
+        if (chance(9)) p.flame(s.tx + Math.random(), y, s.tz + Math.random(), 1.1);
+        if (chance(1.2)) p.blackSmoke(cx, y + 0.8, cz, 0.7);
+        continue;
+      }
+      const big = s.w * s.h >= 4;
+      const hurt = s.hp / maxHp(s);
+      if (big && hurt < 0.45) {
+        const y = map.heightAt(cx, cz) + 1.4;
+        if (hurt < 0.2) {
+          if (chance(10)) p.flame(cx + (Math.random() - 0.5) * s.w * 0.6, y, cz + (Math.random() - 0.5) * s.h * 0.6, 1.8);
+          if (chance(3)) p.blackSmoke(cx, y + 0.6, cz, 1.1);
+        } else if (chance(1.6)) {
+          p.greySmoke(cx + (Math.random() - 0.5), y, cz + (Math.random() - 0.5), 1, 3.5);
+        }
+      }
+      if (s.kind === 'arms' && s.active && s.workers.length > 0 && chance(1.4)) {
+        p.greySmoke(cx - 0.9, map.heightAt(cx, cz) + 2.85, cz - 0.9, 0.7, 4);
+      } else if (s.kind === 'hub' && chance(0.7)) {
+        p.greySmoke(cx + 0.3, map.heightAt(cx, cz) + 0.5, cz + 0.45, 0.4, 2.5);
+      }
+    }
+    // Vehicles throw up dust when they drive over sand.
+    const u = sim.units;
+    const seen = sim.vision.seen[this.team];
+    for (let i = 0; i < u.count; i++) {
+      if (!u.alive[i] || u.layer[i] !== 0) continue;
+      const t = UNIT_TYPES[u.kind[i]];
+      if (!t.vehicle || t.fly) continue;
+      if (u.owner[i] !== this.team && seen[i] !== 1) continue;
+      const dx = u.x[i] - u.px[i];
+      const dz = u.z[i] - u.pz[i];
+      const sp = Math.hypot(dx, dz);
+      if (sp < 0.02 || !chance(14 * Math.min(1, sp / 0.12))) continue;
+      const bx = u.x[i] - (dx / sp) * 0.9;
+      const bz = u.z[i] - (dz / sp) * 0.9;
+      p.dust(bx + (Math.random() - 0.5) * 0.6, map.heightAt(bx, bz) + 0.15, bz + (Math.random() - 0.5) * 0.6, 0.55, 0.4, 1.4);
+    }
+  }
+
+  /** Scorch marks from blasts; every half second of game time, units wear the ground where they stand. */
+  private updateGround(events: SimEvent[]): void {
+    for (const e of events) {
+      if (e.type === 'explosion') this.ground.scorchAt(e.x, e.z, 1.5);
+      else if (e.type === 'death' && UNIT_TYPES[e.kind]?.vehicle) this.ground.scorchAt(e.x, e.z, 2.2);
+    }
+    const sim = this.sim;
+    const ticks = sim.tick - this.wearTick;
+    if (ticks < 0) this.wearTick = sim.tick;
+    if (ticks < 10) {
+      this.ground.update(0, sim.structures);
+      return;
+    }
+    this.wearTick = sim.tick;
+    const k = Math.min(ticks, 40) / 10;
+    const u = sim.units;
+    const seen = sim.vision.seen[this.team];
+    for (let i = 0; i < u.count; i++) {
+      if (!u.alive[i] || u.layer[i] !== 0) continue;
+      if (u.owner[i] !== this.team && seen[i] !== 1) continue;
+      const t = UNIT_TYPES[u.kind[i]];
+      if (t.fly) continue;
+      this.ground.wearAt(u.x[i], u.z[i], (t.vehicle ? 0.05 : 0.014) * k);
+    }
+    this.ground.update(ticks * 0.05, sim.structures);
   }
 
   /** The ray through the crosshair (screen centre): camera position plus yaw/pitch. */

@@ -24,9 +24,12 @@ Status of the 0.9.0 launch candidate. Items marked **You** need someone with acc
   commanders (120+ units, 200+ structures).
 - Pathfinding rebuilds are three times faster than before M7c. Rare ticks still take 40–60 ms when many
   units need fresh paths at once (about 30 times in that 20-minute match): at most a dropped frame or two.
-- Download: about 260 KB of JavaScript gzipped in total (three.js 137 KB, React 69 KB, game 107 KB), 6 KB
+- Download: about 290 KB of JavaScript gzipped in total (three.js with post-processing 150 KB, React 69 KB, game 118 KB), 6 KB
   of CSS.
-- Phones default to the low-quality preset (no shadows, fewer dynamic lights).
+- Phones default to the low-quality preset (no shadows, fewer dynamic lights, no post-processing, a lighter
+  ground shader and smaller particle pools).
+- New effects, CPU side: particles about 0.3 ms per frame in a heavy fight; ground wear and scorch updates
+  about 0.5 ms twice a second; night light pools about 1 ms four times a second.
 
 ## Balance snapshot (Normal, a player who does nothing)
 
@@ -53,6 +56,7 @@ and Duchess Varga break through on most maps; Nightshade, The Broker and The Qua
 ## Known limitations
 
 - Single player only (by design).
-- Art is code-built low-poly; no hand-made models or textures yet (asset budget, plan §4.1, is still open).
+- Models are code-built low-poly; no hand-made models yet (asset budget, plan §4.1, is still open). The
+  ground, water, smoke, fire and lighting effects are procedural (Art Phase 1).
 - Occasional short hitches when many units re-path at once (see Performance).
 - One save slot per browser; saves don't sync between devices.

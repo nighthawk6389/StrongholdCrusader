@@ -352,6 +352,23 @@ vision cheats.
 - **Style:** stylized low-poly 3D with flat-shaded materials and a limited
   palette. It reads well at RTS zoom and in the over-the-shoulder view, and it
   is cheap on phones. Bloom on lights at night.
+- **Art Phase 1 (done, no assets):** the environment carries the realism.
+  - Ground: per-tile surfaces in a small data texture, blended and broken up in
+    a shader with world-space noise; procedural sand ripples, rock strata and
+    cracks, grass clumps, oil sheen, damp sand at oases. Smooth normals, plus
+    open desert past the map edge.
+  - Living ground: paths wear in where units walk, packed earth around
+    buildings and walls, scorch marks that fade over minutes. Night light pools
+    come from the same shader, blurred so they're round.
+  - High quality only: ambient occlusion (GTAO), bloom, colour grade and
+    vignette (settings toggle). Phones keep the plain path.
+  - Particles: smoke, dust, fire, sparks and bouncing debris (instanced
+    billboards with painted-in-code textures); burning wrecks, smoking damaged
+    buildings, factory chimneys, vehicle dust trails, muzzle flashes.
+- **Next art phases (open, need the asset decision Q-A):** Phase 2 swaps in a
+  consistent low-poly asset pack for units, vehicles and buildings, with
+  animation. Phase 3 (optional) would be a realistic PBR look, a much bigger
+  download and budget.
 - **Camera:** a high-angle RTS camera with rotation and zoom.
 - **Desktop input:**
   - Classic RTS: left-click or drag to select, right-click to order.
@@ -504,6 +521,7 @@ docs/
 | — | **Playtest round 2** ✅ | Howitzer range cut to 30 (a little beyond gun towers); new **Mortar Pit** with counter-battery radar (fires back at any gun that shelled within reach, seen or not). Map variety: random layout every skirmish, two new maps (Ruined Town with cover-giving, salvageable ruins; Salt Flats with resources on the edges), guaranteed outcrops and a connectivity guarantee. No build radius for farms, work sites and stores. A crafty, bolder AI: scouting and intel-based army estimates, flank attacks on the weakest side with a feint at the gate, opportunistic attacks when it clearly outnumbers you, reinforcing winning assaults and pulling back broken ones, night sabotage by special forces (generators, gun towers), hunting an exposed Commander (strike drones too), mortar pits when shelled, extra producers for idle hands, and a rations/taxes planner that maximizes income within morale targets. Hard attacks earlier and more often. |
 | **M7a** | **Sound, settings, offline** ✅ | Procedural WebAudio (no files): per-weapon gunfire, explosions, shell whistles, mortars, build, fire, radio, alerts; stereo + distance falloff from the camera; voice cap; adaptive music (day/night pad, combat pulse, plucks). Settings screen (volumes, quality, camera speeds, edge pan, look sensitivity/invert, help card) saved in localStorage. Service worker (network-first pages, cache-first hashed assets, offline play), PNG + maskable icons, manifest polish. |
 | **M7b** | **Onboarding & rivals** ✅ | Guided 14-step tutorial mode (own scenario with a quiet walled outpost; steps complete from game state; skip; completion remembered). Nightshade (night-only main attacks, operators first, two sabotage raids a night), Duchess Varga (early motor pool, tanks/cars/Breachers), The Quartermaster (second ring of walls, big economy, late push). Trail grows to 8 stages. Small-phone tuning (tutorial card placement, building panels below the top bars, 4-column recruit grid). Combat fix: units give up on targets their shots can't reach (wall corners) instead of firing forever. |
+| **Art P1** | **Environment & atmosphere** ✅ | Shader-blended terrain with procedural detail (no tile grid), open desert beyond the map, worn paths and building aprons, scorch marks, smoother night light pools, varied boulders with strata, animated oasis water. High quality: GTAO, bloom, colour grade, vignette (toggle in Settings). Particle system for smoke, dust, fire, sparks and debris. |
 | **M7c** | **Launch** ✅ | Name (Garrison Zero), emblem and wordmark, regenerated app icons, loading splash, link-preview image and social meta. Sky dome (gradient, sun, moon, stars) and lamp halos at night; softer flashlight. Release hardening: crash screen, About (version, build id, privacy, credits, reset progress), vendor chunks for caching, 3× faster flow-field builds and no path invalidation for mines, wire and trenches. Release checklist in docs/RELEASE.md. |
 
 ---
@@ -540,6 +558,7 @@ docs/
 11. ~~**M7b** onboarding and rivals.~~ Done.
 12. ~~**M7c** launch build.~~ Done. Remaining steps need account access (see docs/RELEASE.md): name
     check, repository rename, Vercel project and domain, a live smoke test.
+13. ~~**Art Phase 1** (environment and atmosphere).~~ Done. Phase 2 waits on the asset decision (Q-A).
 
 ---
 

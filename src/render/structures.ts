@@ -586,8 +586,6 @@ export class StructureRenderer {
   /** Which enemy mines you've spotted (changes as engineers and dogs find them). */
   private mineSig = -1;
   private frame = 0;
-  private flames: THREE.InstancedMesh;
-  private flameMat = new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 0.85, depthWrite: false });
   private lightBudget: number;
   private readonly windowGeo = new THREE.BoxGeometry(1.6, 0.18, 1.82);
   private readonly lampGeo = new THREE.BoxGeometry(0.42, 0.24, 0.04);
@@ -598,13 +596,6 @@ export class StructureRenderer {
   ) {
     this.group.name = 'structures';
     this.lightBudget = maxLights;
-    const flame = new THREE.ConeGeometry(0.3, 1.1, 6);
-    flame.translate(0, 0.55, 0);
-    this.flames = new THREE.InstancedMesh(flame, this.flameMat, 256);
-    this.flames.count = 0;
-    this.flames.frustumCulled = false;
-    this.flames.renderOrder = 3;
-    this.group.add(this.flames);
     // Player floodlights get priority for the limited real-light budget.
     const sorted = [...sim.structures].sort(
       (a, b) => (a.kind === 'floodlight' && a.owner === 1 ? 0 : 1) - (b.kind === 'floodlight' && b.owner === 1 ? 0 : 1),
@@ -819,7 +810,7 @@ export class StructureRenderer {
     }
   }
 
-  /** Per-frame traps: refresh which enemy mines you know about; flicker flames on burning trenches. */
+  /** Per-frame traps: refresh which enemy mines you know about. (Burning trenches: see GameRenderer's particles.) */
   private updateTraps(): void {
     if (++this.frame % 15 === 0) {
       let sig = 0;
@@ -830,24 +821,6 @@ export class StructureRenderer {
       }
     }
     if (this.wallsDirty) this.rebuildWalls();
-    let n = 0;
-    const m4 = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const p = new THREE.Vector3();
-    const sc = new THREE.Vector3();
-    for (const s of this.sim.structures) {
-      if (s.burn <= 0 || n >= 256) continue;
-      const base = footprintBase(this.sim, s.tx, s.tz, 1, 1);
-      for (let k = 0; k < 2; k++) {
-        const f = 0.65 + Math.random() * 0.6;
-        p.set(s.tx + 0.3 + k * 0.4, base + 0.35 * f, s.tz + 0.35 + ((k * 7 + s.id) % 3) * 0.15);
-        q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, Math.random() * 6);
-        sc.set(f, f * (0.9 + Math.random() * 0.5), f);
-        this.flames.setMatrixAt(n++, m4.compose(p, q, sc));
-      }
-    }
-    this.flames.count = n;
-    this.flames.instanceMatrix.needsUpdate = true;
   }
 }
 

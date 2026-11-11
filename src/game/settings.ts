@@ -6,6 +6,8 @@ export interface Settings {
   music: number;
   /** Graphics preset ('auto' picks by device). Applies on the next start. */
   quality: 'auto' | 'low' | 'high';
+  /** High quality only: ambient occlusion, glow and colour grading. */
+  effects: boolean;
   /** Camera pan and rotate speed multipliers. */
   panSpeed: number;
   rotateSpeed: number;
@@ -23,6 +25,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sfx: 0.9,
   music: 0.5,
   quality: 'auto',
+  effects: true,
   panSpeed: 1,
   rotateSpeed: 1,
   edgePan: true,
@@ -44,6 +47,7 @@ export function sanitize(raw: unknown): Settings {
     sfx: clamp(r.sfx, 0, 1, d.sfx),
     music: clamp(r.music, 0, 1, d.music),
     quality: r.quality === 'low' || r.quality === 'high' ? r.quality : 'auto',
+    effects: typeof r.effects === 'boolean' ? r.effects : d.effects,
     panSpeed: clamp(r.panSpeed, 0.4, 2.5, d.panSpeed),
     rotateSpeed: clamp(r.rotateSpeed, 0.4, 2.5, d.rotateSpeed),
     edgePan: typeof r.edgePan === 'boolean' ? r.edgePan : d.edgePan,

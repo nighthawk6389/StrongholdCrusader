@@ -76,7 +76,12 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             ))}
           </div>
         </div>
-        <p className="muted small set-note">Quality changes apply the next time a game starts.</p>
+        <Toggle
+          label="Lighting effects on High (soft corner shadows, glow, colour grading)"
+          value={s.effects}
+          onChange={(v) => set({ effects: v })}
+        />
+        <p className="muted small set-note">Graphics changes apply the next time a game starts.</p>
         <h3>Camera</h3>
         <Slider label="Pan speed" value={s.panSpeed} min={0.4} max={2.5} step={0.1} format={times} onChange={(v) => set({ panSpeed: v })} />
         <Slider label="Rotate speed" value={s.rotateSpeed} min={0.4} max={2.5} step={0.1} format={times} onChange={(v) => set({ rotateSpeed: v })} />

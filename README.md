@@ -23,7 +23,7 @@ npm run dev        # http://localhost:5173
 ```
 
 URL options: `?debug=1` shows FPS and sim timing. `?quality=low|high` forces
-the render preset. `?seed=123` reshuffles the map's details.
+the render preset, and `?post=0|1` switches the high-quality lighting effects. `?seed=123` reshuffles the map's details.
 
 ## Game modes
 
@@ -84,7 +84,7 @@ The start screen picks the mode. You can also link straight to a match: `?mode=s
   controlling). Background music shifts from a warm day pad to a darker night one and a pulse rises with the
   fighting. Sound starts on your first click or tap (browsers require it).
 - **Settings** (**⚙** on the start screen and in game): master, effects and music volume; graphics quality
-  (auto, low, high); camera pan and rotate speed; edge scrolling; look sensitivity and inverted look for direct
+  (auto, low, high) and, on high, lighting effects (ambient occlusion, glow, colour grading); camera pan and rotate speed; edge scrolling; look sensitivity and inverted look for direct
   control; and whether the help card shows when a game starts. Settings are saved in your browser.
 - **Offline and install:** after one visit the game is cached and loads without a network. On phones, use "Add
   to Home Screen" (or the browser's install option) to get a full-screen app icon.
@@ -238,7 +238,8 @@ Take direct control:
 
 ```
 src/sim/      Pure TypeScript simulation: map gen, layered flow fields, units, economy, combat, vision, drones, waves, AI (no DOM/three)
-src/render/   Three.js renderer: terrain, structures, instanced soldiers, day/night, FX, cameras
+src/render/   Three.js renderer: shader-blended ground (ground.ts), terrain/water/rocks, structures,
+              instanced soldiers, day/night and sky, particles, post-processing (post.ts), cameras
 src/input/    Mouse / keyboard / touch → camera and commands; virtual joystick
 src/ui/       React HUD (zustand store)
 src/game/     Game loop wiring sim + render + input + HUD
