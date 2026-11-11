@@ -476,7 +476,7 @@ function BuildingPanel({ game }: { game: GameActions }) {
   const hpFrac = b.maxHp ? b.hp / b.maxHp : 1;
   return (
     <div className="bottombar">
-      <div className={`panel selection building-panel ${b.recruit || b.recipes || b.trade || b.drones ? 'wide' : ''}`}>
+      <div className={`panel selection building-panel ${b.recruit || b.recipes || b.trade || b.drones || b.contracts ? 'wide' : ''}`}>
         <div className="sel-label">
           <strong>{b.name}</strong>
           {b.level > 1 && <span className="badge ok">Lv {b.level}</span>}
@@ -494,7 +494,7 @@ function BuildingPanel({ game }: { game: GameActions }) {
             {b.hp}/{b.maxHp}
           </span>
         </div>
-        {!b.recruit && !b.trade && !b.drones && <div className="muted small">{b.description}</div>}
+        {!b.recruit && !b.trade && !b.drones && !b.contracts && <div className="muted small">{b.description}</div>}
         {b.jobs > 0 && !b.enemy && (
           <div className="small">
             Workers {b.workers}/{b.jobs}
@@ -554,6 +554,23 @@ function BuildingPanel({ game }: { game: GameActions }) {
             ))}
           </div>
         )}
+        {b.contracts && (
+          <div className="recruit-grid">
+            {b.contracts.map((ct) => (
+              <div key={ct.index} className={`recruit-card ${ct.blocker ? 'cant' : ''}`} title={ct.blocker ?? ct.blurb}>
+                <div className="recruit-name">{ct.name}</div>
+                <div className="recruit-cost">
+                  {ct.cost}
+                  <span className="muted"> · {ct.blurb}</span>
+                </div>
+                <Btn className="primary" disabled={!!ct.blocker} onClick={() => game.hire(ct.index)}>
+                  Hire
+                </Btn>
+              </div>
+            ))}
+          </div>
+        )}
+        {b.contracts && b.contracts.every((ct) => ct.blocker) && <div className="muted small">{b.contracts[0].blocker}</div>}
         {b.turret && (
           <div className="small">
             {b.turret.crewed ? '✓ Crewed: the gun fires on its own' : '✗ No crew: send a soldier up the tower (via stairs and walls)'} · belt {b.turret.ammo}/
@@ -745,7 +762,9 @@ function ControlOverlay({ game }: { game: GameActions }) {
       case 'vehicle':
         return c.artillery
           ? 'WASD drive · stop to deploy · aim at the ground · LMB fire a shell · Esc exit'
-          : 'WASD drive · mouse aim · LMB fire · RMB zoom · Esc exit';
+          : c.dozer
+            ? 'WASD drive · mouse aim · LMB fire · G push a ramp against a wall / fill a ditch · Esc exit'
+            : 'WASD drive · mouse aim · LMB fire · RMB zoom · Esc exit';
       default:
         return `WASD move · LMB fire · RMB aim · R reload${c.charges ? ' · G plant charge' : ''} · V flare${c.nvgAvailable ? ' · N night vision' : ''} · T slow-mo · Esc exit`;
     }
@@ -785,7 +804,16 @@ function ControlOverlay({ game }: { game: GameActions }) {
         <div className={`panel ammo ${s.isTouch ? 'touch' : ''}`}>
           <span className={`ammo-count ${c.ammo <= Math.max(1, c.mag * 0.2) ? 'low' : ''}`}>{c.reload !== null ? '··' : c.ammo}</span>
           <span className="muted">/ {c.mag}</span>
-          {c.charges > 0 && <span className="charges" title="Breach charges">💣 {c.charges}</span>}
+          {c.charges > 0 &&
+            (c.dozer ? (
+              <span className="charges" title="Assault ramps left">
+                ◢ {c.charges}
+              </span>
+            ) : (
+              <span className="charges" title="Breach charges">
+                💣 {c.charges}
+              </span>
+            ))}
           {c.reload !== null && (
             <div className="reload-bar">
               <div style={{ width: `${c.reload * 100}%` }} />
@@ -795,7 +823,7 @@ function ControlOverlay({ game }: { game: GameActions }) {
       )}
       {c?.plant !== null && c?.plant !== undefined && (
         <div className="panel plant-progress">
-          Planting charge…
+          {c.dozer ? 'Dozing…' : 'Planting charge…'}
           <div className="reload-bar">
             <div style={{ width: `${c.plant * 100}%` }} />
           </div>
@@ -823,6 +851,11 @@ function ControlOverlay({ game }: { game: GameActions }) {
               {c && c.charges > 0 && c.kind === 'soldier' && (
                 <Btn onClick={() => game.plantCharge()} className="round small-round">
                   Charge
+                </Btn>
+              )}
+              {c?.dozer && (
+                <Btn onClick={() => game.plantCharge()} className="round small-round" title="Push a ramp against a wall, or fill a ditch">
+                  Ramp
                 </Btn>
               )}
               {c?.nvgAvailable && (
@@ -909,17 +942,33 @@ function TauntRadio() {
 function ResultOverlay({ game }: { game: GameActions }) {
   const result = useHud((s) => s.result)!;
   const mode = useHud((s) => s.gameMode);
+  const trail = useHud((s) => s.trail);
   const win = result.result === 'victory';
   return (
     <div className="modal-backdrop">
       <div className={`panel modal result ${win ? 'win' : 'lose'}`}>
         <h2>{win ? 'Victory' : 'Defeat'}</h2>
         <p>{result.reason}</p>
+        {trail && (
+          <p className="small">
+            {win
+              ? trail.next
+                ? `Commander's Trail: stage ${trail.stage + 1} cleared. Next up: ${trail.next.title}.`
+                : `Commander's Trail complete: you've beaten every commander on it.`
+              : `Commander's Trail stage ${trail.stage + 1}: ${trail.title}. Have another go.`}
+          </p>
+        )}
         <div className="row end">
           <Btn onClick={() => game.restart()}>Main menu</Btn>
-          <Btn className="primary" onClick={() => game.restart(mode)}>
-            Play again
-          </Btn>
+          {trail?.next ? (
+            <Btn className="primary" onClick={() => game.playTrail(trail.next!.stage)}>
+              Next stage
+            </Btn>
+          ) : (
+            <Btn className="primary" onClick={() => game.restart(mode)}>
+              {trail && win ? 'Play again' : trail ? 'Try again' : 'Play again'}
+            </Btn>
+          )}
         </div>
       </div>
     </div>
@@ -933,12 +982,25 @@ function Help({ game }: { game: GameActions }) {
   return (
     <div className="modal-backdrop" onClick={() => game.dismissHelp()}>
       <div className="panel modal" onClick={(e) => e.stopPropagation()}>
-        <h2>{s.gameMode === 'hold' ? 'Hold the Line' : s.gameMode === 'skirmish' ? `Skirmish vs ${s.opponent?.name ?? 'AI'}` : 'Sandbox'}</h2>
+        <h2>
+          {s.gameMode === 'hold'
+            ? 'Hold the Line'
+            : s.trail
+              ? `Commander's Trail ${s.trail.stage + 1}: ${s.trail.title}`
+              : s.gameMode === 'skirmish'
+                ? `Skirmish vs ${s.opponent?.name ?? 'AI'}`
+                : 'Sandbox'}
+        </h2>
+        {s.opponent && (
+          <p className="small">
+            <b>{s.opponent.name}</b> ({s.opponent.title}, {s.opponent.difficulty}) on <b>{s.opponent.map}</b>: {s.opponent.blurb}
+          </p>
+        )}
         <p className="muted">
           {s.gameMode === 'hold'
             ? 'Six waves will attack from the east, two of them at night. Keep your HQ and Commander alive. '
             : s.gameMode === 'skirmish'
-              ? `${s.opponent?.name} is building a fortress in the east and will attack once his army is ready. Destroy his HQ or kill his Commander, and protect yours. A Trade Post lets you sell surplus for funds. `
+              ? `${s.opponent?.name} is building a fortress in the east and will attack once their army is ready. Destroy their HQ or kill their Commander, and protect yours. A Trade Post lets you sell surplus for funds; a Contracts Office hires ready-made teams. `
               : 'No waves: build at your own pace. '}
           Put troops <b>on the walls</b>: they get range and cover. Engineers can blow holes in walls and gates.
           To train more soldiers, idle civilians, weapons from the <b>Armory</b> and funds are needed. Weapons are made at an{' '}

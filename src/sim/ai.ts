@@ -1,8 +1,9 @@
 import { ringBlueprint, ringReserve, type Piece, type Side } from './blueprint';
 import { Tile } from './map';
 import type { Controller, Sim, SimEvent } from './sim';
-import { GEAR_RES, Res, STRUCTURE_DEFS, footprint, type ResId, type StructureKind } from './structures';
-import { RATION_LEVELS } from './economy';
+import { GEAR_RES, Res, STRUCTURE_DEFS, footprint, type ResId, type Structure, type StructureKind } from './structures';
+import { RATION_LEVELS, TAX_LEVELS } from './economy';
+import { CONTRACTS } from './contracts';
 import { RECRUITABLE, UNIT_TYPES, UnitKind } from './unitTypes';
 import { RETURN_AT } from './drones';
 import { CYCLE_SEC } from './clock';
@@ -62,23 +63,71 @@ export const DIFFICULTY: Record<Difficulty, AiTuning> = {
 type Near = 'trees' | 'fertile' | 'rock' | 'oil' | 'home' | 'producers';
 
 interface BuildStep {
-  kind: StructureKind | 'fortFront' | 'fortRing' | 'nightKit' | 'gunTowers';
+  kind: StructureKind | 'fortFront' | 'fortRing' | 'nightKit' | 'gunTowers' | 'traps' | 'searchlights';
   /** Target number of this kind (cumulative), so destroyed buildings get rebuilt. */
   count?: number;
   near?: Near;
+  /** Steel-hungry extras normally wait for spare steel; eager ones don't. */
+  eager?: boolean;
 }
 
+/** Multipliers on the difficulty's attack timing and size. */
+interface Tempo {
+  firstAttack?: number;
+  attackSize?: number;
+  attackGap?: number;
+  attackGrowth?: number;
+  garrison?: number;
+}
+
+type LineKey = 'start' | 'attack' | 'lostBuilding' | 'hqHit' | 'attackFailed' | 'win' | 'lose';
+
+export type OpponentKey = 'sarge' | 'jackal' | 'engineer' | 'warden' | 'broker';
+
 export interface Personality {
+  key: OpponentKey;
   name: string;
+  /** One-line style, for menus. */
+  title: string;
+  blurb: string;
   /** Relative weights of the army mix. */
   mix: Partial<Record<number, number>>;
   build: BuildStep[];
-  lines: Record<'start' | 'attack' | 'lostBuilding' | 'hqHit' | 'attackFailed' | 'win' | 'lose', string[]>;
+  /** Vehicles wanted from the motor pool (Normal and up), in priority order: [kind, on Normal, on Hard]. */
+  armor: [number, number, number][];
+  tempo?: Tempo;
+  /** Small, fast raids on farms and work sites outside the enemy's walls. */
+  raids?: { size: number; every: number; from: number };
+  /** Gun towers on every side, not just by the front gate. */
+  extraGunTowers?: boolean;
+  /** Hires PMC teams with spare cash. */
+  contracts?: boolean;
+  /** Runs high taxes and sells surplus hard. */
+  trader?: boolean;
+  /** Lights the fuel trenches when the enemy walks into them. */
+  ignites?: boolean;
+  /** Upgrade priorities (default: producers and housing). */
+  upgrades?: StructureKind[];
+  lines: Record<LineKey, string[]> & { raid?: string[]; hire?: string[] };
+}
+
+function withTempo(t: AiTuning, m: Tempo = {}): AiTuning {
+  return {
+    ...t,
+    firstAttack: Math.round(t.firstAttack * (m.firstAttack ?? 1)),
+    attackSize: Math.max(4, Math.round(t.attackSize * (m.attackSize ?? 1))),
+    attackGap: Math.round(t.attackGap * (m.attackGap ?? 1)),
+    attackGrowth: Math.max(1, Math.round(t.attackGrowth * (m.attackGrowth ?? 1))),
+    garrison: Math.max(2, Math.round(t.garrison * (m.garrison ?? 1))),
+  };
 }
 
 /** Old Sarge: balanced, methodical, walls up early, steady infantry pushes. */
 export const OLD_SARGE: Personality = {
+  key: 'sarge',
   name: 'Old Sarge',
+  title: 'Balanced veteran',
+  blurb: 'Walls up early, then steady infantry pushes with a tank or two. A fair first opponent.',
   mix: { [UnitKind.Rifleman]: 5, [UnitKind.Gunner]: 2, [UnitKind.Marksman]: 1, [UnitKind.Engineer]: 2, [UnitKind.AT]: 1 },
   build: [
     { kind: 'lumber', count: 1, near: 'trees' },
@@ -108,6 +157,11 @@ export const OLD_SARGE: Personality = {
     { kind: 'arms', count: 2, near: 'home' },
     { kind: 'lumber', count: 3, near: 'trees' },
   ],
+  armor: [
+    [UnitKind.Tank, 1, 2],
+    [UnitKind.ArmoredCar, 1, 1],
+    [UnitKind.Howitzer, 0, 1],
+  ],
   lines: {
     start: ["Old Sarge here. Dig in, kid. The desert doesn't forgive sloppy walls."],
     attack: ['Alright, step off. Mind the wire.', "Here we come. Hope you've been eating your rations.", 'Move out! Eyes on that gate.'],
@@ -118,6 +172,235 @@ export const OLD_SARGE: Personality = {
     lose: ['Well... you earned it. Carry on.'],
   },
 };
+
+/** Jackal: light walls, fast cars, raids on your farms from the first minutes, early and frequent attacks. */
+export const JACKAL: Personality = {
+  key: 'jackal',
+  name: 'Jackal',
+  title: 'Raider',
+  blurb: 'Hits early and often. Armored cars and small raiding parties go after your farms and work camps.',
+  mix: { [UnitKind.Rifleman]: 6, [UnitKind.Gunner]: 1, [UnitKind.Engineer]: 2, [UnitKind.AT]: 1 },
+  build: [
+    { kind: 'lumber', count: 1, near: 'trees' },
+    { kind: 'orchard', count: 1, near: 'fertile' },
+    { kind: 'quarry', count: 1, near: 'rock' },
+    { kind: 'house', count: 3, near: 'home' },
+    { kind: 'scrapyard', count: 1, near: 'home' },
+    { kind: 'arms', count: 1, near: 'home' },
+    { kind: 'market', count: 1, near: 'home' },
+    { kind: 'lumber', count: 2, near: 'trees' },
+    { kind: 'ranch', count: 1, near: 'home' },
+    { kind: 'scrapyard', count: 2, near: 'home' },
+    { kind: 'derrick', count: 1, near: 'oil', eager: true },
+    { kind: 'motorpool', count: 1, near: 'home', eager: true },
+    { kind: 'fortFront' },
+    { kind: 'house', count: 4, near: 'home' },
+    { kind: 'arms', count: 2, near: 'home' },
+    { kind: 'nightKit' },
+    { kind: 'orchard', count: 2, near: 'fertile' },
+    { kind: 'quarry', count: 2, near: 'rock' },
+    { kind: 'depot', count: 2, near: 'producers' },
+    { kind: 'house', count: 5, near: 'home' },
+    { kind: 'generator', count: 2, near: 'home' },
+    { kind: 'dronebay', count: 1, near: 'home' },
+    { kind: 'scrapyard', count: 3, near: 'home' },
+  ],
+  armor: [
+    [UnitKind.ArmoredCar, 2, 3],
+    [UnitKind.Tank, 0, 1],
+  ],
+  tempo: { firstAttack: 0.75, attackSize: 0.9, attackGap: 0.8, attackGrowth: 0.8, garrison: 0.5 },
+  raids: { size: 4, every: 75, from: 150 },
+  lines: {
+    start: ["Jackal. Nice farms you've got there. Be a shame if something happened to them."],
+    attack: ['Go go go! Hit them before they wake up!', 'Fast and loud, boys!', "Here's your wake-up call."],
+    raid: ['Smells like breakfast. Go get it.', "Torch the fields, we're not staying.", 'Quick snack run. Back before dark.'],
+    lostBuilding: ['Pfft. I never liked that one.', "Cute. My turn next."],
+    hqHit: ['Hey, hey, the paint!', 'Okay, that one I felt.'],
+    attackFailed: ['Eh. Plenty more where they came from.', 'Hit and run. Mostly run.'],
+    win: ['Too slow! Better luck next time.'],
+    lose: ["Fine, fine. You're quicker than you look."],
+  },
+};
+
+/** The Engineer: minefields, wire, ditches and fuel trenches outside the walls; howitzers and breachers. */
+export const THE_ENGINEER: Personality = {
+  key: 'engineer',
+  name: 'The Engineer',
+  title: 'Sapper',
+  blurb: 'Turns the ground outside the walls into a death trap: wire, mines, ditches and fuel trenches that go up in flames under you. Shells you from afar.',
+  mix: { [UnitKind.Rifleman]: 4, [UnitKind.Gunner]: 1, [UnitKind.Marksman]: 1, [UnitKind.Engineer]: 4, [UnitKind.AT]: 1 },
+  build: [
+    { kind: 'lumber', count: 1, near: 'trees' },
+    { kind: 'orchard', count: 1, near: 'fertile' },
+    { kind: 'quarry', count: 1, near: 'rock' },
+    { kind: 'lumber', count: 2, near: 'trees' },
+    { kind: 'house', count: 3, near: 'home' },
+    { kind: 'scrapyard', count: 1, near: 'home' },
+    { kind: 'market', count: 1, near: 'home' },
+    { kind: 'quarry', count: 2, near: 'rock' },
+    { kind: 'ranch', count: 1, near: 'home' },
+    { kind: 'arms', count: 1, near: 'home' },
+    { kind: 'fortFront' },
+    { kind: 'scrapyard', count: 2, near: 'home' },
+    { kind: 'derrick', count: 1, near: 'oil', eager: true },
+    { kind: 'motorpool', count: 1, near: 'home', eager: true },
+    { kind: 'traps' },
+    { kind: 'nightKit' },
+    { kind: 'depot', count: 2, near: 'producers' },
+    { kind: 'house', count: 4, near: 'home' },
+    { kind: 'orchard', count: 2, near: 'fertile' },
+    { kind: 'generator', count: 2, near: 'home' },
+    { kind: 'gunTowers' },
+    { kind: 'fortRing' },
+    { kind: 'scrapyard', count: 3, near: 'home' },
+    { kind: 'house', count: 5, near: 'home' },
+    { kind: 'arms', count: 2, near: 'home' },
+    { kind: 'dronebay', count: 1, near: 'home' },
+  ],
+  armor: [
+    [UnitKind.Howitzer, 1, 2],
+    [UnitKind.Breacher, 1, 1],
+    [UnitKind.Tank, 0, 1],
+  ],
+  tempo: { firstAttack: 1.1, attackGap: 1.05 },
+  ignites: true,
+  upgrades: ['scrapyard', 'derrick', 'quarry', 'lumber', 'arms', 'orchard', 'house', 'generator'],
+  lines: {
+    start: ['The Engineer. Please mind the gap. Specifically, the one full of fuel.'],
+    attack: ['Commencing demolition.', 'Load-bearing walls detected. Not for long.', 'Survey team, advance.'],
+    lostBuilding: ['That was within tolerances. Barely.', 'I will be filing a complaint.'],
+    hqHit: ['Structural damage to the main office. Unacceptable.', 'Stop that. I just had it plastered.'],
+    attackFailed: ['Recalculating.', 'A setback. I have more blueprints.'],
+    win: ['Your defenses failed inspection.'],
+    lose: ['Hm. I underestimated your load capacity.'],
+  },
+};
+
+/** Warden: a searchlit fortress bristling with gun towers; a big garrison; slow, heavy, armored assaults. */
+export const WARDEN: Personality = {
+  key: 'warden',
+  name: 'Warden',
+  title: 'Fortress',
+  blurb: 'Gun towers on every wall, searchlights sweeping the dark, a big garrison. Comes for you late, with tanks.',
+  mix: { [UnitKind.Rifleman]: 4, [UnitKind.Gunner]: 2, [UnitKind.Marksman]: 2, [UnitKind.Engineer]: 1, [UnitKind.AT]: 1 },
+  build: [
+    { kind: 'lumber', count: 1, near: 'trees' },
+    { kind: 'orchard', count: 1, near: 'fertile' },
+    { kind: 'quarry', count: 1, near: 'rock' },
+    { kind: 'quarry', count: 2, near: 'rock' },
+    { kind: 'house', count: 3, near: 'home' },
+    { kind: 'scrapyard', count: 1, near: 'home' },
+    { kind: 'market', count: 1, near: 'home' },
+    { kind: 'lumber', count: 2, near: 'trees' },
+    { kind: 'ranch', count: 1, near: 'home' },
+    { kind: 'arms', count: 1, near: 'home' },
+    { kind: 'fortFront' },
+    { kind: 'scrapyard', count: 2, near: 'home' },
+    { kind: 'gunTowers' },
+    { kind: 'scrapyard', count: 3, near: 'home' },
+    { kind: 'fortRing' },
+    { kind: 'generator', count: 2, near: 'home' },
+    { kind: 'nightKit' },
+    { kind: 'searchlights' },
+    { kind: 'kennel', count: 1, near: 'home' },
+    { kind: 'depot', count: 2, near: 'producers' },
+    { kind: 'house', count: 4, near: 'home' },
+    { kind: 'orchard', count: 2, near: 'fertile' },
+    { kind: 'derrick', count: 1, near: 'oil' },
+    { kind: 'motorpool', count: 1, near: 'home' },
+    { kind: 'generator', count: 3, near: 'home' },
+    { kind: 'scrapyard', count: 3, near: 'home' },
+    { kind: 'house', count: 5, near: 'home' },
+    { kind: 'arms', count: 2, near: 'home' },
+    { kind: 'dronebay', count: 1, near: 'home' },
+  ],
+  armor: [
+    [UnitKind.Tank, 1, 2],
+    [UnitKind.Howitzer, 1, 1],
+  ],
+  tempo: { firstAttack: 1.4, attackSize: 1.5, attackGap: 1.15, attackGrowth: 1.2, garrison: 1.6 },
+  extraGunTowers: true,
+  upgrades: ['guntower', 'tower', 'gate', 'searchlight', 'scrapyard', 'quarry', 'lumber', 'arms', 'house', 'generator', 'floodlight'],
+  lines: {
+    start: ['Warden speaking. Lights on. Nobody gets in. Nobody gets out.'],
+    attack: ['Inmates, fall in. We have a transfer to make.', 'Lockdown is over. For you.', 'Release the column.'],
+    lostBuilding: ['A breach in the perimeter. Noted.', 'Someone will answer for that.'],
+    hqHit: ['You are trespassing on state property.', 'Return fire. All towers.'],
+    attackFailed: ['Back to the cells. We wait.', 'Patience. The walls will hold.'],
+    win: ['Your sentence begins now.'],
+    lose: ['The perimeter... has fallen.'],
+  },
+};
+
+/** The Broker: markets and taxes pay for PMC teams; infantry-heavy, with a car or two. */
+export const THE_BROKER: Personality = {
+  key: 'broker',
+  name: 'The Broker',
+  title: 'Trader',
+  blurb: 'Taxes hard, trades everything, and buys ready-made PMC teams when the cash piles up. Armies appear fast.',
+  mix: { [UnitKind.Rifleman]: 5, [UnitKind.Gunner]: 2, [UnitKind.Marksman]: 1, [UnitKind.Engineer]: 2, [UnitKind.AT]: 1 },
+  build: [
+    { kind: 'lumber', count: 1, near: 'trees' },
+    { kind: 'orchard', count: 1, near: 'fertile' },
+    { kind: 'quarry', count: 1, near: 'rock' },
+    { kind: 'lumber', count: 2, near: 'trees' },
+    { kind: 'house', count: 3, near: 'home' },
+    { kind: 'scrapyard', count: 1, near: 'home' },
+    { kind: 'market', count: 1, near: 'home' },
+    { kind: 'quarry', count: 2, near: 'rock' },
+    { kind: 'ranch', count: 1, near: 'home' },
+    { kind: 'arms', count: 1, near: 'home' },
+    { kind: 'fortFront' },
+    { kind: 'contracts', count: 1, near: 'home' },
+    { kind: 'house', count: 4, near: 'home' },
+    { kind: 'nightKit' },
+    { kind: 'depot', count: 2, near: 'producers' },
+    { kind: 'orchard', count: 2, near: 'fertile' },
+    { kind: 'scrapyard', count: 2, near: 'home' },
+    { kind: 'house', count: 5, near: 'home' },
+    { kind: 'gunTowers' },
+    { kind: 'generator', count: 2, near: 'home' },
+    { kind: 'derrick', count: 1, near: 'oil' },
+    { kind: 'motorpool', count: 1, near: 'home' },
+    { kind: 'fortRing' },
+    { kind: 'house', count: 6, near: 'home' },
+    { kind: 'lumber', count: 3, near: 'trees' },
+  ],
+  armor: [
+    [UnitKind.ArmoredCar, 1, 1],
+    [UnitKind.Tank, 0, 1],
+  ],
+  tempo: { attackSize: 1.1 },
+  contracts: true,
+  trader: true,
+  upgrades: ['house', 'scrapyard', 'quarry', 'lumber', 'orchard', 'ranch', 'depot', 'arms', 'generator'],
+  lines: {
+    start: ['The Broker. Everything has a price. Yours is very reasonable.'],
+    attack: ['My associates will see you now.', "Consider this a hostile takeover.", 'Invoice delivered.'],
+    hire: ['Fresh contractors on the payroll.', 'Money talks. Today it shouts.'],
+    lostBuilding: ['That will come out of your account.', 'Insured. Mostly.'],
+    hqHit: ['Careful! The ledgers are in there!', 'You break it, you buy it.'],
+    attackFailed: ['A write-off. There are always more contracts.', 'Poor returns on that one.'],
+    win: ['Pleasure doing business.'],
+    lose: ['Fine. Name your price.'],
+  },
+};
+
+export const PERSONALITIES: Record<OpponentKey, Personality> = {
+  sarge: OLD_SARGE,
+  jackal: JACKAL,
+  engineer: THE_ENGINEER,
+  broker: THE_BROKER,
+  warden: WARDEN,
+};
+
+/** Opponents in menu order (roughly easiest first). */
+export const OPPONENTS: OpponentKey[] = ['sarge', 'jackal', 'engineer', 'broker', 'warden'];
+
+export function isOpponentKey(k: string | null | undefined): k is OpponentKey {
+  return !!k && k in PERSONALITIES;
+}
 
 /** Build steps that only go ahead with steel to spare. */
 const EXTRAS: StructureKind[] = ['generator', 'dronebay', 'derrick', 'motorpool'];
@@ -154,6 +437,17 @@ export class AiCommander implements Controller {
   private said = new Set<string>();
   private lastBuildAt = -1e9;
 
+  private raidGroup: number[] = [];
+  private raidTried = new Set<number>();
+  private lastRaidAt = -1e9;
+  private lastHireAt = -1e9;
+  private lastIgniteAt = -1e9;
+  /** Counters for inspection and tests. */
+  raidsLaunched = 0;
+  hires = 0;
+  /** The Engineer's field works outside the front wall, in building order. */
+  private readonly fieldworks: { kind: StructureKind; tiles: number[] }[];
+
   constructor(
     readonly owner: number,
     readonly enemy: number,
@@ -161,13 +455,36 @@ export class AiCommander implements Controller {
     readonly personality: Personality,
     readonly difficulty: Difficulty,
     private ring = 11,
+    front: Side = 'west',
   ) {
-    this.tuning = DIFFICULTY[difficulty];
+    this.tuning = withTempo(DIFFICULTY[difficulty], personality.tempo);
     this.nextAttackAt = this.tuning.firstAttack;
     this.attackSize = this.tuning.attackSize;
-    this.front = 'west';
+    this.front = front;
     this.pieces = ringBlueprint(home.x, home.z, ring, ['east', 'west', 'north', 'south']);
     this.reserved = ringReserve(home.x, home.z, ring);
+    this.fieldworks = personality.build.some((b) => b.kind === 'traps') ? this.layoutFieldworks() : [];
+  }
+
+  /**
+   * Lines in front of the front wall: wire close in, a row of mines across the approach, ditches
+   * on the flanks (the gate lane stays open for the AI's own army), and a fuel trench furthest out.
+   */
+  private layoutFieldworks(): { kind: StructureKind; tiles: number[] }[] {
+    const f = this.front === 'west' ? -1 : 1;
+    const wall = this.home.x + f * this.ring;
+    const hz = this.home.z;
+    const line = (dx: number, z0: number, z1: number): number[] => {
+      const out: number[] = [];
+      for (let z = z0; z <= z1; z++) out.push(wall + f * dx, z);
+      return out;
+    };
+    return [
+      { kind: 'ditch', tiles: [...line(6, hz - 11, hz - 4), ...line(6, hz + 4, hz + 11)] },
+      { kind: 'wire', tiles: line(2, hz - 9, hz + 9) },
+      { kind: 'mines', tiles: line(4, hz - 6, hz + 6) },
+      { kind: 'trench', tiles: line(8, hz - 8, hz + 8) },
+    ];
   }
 
   /** Called with the step's events before they're drained (see Sim.step). */
@@ -202,6 +519,54 @@ export class AiCommander implements Controller {
     this.flares(sim);
     this.drones(sim);
     this.upgrades(sim);
+    this.hireContracts(sim);
+    this.igniteTrenches(sim);
+  }
+
+  /** The Broker: when cash piles up, buy the PMC team the army mix is missing. */
+  private hireContracts(sim: Sim): void {
+    if (!this.personality.contracts || sim.elapsed - this.lastHireAt < 5) return;
+    const office = sim.structures.find((s) => s.owner === this.owner && s.kind === 'contracts');
+    if (!office) return;
+    const p = sim.economy.player(this.owner);
+    const need = this.neededKind(sim);
+    let idx = CONTRACTS.findIndex((c) => c.units[0][0] === need);
+    // No cars of our own yet and the motor pool isn't up: hire one.
+    const cars = sim.units.kind.some((k, i) => sim.units.alive[i] && sim.units.owner[i] === this.owner && k === UnitKind.ArmoredCar);
+    if (!cars && this.difficulty !== 'easy' && sim.elapsed > 400) idx = CONTRACTS.findIndex((c) => c.key === 'car');
+    if (idx < 0) idx = 0;
+    const reserve = this.difficulty === 'easy' ? 250 : 60;
+    if (p.funds < CONTRACTS[idx].funds + reserve) return;
+    if (sim.economy.hireBlocker(this.owner, office.id, idx)) return;
+    this.lastHireAt = sim.elapsed;
+    this.hires++;
+    sim.enqueue({ type: 'hire', owner: this.owner, office: office.id, contract: idx });
+    if (this.hires % 3 === 1) this.say(sim, 'hire');
+  }
+
+  /** The Engineer: set a fuel trench alight under the enemy (never under the AI's own people). */
+  private igniteTrenches(sim: Sim): void {
+    if (!this.personality.ignites || sim.elapsed - this.lastIgniteAt < 4) return;
+    const u = sim.units;
+    const trenches = sim.structures.filter((s) => s.owner === this.owner && s.kind === 'trench' && s.burn === 0);
+    if (trenches.length === 0) return;
+    let hit: Structure | null = null;
+    for (const s of trenches) {
+      for (let i = 0; i < u.count && !hit; i++) {
+        if (!u.alive[i] || u.owner[i] !== this.enemy || u.layer[i] !== 0 || !UNIT_TYPES[u.kind[i]].armed || UNIT_TYPES[u.kind[i]].fly) continue;
+        if (Math.abs(u.x[i] - (s.tx + 0.5)) < 1.6 && Math.abs(u.z[i] - (s.tz + 0.5)) < 1.6) hit = s;
+      }
+      if (hit) break;
+    }
+    if (!hit) return;
+    // Fire runs the length of the trench: hold off while any of ours are near it.
+    for (const s of trenches) {
+      for (let i = 0; i < u.count; i++) {
+        if (u.alive[i] && u.owner[i] === this.owner && u.layer[i] === 0 && Math.hypot(u.x[i] - (s.tx + 0.5), u.z[i] - (s.tz + 0.5)) < 2.5) return;
+      }
+    }
+    this.lastIgniteAt = sim.elapsed;
+    sim.enqueue({ type: 'ignite', owner: this.owner, id: hit.id });
   }
 
   private lastUpgradeAt = -1e9;
@@ -211,8 +576,10 @@ export class AiCommander implements Controller {
     if (sim.elapsed - this.lastUpgradeAt < 25) return;
     const p = sim.economy.player(this.owner);
     if (p.funds < 160) return;
-    const order: StructureKind[] = ['scrapyard', 'quarry', 'lumber', 'arms', 'orchard', 'ranch', 'house', 'depot', 'generator'];
-    if (this.difficulty === 'hard') order.push('tower');
+    const order: StructureKind[] = [
+      ...(this.personality.upgrades ?? ['scrapyard', 'quarry', 'lumber', 'arms', 'orchard', 'ranch', 'house', 'depot', 'generator']),
+    ];
+    if (this.difficulty === 'hard' && !order.includes('tower')) order.push('tower');
     for (const kind of order) {
       for (const s of sim.structures) {
         if (s.owner !== this.owner || s.kind !== kind) continue;
@@ -229,6 +596,7 @@ export class AiCommander implements Controller {
 
   private say(sim: Sim, kind: keyof Personality['lines']): void {
     const lines = this.personality.lines[kind];
+    if (!lines?.length) return;
     const text = lines[sim.rng.int(lines.length)];
     sim.emit({ type: 'taunt', owner: this.owner, name: this.personality.name, text });
   }
@@ -242,7 +610,9 @@ export class AiCommander implements Controller {
     if (ration !== p.rationLevel) sim.enqueue({ type: 'setRations', owner: this.owner, level: ration });
     if (sim.elapsed - this.lastTaxChange >= 15) {
       // Moderate taxes: enough income to recruit without bleeding people.
-      const tax = p.morale < 45 ? 1 : p.morale < 56 ? 2 : p.morale < 80 ? 3 : 4;
+      let tax = p.morale < 45 ? 1 : p.morale < 56 ? 2 : p.morale < 80 ? 3 : 4;
+      // The Broker squeezes harder while people are happy enough to take it.
+      if (this.personality.trader && p.morale > 62) tax = Math.min(TAX_LEVELS.length - 1, tax + 1);
       if (tax !== p.taxLevel) {
         this.lastTaxChange = sim.elapsed;
         sim.enqueue({ type: 'setTax', owner: this.owner, level: tax });
@@ -256,10 +626,12 @@ export class AiCommander implements Controller {
     if (!sim.economy.hasMarket(this.owner)) return;
     const p = sim.economy.player(this.owner);
     const walling = this.pieces.some((pc) => !sim.structureAt(pc.tx, pc.tz));
+    // The Broker sells hard once he's set up (not while he still needs the timber).
+    const trader = !!this.personality.trader && sim.elapsed > 360;
     const keep: [ResId, number][] = [
-      [Res.Timber, 90],
-      [Res.Concrete, walling ? 400 : 50],
-      [Res.Steel, 30],
+      [Res.Timber, trader ? 60 : 90],
+      [Res.Concrete, walling ? 400 : trader ? 35 : 50],
+      [Res.Steel, trader ? 24 : 30],
       [Res.Fuel, 30],
     ];
     for (const g of GEAR_RES) keep.push([g, 6]);
@@ -276,12 +648,13 @@ export class AiCommander implements Controller {
     }
     // Tanks need fuel: buy it if there's no derrick keeping up.
     const pool = sim.structures.some((s) => s.owner === this.owner && s.kind === 'motorpool');
-    if (pool && this.difficulty !== 'easy' && p.stock[Res.Fuel] < 12 && p.funds > 100) {
+    const trenchFuel = this.fieldworks.length > 0 && sim.elapsed > 240;
+    if ((pool || trenchFuel) && this.difficulty !== 'easy' && p.stock[Res.Fuel] < 12 && p.funds > 100) {
       sim.enqueue({ type: 'trade', owner: this.owner, res: Res.Fuel, amount: 5 });
       return;
     }
-    // Rich but short of weapons: buy the one the army mix needs most.
-    if (p.funds > 190 && p.stored('gear') < p.gearCap - 2) {
+    // Rich but short of weapons: buy the one the army mix needs most (the Broker saves for contracts).
+    if (p.funds > 190 && !this.personality.contracts && p.stored('gear') < p.gearCap - 2) {
       const gear = UNIT_TYPES[this.neededKind(sim)].gear;
       if (gear !== null && p.stock[gear] < 4) sim.enqueue({ type: 'trade', owner: this.owner, res: gear, amount: 2 });
     }
@@ -370,11 +743,19 @@ export class AiCommander implements Controller {
         if (!this.gunTowers(sim)) return;
         continue;
       }
+      if (step.kind === 'traps') {
+        if (!this.layTraps(sim)) return;
+        continue;
+      }
+      if (step.kind === 'searchlights') {
+        if (!this.searchlights(sim)) return;
+        continue;
+      }
       if (this.impossible.has(`${step.kind}:${step.count}`)) continue;
       if (this.count(sim, step.kind) >= (step.count ?? 1)) continue;
       const def = STRUCTURE_DEFS[step.kind];
       // Extras that eat steel wait for a surplus instead of holding up the build (weapons come first).
-      if (EXTRAS.includes(step.kind) && (!p.canAfford(def.cost) || p.stock[Res.Steel] < SPARE_STEEL + (def.cost.steel ?? 0))) continue;
+      if (EXTRAS.includes(step.kind) && !step.eager && (!p.canAfford(def.cost) || p.stock[Res.Steel] < SPARE_STEEL + (def.cost.steel ?? 0))) continue;
       if (!p.canAfford(def.cost)) return; // save up for the next step
       if (!this.tryBuild(sim, step.kind, step.near ?? 'home')) {
         // Fall back to a ranch when there's no fertile ground in reach.
@@ -432,14 +813,88 @@ export class AiCommander implements Controller {
     return false;
   }
 
-  /** Where the two gun towers go: just inside the front wall, touching it, either side of the gate. */
+  /**
+   * Where gun towers go: two just inside the front wall, touching it, either side of the gate (Normal
+   * and up). Warden adds one inside each of the other walls (and keeps the front pair on Easy).
+   */
   private gunTowerSpots(): { tx: number; tz: number }[] {
-    if (this.difficulty === 'easy') return [];
-    const tx = this.front === 'west' ? this.home.x - this.ring + 1 : this.home.x + this.ring - 2;
-    return [
-      { tx, tz: this.home.z - 4 },
-      { tx, tz: this.home.z + 3 },
+    const extra = !!this.personality.extraGunTowers;
+    if (this.difficulty === 'easy' && !extra) return [];
+    const { x: hx, z: hz } = this.home;
+    const r = this.ring;
+    const tx = this.front === 'west' ? hx - r + 1 : hx + r - 2;
+    const spots = [
+      { tx, tz: hz - 4 },
+      { tx, tz: hz + 3 },
     ];
+    if (extra && this.difficulty !== 'easy') {
+      spots.push(
+        { tx: hx + 2, tz: hz - r + 1 },
+        { tx: hx + 2, tz: hz + r - 2 },
+        { tx: this.front === 'west' ? hx + r - 2 : hx - r + 1, tz: hz + 2 },
+      );
+    }
+    return spots;
+  }
+
+  /** The Engineer's field works, one line at a time. Returns true when done (or waiting on steel/fuel). */
+  private layTraps(sim: Sim): boolean {
+    const p = sim.economy.player(this.owner);
+    for (const fw of this.fieldworks) {
+      const todo: number[] = [];
+      for (let k = 0; k + 1 < fw.tiles.length; k += 2) {
+        const x = fw.tiles[k];
+        const z = fw.tiles[k + 1];
+        const key = `${fw.kind}@${x},${z}`;
+        if (this.impossible.has(key)) continue;
+        const s = sim.structureAt(x, z);
+        if (s && s.owner === this.owner && s.kind === fw.kind) continue;
+        const check = sim.economy.canPlaceWallTile(this.owner, x, z);
+        if (!check.ok) {
+          if (check.reason !== 'Enemies in the way') this.impossible.add(key);
+          continue;
+        }
+        todo.push(x, z);
+      }
+      if (todo.length === 0) continue;
+      const cost = STRUCTURE_DEFS[fw.kind].cost;
+      // Steel and fuel go to weapons and vehicles first: lay these when there's some to spare.
+      if ((cost.steel ?? 0) > 0 && p.stock[Res.Steel] < SPARE_STEEL) continue;
+      if ((cost.fuel ?? 0) > 0 && p.stock[Res.Fuel] < 6) continue;
+      if (!p.canAfford(cost)) return false;
+      sim.enqueue({ type: 'buildWall', owner: this.owner, kind: fw.kind, tiles: todo });
+      this.lastBuildAt = sim.elapsed;
+      return false;
+    }
+    return true;
+  }
+
+  /** Warden: more searchlights, sweeping the sides and the rear. Returns true when all are up. */
+  private searchlights(sim: Sim): boolean {
+    const p = sim.economy.player(this.owner);
+    const { x: hx, z: hz } = this.home;
+    const r = this.ring - 3;
+    const f = this.front === 'west' ? -1 : 1;
+    const kit: { tx: number; tz: number; rot: number }[] = [
+      { tx: hx + f * r, tz: hz - 6, rot: (f * Math.PI) / 2 },
+      { tx: hx - 4, tz: hz - r, rot: Math.PI },
+      { tx: hx - 4, tz: hz + r, rot: 0 },
+      { tx: hx - f * r, tz: hz + 4, rot: (-f * Math.PI) / 2 },
+    ];
+    for (const k of kit) {
+      const key = `searchlight@${k.tx},${k.tz}`;
+      if (this.impossible.has(key)) continue;
+      const s = sim.structureAt(k.tx, k.tz);
+      if (s && s.kind === 'searchlight' && s.owner === this.owner) continue;
+      if (!p.canAfford(STRUCTURE_DEFS.searchlight.cost) || p.stock[Res.Steel] < 14) return true; // later
+      if (sim.economy.canPlace(this.owner, 'searchlight', k.tx, k.tz).ok) {
+        sim.enqueue({ type: 'build', owner: this.owner, kind: 'searchlight', tx: k.tx, tz: k.tz, rot: k.rot });
+        this.lastBuildAt = sim.elapsed;
+        return false;
+      }
+      this.impossible.add(key);
+    }
+    return true;
   }
 
   /** Normal and up: two gun towers by the front gate. Returns true when done (or impossible). */
@@ -594,13 +1049,20 @@ export class AiCommander implements Controller {
   /** First valid site spiralling out from an anchor, keeping clear of the planned ring. */
   private findSpot(sim: Sim, kind: StructureKind, ax: number, az: number, maxR: number): { tx: number; tz: number } | null {
     const { w, h } = footprint(kind, 0);
+    // Never build up against a doorway: boxed-in doors strand workers and soldiers.
+    const doors = new Set<number>();
+    for (const s of sim.structures) if (s.owner === this.owner) doors.add(Math.floor(s.doorZ) * sim.map.width + Math.floor(s.doorX));
+    const nearDoor = (tx: number, tz: number): boolean => {
+      for (let z = tz - 1; z <= tz + h; z++) for (let x = tx - 1; x <= tx + w; x++) if (doors.has(z * sim.map.width + x)) return true;
+      return false;
+    };
     for (let r = 0; r <= maxR; r++) {
       for (let dz = -r; dz <= r; dz++) {
         for (let dx = -r; dx <= r; dx++) {
           if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
           const tx = Math.round(ax - w / 2) + dx;
           const tz = Math.round(az - h / 2) + dz;
-          if (this.touchesReserve(tx, tz, w, h)) continue;
+          if (this.touchesReserve(tx, tz, w, h) || nearDoor(tx, tz)) continue;
           if (sim.economy.canPlace(this.owner, kind, tx, tz).ok) return { tx, tz };
         }
       }
@@ -629,6 +1091,19 @@ export class AiCommander implements Controller {
     }
     for (const g of this.garrison) if (!u.isAlive(g)) this.garrison.delete(g);
     this.attackGroup = this.attackGroup.filter((id) => u.isAlive(id) && sim.combat.assault[id]);
+    // Stragglers who never got out of the base (boxed in, lost the path) don't hold up the next attack.
+    if (this.attackGroup.length && sim.elapsed - this.attackLaunchedAt > 120) {
+      const stuck = this.attackGroup.filter((id) => Math.hypot(u.x[id] - this.home.x, u.z[id] - this.home.z) < this.ring + 8);
+      if (stuck.length) {
+        sim.enqueue({ type: 'stop', owner: this.owner, ids: stuck });
+        this.attackGroup = this.attackGroup.filter((id) => !stuck.includes(id));
+      }
+    }
+    // A spent assault (a few survivors still fighting on) doesn't hold up the next one either.
+    if (this.attackGroup.length && sim.elapsed - this.attackLaunchedAt > 180 && this.attackGroup.length <= Math.max(2, this.launched.length * 0.25)) {
+      this.attackGroup = [];
+    }
+    this.raidGroup = this.raidGroup.filter((id) => u.isAlive(id) && u.owner[id] === this.owner);
 
     // What should the arms factories make? Whatever is furthest below the desired mix.
     const mix: Partial<Record<number, number>> = {};
@@ -659,14 +1134,7 @@ export class AiCommander implements Controller {
     if (pool && this.difficulty !== 'easy') {
       const n = (k: number): number => byKind.get(k) ?? 0;
       const hard = this.difficulty === 'hard';
-      const want =
-        n(UnitKind.Tank) < (hard ? 2 : 1)
-          ? UnitKind.Tank
-          : n(UnitKind.ArmoredCar) < 1
-            ? UnitKind.ArmoredCar
-            : hard && n(UnitKind.Howitzer) < 1
-              ? UnitKind.Howitzer
-              : -1;
+      const want = this.personality.armor.find(([k, normal, onHard]) => n(k) < (hard ? onHard : normal))?.[0] ?? -1;
       if (want >= 0) {
         const t = UNIT_TYPES[want];
         // Only hold back infantry when the tank is nearly paid for (materials in hand, half the cash).
@@ -696,9 +1164,12 @@ export class AiCommander implements Controller {
       if (best >= 0) sim.enqueue({ type: 'recruit', owner: this.owner, barracks: barracks.id, kind: best, count: 1 });
     }
 
+    const raiding = new Set(this.raidGroup);
     const free = army.filter(
-      (i) => !this.garrison.has(i) && !sim.combat.assault[i] && u.order[i] !== Order.Control && u.task[i] !== Task.Recruit,
+      (i) =>
+        !this.garrison.has(i) && !raiding.has(i) && !sim.combat.assault[i] && u.order[i] !== Order.Control && u.task[i] !== Task.Recruit,
     );
+    this.manageRaids(sim, free);
 
     // Man the front wall (prefer marksmen and machine gunners up there).
     const deck = this.frontDeckTiles(sim);
@@ -751,6 +1222,7 @@ export class AiCommander implements Controller {
     this.attackGroup = [...free];
     this.launched = [...free];
     this.lastAttackLaunched = true;
+    this.attackLaunchedAt = sim.elapsed;
     this.reportedFailure = false;
     this.nextAttackAt = sim.elapsed + this.tuning.attackGap;
     this.attackSize += this.tuning.attackGrowth;
@@ -758,8 +1230,82 @@ export class AiCommander implements Controller {
   }
 
   private lastAttackLaunched = false;
+  private attackLaunchedAt = -1e9;
   private reportedFailure = false;
   private launched: number[] = [];
+
+  /**
+   * Jackal's raids: a few fast soldiers (cars first) go after the enemy's work sites, move on to the
+   * next one nearby, and come home when there's nothing soft left in reach. `free` loses the raiders.
+   */
+  private manageRaids(sim: Sim, free: number[]): void {
+    const r = this.personality.raids;
+    if (!r) return;
+    const u = sim.units;
+    const { x: hx, z: hz } = this.home;
+    if (this.raidGroup.length) {
+      const idle = this.raidGroup.filter((id) => u.order[id] === Order.Idle);
+      if (idle.length === 0) return;
+      let cx = 0;
+      let cz = 0;
+      for (const id of this.raidGroup) {
+        cx += u.x[id];
+        cz += u.z[id];
+      }
+      cx /= this.raidGroup.length;
+      cz /= this.raidGroup.length;
+      const homeD = Math.hypot(cx - hx, cz - hz);
+      if (homeD < this.ring + 4) {
+        this.raidGroup = []; // home again: back into the army
+        return;
+      }
+      const next = homeD > this.ring + 12 ? this.raidPick(sim, cx, cz, 22) : null;
+      if (next) {
+        this.raidTried.add(next.id);
+        sim.enqueue({ type: 'attackStructure', owner: this.owner, ids: idle, structure: next.id });
+      } else {
+        sim.enqueue({ type: 'move', owner: this.owner, ids: idle, x: hx, z: hz + 2 });
+      }
+      return;
+    }
+    if (sim.elapsed < r.from || sim.elapsed - this.lastRaidAt < r.every || this.attackGroup.length > 0) return;
+    const target = this.raidPick(sim, hx, hz, 200);
+    if (!target) return;
+    const tx = target.tx + target.w / 2;
+    const tz = target.tz + target.h / 2;
+    const fast = (k: number): number => (k === UnitKind.ArmoredCar ? 0 : k === UnitKind.Rifleman ? 1 : k === UnitKind.Gunner ? 2 : 9);
+    const pool = free
+      .filter((i) => u.order[i] === Order.Idle && fast(u.kind[i]) < 9)
+      .sort((a, b) => fast(u.kind[a]) - fast(u.kind[b]) || Math.hypot(u.x[a] - tx, u.z[a] - tz) - Math.hypot(u.x[b] - tx, u.z[b] - tz) || a - b);
+    if (pool.length < Math.min(3, r.size)) return;
+    const group = pool.slice(0, r.size);
+    this.raidTried.add(target.id);
+    sim.enqueue({ type: 'attackStructure', owner: this.owner, ids: group, structure: target.id });
+    this.raidGroup = group;
+    this.lastRaidAt = sim.elapsed;
+    this.raidsLaunched++;
+    for (const id of group) free.splice(free.indexOf(id), 1);
+    if (this.raidsLaunched % 2 === 1) this.say(sim, 'raid');
+  }
+
+  /** Enemy work sites (farms, camps, derricks) first, then any soft building; nearest to (x, z). */
+  private raidPick(sim: Sim, x: number, z: number, maxD: number): Structure | null {
+    let best: Structure | null = null;
+    let bestScore = Infinity;
+    for (const s of sim.structures) {
+      if (s.owner !== this.enemy || this.raidTried.has(s.id)) continue;
+      const def = STRUCTURE_DEFS[s.kind];
+      if (def.armored || def.trap || s.kind === 'ramp' || s.kind === 'floodlight' || s.kind === 'stairs') continue;
+      const d = Math.hypot(s.tx + s.w / 2 - x, s.tz + s.h / 2 - z);
+      if (d > maxD) continue;
+      const score = d + (def.producer ? 0 : 25);
+      if (score < bestScore) {
+        bestScore = score;
+        best = s;
+      }
+    }
+    return best;
+  }
 
   private garrisonRank(kind: number): number {
     return kind === UnitKind.Marksman ? 0 : kind === UnitKind.Gunner ? 1 : kind === UnitKind.Rifleman ? 2 : 3;

@@ -99,6 +99,8 @@ export interface UnitType {
   /** Extra materials to build one (vehicles). */
   steel: number;
   fuel: number;
+  /** Dozer blade: plows mines aside, fills ditches fast, and pushes assault ramps (`charges`) against walls. */
+  dozer: boolean;
 
   armed: boolean;
   controllable: boolean;
@@ -139,6 +141,7 @@ const base = {
   hitbox: null as [number, number] | null,
   steel: 0,
   fuel: 0,
+  dozer: false,
   armed: true,
   controllable: true,
   selectable: true,
@@ -500,6 +503,39 @@ export const UNIT_TYPES: UnitType[] = [
     funds: 35,
     blurb: 'Anti-tank rockets: the answer to armor. Also dents walls and gates.',
   },
+  {
+    ...base,
+    id: 13,
+    key: 'breacher',
+    name: 'Breacher',
+    speed: 2.0,
+    hp: 1200,
+    radius: 0.38,
+    range: 16,
+    damage: 10,
+    cooldown: 4,
+    autoRange: 12,
+    autoDamage: 6,
+    autoCooldown: 5,
+    autoJitter: 3,
+    spread: 0.07,
+    structDamage: 2,
+    charges: 2,
+    plantSec: 5,
+    sight: 14,
+    nightVision: 0.5,
+    mag: 100,
+    reloadSec: 4,
+    vehicle: true,
+    armor: 0.14,
+    dozer: true,
+    hitbox: [0.85, 1.2],
+    gear: null,
+    funds: 120,
+    steel: 16,
+    fuel: 6,
+    blurb: 'Armored dozer: plows through minefields, fills ditches in seconds and pushes assault ramps against enemy walls (2 ramps) so infantry can climb over.',
+  },
 ];
 
 export const UnitKind = {
@@ -516,10 +552,11 @@ export const UnitKind = {
   Tank: 10,
   Howitzer: 11,
   AT: 12,
+  Breacher: 13,
 } as const;
 
 /** Vehicles the Motor Pool builds, in menu order. */
-export const VEHICLES = [UnitKind.ArmoredCar, UnitKind.Tank, UnitKind.Howitzer];
+export const VEHICLES = [UnitKind.ArmoredCar, UnitKind.Tank, UnitKind.Howitzer, UnitKind.Breacher];
 
 /** Drone kinds a Drone Bay can launch, in menu order. */
 export const DRONE_KINDS = [UnitKind.ReconDrone, UnitKind.StrikeDrone];

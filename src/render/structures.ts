@@ -445,6 +445,41 @@ export function bodyGeometry(kind: StructureKind, owner: number): THREE.BufferGe
           box(0.25, 0.02, 0.12, -0.15, 0.045, 0.1, 0x3b3a44),
         ]),
       );
+    case 'ramp':
+      // Steel assault ramp rising toward +z (the wall it leans on), in the owner's colours.
+      return cached(`ramp${owner}`, () =>
+        merge([
+          box(0.92, 0.08, 1.25, 0, 0.42, -0.02, 0x9a9c86, { rx: -0.66 }),
+          box(0.06, 0.2, 1.25, -0.45, 0.5, -0.02, 0x6a6e5c, { rx: -0.66 }),
+          box(0.06, 0.2, 1.25, 0.45, 0.5, -0.02, 0x6a6e5c, { rx: -0.66 }),
+          box(0.9, 0.07, 0.04, 0, 0.2, -0.3, 0x2c2f28, { rx: -0.66 }),
+          box(0.9, 0.07, 0.04, 0, 0.47, 0.05, 0x2c2f28, { rx: -0.66 }),
+          box(0.12, 0.8, 0.12, -0.38, 0.4, 0.42, 0x3e4238),
+          box(0.12, 0.8, 0.12, 0.38, 0.4, 0.42, 0x3e4238),
+          box(0.7, 0.08, 0.03, 0, 0.12, -0.5, team),
+        ]),
+      );
+    case 'contracts':
+      // A prefab office with a sign, a flagpole and a parked pickup.
+      return cached(`contracts${owner}`, () =>
+        merge([
+          box(2.9, 0.06, 2.9, 0, 0.03, 0, COLORS.asphalt),
+          box(2.2, 1.2, 1.5, -0.25, 0.6, -0.55, 0xd6d0c0),
+          box(2.3, 0.1, 1.6, -0.25, 1.25, -0.55, 0x5a5f66),
+          box(0.6, 0.85, 0.04, -0.25, 0.43, 0.21, COLORS.windowDark),
+          box(0.5, 0.3, 0.04, -1.0, 0.75, 0.21, 0x9fb7c8),
+          box(1.4, 0.32, 0.06, -0.25, 1.5, 0.15, 0x1f2328),
+          box(1.2, 0.1, 0.07, -0.25, 1.5, 0.16, team),
+          cylinder(0.035, 0.04, 2.4, 1.15, 1.2, -1.1, COLORS.metal, 5),
+          box(0.6, 0.36, 0.03, 1.45, 2.2, -1.1, team),
+          // Pickup truck
+          box(0.6, 0.35, 1.2, 0.9, 0.35, 0.75, 0x3d3f3a),
+          box(0.56, 0.3, 0.45, 0.9, 0.67, 0.55, 0x3d3f3a),
+          box(0.5, 0.2, 0.03, 0.9, 0.7, 0.33, 0x8fa3b0),
+          cylinder(0.14, 0.14, 0.64, 0.9, 0.16, 0.4, 0x1a1a1a, 8, { rz: Math.PI / 2 }),
+          cylinder(0.14, 0.14, 0.64, 0.9, 0.16, 1.1, 0x1a1a1a, 8, { rz: Math.PI / 2 }),
+        ]),
+      );
     case 'wire':
       return cached('wire', () =>
         merge([
@@ -578,7 +613,7 @@ export class StructureRenderer {
       const fire = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.35, 5), this.lampMaterial);
       fire.position.set(0.3, 0.3, 0.45);
       root.add(fire);
-    } else if (s.kind === 'gate' || s.kind === 'stairs') {
+    } else if (s.kind === 'gate' || s.kind === 'stairs' || s.kind === 'ramp') {
       mesh.rotation.y = s.rot;
     } else if (s.kind === 'floodlight') {
       mesh.rotation.y = s.rot;

@@ -43,6 +43,7 @@ export function buildTerrain(map: GameMap): THREE.Mesh {
           hex = pick(COLORS.sand, hv);
       }
       c.setHex(hex);
+      if (t !== Tile.Water && t !== Tile.Fertile) c.offsetHSL(map.tint.hue, map.tint.sat, map.tint.light);
       // Subtle height shading so dunes read even under flat light.
       const avgH = (h00 + h10 + h01 + h11) * 0.25;
       if (t === Tile.Sand) c.offsetHSL(0, 0, avgH * 0.018);
@@ -122,7 +123,10 @@ export function buildScatter(map: GameMap): THREE.Group {
   }
 
   const rockGeo = paint(new THREE.IcosahedronGeometry(0.7, 0), 0xffffff);
-  const rockMat = new THREE.MeshLambertMaterial({ color: COLORS.rockMesh, flatShading: true });
+  const rockMat = new THREE.MeshLambertMaterial({
+    color: new THREE.Color(COLORS.rockMesh).offsetHSL(map.tint.hue, map.tint.sat, map.tint.light),
+    flatShading: true,
+  });
   const rockMesh = new THREE.InstancedMesh(rockGeo, rockMat, rocks.length);
   rocks.forEach((r, i) => {
     const k = 0.75 + r.h * 0.7;

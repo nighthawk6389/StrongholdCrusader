@@ -1,5 +1,5 @@
 import type { Difficulty } from './ai';
-import { createScenario, type GameMode, type Scenario } from './scenario';
+import { createScenario, type GameMode, type MatchOptions, type Scenario } from './scenario';
 import type { Sim } from './sim';
 
 /**
@@ -11,13 +11,15 @@ import type { Sim } from './sim';
  */
 
 /** Bump when a change to the sim's state would make older saves restore wrongly (they're then discarded). */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export interface SimSave {
   v: number;
   mode: GameMode;
   seed: number;
   difficulty: Difficulty;
+  /** Skirmish opponent and map (absent in older saves: Old Sarge on Oasis Basin). */
+  opts?: MatchOptions;
   /** Encoded simulation state (see `encode`). */
   sim: unknown;
 }
@@ -38,6 +40,7 @@ const SKIP = new Set([
   'tuning',
   'pieces',
   'reserved',
+  'fieldworks',
   // Terrain is regenerated from the seed and never changes during a match.
   'tiles',
   'heights',
@@ -193,14 +196,14 @@ export function restore(target: unknown, s: unknown): unknown {
 
 // ------------------------------------------------------------------ whole games
 
-export function saveSim(sim: Sim, mode: GameMode, seed: number, difficulty: Difficulty): SimSave {
-  return { v: SAVE_VERSION, mode, seed, difficulty, sim: encode(sim) };
+export function saveSim(sim: Sim, mode: GameMode, seed: number, difficulty: Difficulty, opts: MatchOptions = {}): SimSave {
+  return { v: SAVE_VERSION, mode, seed, difficulty, opts, sim: encode(sim) };
 }
 
 /** Rebuild the scenario and restore the saved state into it. Throws on an incompatible save. */
 export function loadSim(save: SimSave): Scenario {
   if (save.v !== SAVE_VERSION) throw new Error(`Save version ${save.v} is not supported`);
-  const scenario = createScenario(save.mode, save.seed, save.difficulty);
+  const scenario = createScenario(save.mode, save.seed, save.difficulty, save.opts ?? {});
   const sim = scenario.sim;
   const data = save.sim as { economy?: { players?: { $m?: [number, unknown][] } } };
   // Make sure every saved side has a PlayerEconomy instance to restore into.

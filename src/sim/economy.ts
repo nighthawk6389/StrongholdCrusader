@@ -21,6 +21,7 @@ import {
   type StructureKind,
 } from './structures';
 import { UNIT_TYPES, UnitKind } from './unitTypes';
+import { CONTRACTS, CONTRACT_COOLDOWN } from './contracts';
 import { CARRY_LOG, CARRY_NONE, Order, Task } from './units';
 
 // ------------------------------------------------------------------ tuning tables
@@ -102,6 +103,8 @@ export class PlayerEconomy {
   /** Flares on hand (one more every FLARE_REGEN_SEC, up to FLARE_MAX). */
   flares = FLARE_MAX;
   flareTimer = 0;
+  /** Sim time when the next PMC contract can be signed. */
+  contractAt = 0;
   powerSupply = 0;
   powerDemand = 0;
 
@@ -564,6 +567,47 @@ export class Economy {
     return n;
   }
 
+  /** Why a PMC contract can't be signed right now, or null. */
+  hireBlocker(owner: number, officeId: number, contract: number): string | null {
+    const office = this.sim.structureById(officeId);
+    if (!office || office.owner !== owner || office.kind !== 'contracts') return 'Needs a Contracts Office';
+    const c = CONTRACTS[contract];
+    if (!c) return 'No such contract';
+    const p = this.player(owner);
+    const wait = p.contractAt - this.sim.elapsed;
+    if (wait > 0) return `Next contract in ${Math.ceil(wait)}s`;
+    if (p.funds < c.funds) return 'Not enough funds';
+    return null;
+  }
+
+  /** Sign a PMC contract: pay, and the team turns up outside the office. Returns their unit ids. */
+  hire(owner: number, officeId: number, contract: number): number[] {
+    if (this.hireBlocker(owner, officeId, contract)) return [];
+    const office = this.sim.structureById(officeId)!;
+    const c = CONTRACTS[contract];
+    const p = this.player(owner);
+    p.funds -= c.funds;
+    p.contractAt = this.sim.elapsed + CONTRACT_COOLDOWN;
+    const d = this.door(office);
+    const ids: number[] = [];
+    let k = 0;
+    for (const [kind, n] of c.units) {
+      for (let j = 0; j < n; j++, k++) {
+        const spot = UNIT_TYPES[kind].vehicle ? (this.openGround(d.x, d.z) ?? d) : d;
+        let x = spot.x + (UNIT_TYPES[kind].vehicle ? 0 : ((k % 3) - 1) * 0.5);
+        let z = spot.z + (UNIT_TYPES[kind].vehicle ? 0 : Math.floor(k / 3) * 0.5);
+        // Never inside a wall or a building: fall back to the doorstep.
+        if (!this.sim.map.walkableAt(x, z, 0, owner)) {
+          x = spot.x;
+          z = spot.z;
+        }
+        ids.push(this.sim.spawnUnit(kind, owner, x, z));
+      }
+    }
+    this.sim.emit({ type: 'hired', owner, name: c.name, ids });
+    return ids;
+  }
+
   /** Nearest tile centre whose whole 3×3 neighbourhood is free ground, or null. */
   private openGround(x: number, z: number): { x: number; z: number } | null {
     const map = this.sim.map;
@@ -1014,8 +1058,12 @@ export class Economy {
         if (!store) return this.goToStore(i, s, u.carry[i] as ResId);
         const sd = this.door(store);
         const r = this.reached(i, sd.x, sd.z);
-        if (r === 'stuck') return this.wait(i, 2);
+        if (r === 'stuck') {
+          this.unreachableStore.set(i, store.id);
+          return this.wait(i, 2);
+        }
         if (!r) return;
+        this.unreachableStore.delete(i);
         this.deposit(i, s);
         this.startLeg(i, Task.ToWork, door.x, door.z);
         return;
@@ -1039,12 +1087,15 @@ export class Economy {
     if (u.order[i] === Order.Move) u.order[i] = Order.Idle;
   }
 
-  private nearestStore(owner: number, kind: StoreKind, x: number, z: number): Structure | undefined {
+  /** Stores a worker couldn't get to last time (unit id → store id): it tries the others first. */
+  private unreachableStore = new Map<number, number>();
+
+  private nearestStore(owner: number, kind: StoreKind, x: number, z: number, avoid = -1): Structure | undefined {
     let best: Structure | undefined;
     let bestD = Infinity;
     for (const st of this.sim.structures) {
       if (st.owner !== owner || STRUCTURE_DEFS[st.kind].storage?.kind !== kind) continue;
-      const d = Math.hypot(st.doorX - x, st.doorZ - z);
+      const d = Math.hypot(st.doorX - x, st.doorZ - z) + (st.id === avoid ? 1e4 : 0);
       if (d < bestD) {
         bestD = d;
         best = st;
@@ -1103,7 +1154,7 @@ export class Economy {
       s.status = 'storageFull';
       return this.wait(i, 2);
     }
-    const best = this.nearestStore(s.owner, kind, u.x[i], u.z[i]);
+    const best = this.nearestStore(s.owner, kind, u.x[i], u.z[i], this.unreachableStore.get(i) ?? -1);
     if (!best) {
       s.status = 'storageFull';
       return this.wait(i, 3);

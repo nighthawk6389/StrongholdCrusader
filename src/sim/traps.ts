@@ -86,6 +86,17 @@ export class Traps {
       if (!u.alive[i] || u.owner[i] === s.owner || u.layer[i] !== 0) continue;
       const t = UNIT_TYPES[u.kind[i]];
       if (t.fly) continue;
+      // A dozer blade turns mines up and shoves them aside before the tracks reach them.
+      if (t.dozer) {
+        const fx = u.x[i] + Math.sin(u.heading[i]) * 0.9;
+        const fz = u.z[i] + Math.cos(u.heading[i]) * 0.9;
+        if (Math.abs(fx - cx) < 0.85 && Math.abs(fz - cz) < 0.85) {
+          sim.removeStructure(s);
+          sim.emit({ type: 'explosion', x: cx, z: cz, owner: u.owner[i] });
+          sim.emit({ type: 'notice', owner: s.owner, text: 'An enemy Breacher is plowing through your minefield' });
+          return;
+        }
+      }
       const dx = Math.abs(u.x[i] - cx);
       const dz = Math.abs(u.z[i] - cz);
       // Stepped on it.

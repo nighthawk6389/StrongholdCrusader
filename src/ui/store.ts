@@ -90,6 +90,17 @@ export interface BuildingInfo {
   /** Upgrade level and the next upgrade on offer (null when fully upgraded or not upgradeable). */
   level: number;
   upgrade: { name: string; description: string; cost: string; blocker: string | null } | null;
+  /** Contracts Office: PMC teams for hire. */
+  contracts: ContractOption[] | null;
+}
+
+export interface ContractOption {
+  index: number;
+  name: string;
+  blurb: string;
+  cost: string;
+  /** Why it can't be signed right now (null = it can). */
+  blocker: string | null;
 }
 
 export interface DroneOption {
@@ -116,9 +127,11 @@ export interface ControlInfo {
   mag: number;
   /** Reload progress 0..1 while reloading, else null. */
   reload: number | null;
-  /** Breach charges carried. */
+  /** Breach charges carried (assault ramps for a Breacher). */
   charges: number;
-  /** Charge-plant progress 0..1, else null. */
+  /** Breacher: G pushes a ramp or fills a ditch. */
+  dozer: boolean;
+  /** Charge-plant (or ramp / ditch work) progress 0..1, else null. */
   plant: number | null;
   /** Drone battery 0..1 and seconds left (null for non-drones). */
   battery: number | null;
@@ -169,8 +182,10 @@ export interface HudState {
   gameMode: GameMode;
   wave: WaveInfo | null;
   result: { result: 'victory' | 'defeat'; reason: string } | null;
-  /** Skirmish opponent. */
-  opponent: { name: string; difficulty: string } | null;
+  /** Skirmish opponent (and the map you're on). */
+  opponent: { name: string; difficulty: string; title: string; blurb: string; map: string } | null;
+  /** Commander's Trail stage being played; `next` is set after a win that unlocks another stage. */
+  trail: { stage: number; title: string; next: { stage: number; title: string } | null } | null;
   /** Latest radio message from the opponent. */
   taunt: { name: string; text: string } | null;
   power: { supply: number; demand: number };
@@ -223,6 +238,7 @@ export const useHud = create<HudState>(() => ({
   wave: null,
   result: null,
   opponent: null,
+  trail: null,
   taunt: null,
   power: { supply: 0, demand: 0 },
   nightShift: false,

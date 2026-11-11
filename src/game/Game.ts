@@ -9,6 +9,10 @@ import { PRICES, RES_INFO, Res, STRUCTURE_DEFS, costText, footprint, maxHp, next
 import type { Difficulty } from '../sim/ai';
 import { DRONE_KINDS, RECRUITABLE, UNIT_TYPES, UnitKind, VEHICLES } from '../sim/unitTypes';
 import { DRONE_COST } from '../sim/drones';
+import { CONTRACTS } from '../sim/contracts';
+import { MAPS } from '../sim/maps';
+import { TRAIL, clearTrailStage, setupQuery, trailSetup, type MatchSetup } from './setup';
+import { DOZER_FILL_SEC } from '../sim/combat';
 import { Order } from '../sim/units';
 import { GameRenderer, detectQuality } from '../render/GameRenderer';
 import { InputController } from '../input/InputController';
@@ -54,12 +58,15 @@ export interface GameActions {
   setBuildOpen(open: boolean): void;
   setMoraleOpen(open: boolean): void;
   recruit(kind: number, count: number): void;
+  hire(contract: number): void;
   setRecipe(index: number): void;
   trade(res: number, amount: number): void;
   setNightShift(on: boolean): void;
   startFlare(): void;
   cancelTargeting(): void;
   restart(mode?: GameMode): void;
+  /** Start a Commander's Trail stage. */
+  playTrail(stage: number): void;
   reload(): void;
   plantCharge(): void;
   toggleNvg(): void;
@@ -120,6 +127,8 @@ export class Game implements GameActions {
   private slowMo = false;
   private lastHit = { unit: -1, at: 0 };
   readonly seed: number;
+  /** What this match is (mode, opponent, map, trail stage). */
+  readonly setup: MatchSetup;
   readonly difficulty: Difficulty;
   /** Navigating away on purpose (restart / main menu): don't autosave over the cleared slot. */
   private leaving = false;
@@ -153,11 +162,11 @@ export class Game implements GameActions {
   private tauntTimer = 0;
   private readonly basePos: { x: number; z: number };
 
-  constructor(canvas: HTMLCanvasElement, overlay: HTMLElement, mode: GameMode, resume: StoredGame | null = null) {
+  constructor(canvas: HTMLCanvasElement, overlay: HTMLElement, setup: MatchSetup, resume: StoredGame | null = null) {
     const params = new URLSearchParams(location.search);
-    const diffParam = params.get('difficulty');
-    let difficulty: Difficulty = diffParam === 'easy' || diffParam === 'hard' ? diffParam : 'normal';
-    let seed = Number(params.get('seed')) || 1337;
+    const mode = setup.mode;
+    let difficulty: Difficulty = setup.difficulty;
+    let seed = setup.seed;
     let scenario: Scenario | null = null;
     let loadFailed = false;
     if (resume) {
@@ -172,7 +181,8 @@ export class Game implements GameActions {
         loadFailed = true;
       }
     }
-    if (!scenario) scenario = createScenario(mode, seed, difficulty);
+    if (!scenario) scenario = createScenario(mode, seed, difficulty, { opponent: setup.opponent, map: setup.map });
+    this.setup = { ...setup, difficulty, seed };
     this.seed = seed;
     this.difficulty = difficulty;
     this.sim = scenario.sim;
@@ -196,7 +206,16 @@ export class Game implements GameActions {
     setHud({
       isTouch,
       gameMode: mode,
-      opponent: scenario.ai ? { name: scenario.ai.personality.name, difficulty: label } : null,
+      opponent: scenario.ai
+        ? {
+            name: scenario.ai.personality.name,
+            difficulty: label,
+            title: scenario.ai.personality.title,
+            blurb: scenario.ai.personality.blurb,
+            map: MAPS[setup.map].name,
+          }
+        : null,
+      trail: setup.trail !== null ? { stage: setup.trail, title: TRAIL[setup.trail].title, next: null } : null,
       quality: quality.name,
       debug: params.has('debug'),
       showHelp: !seenHelp,
@@ -256,10 +275,13 @@ export class Game implements GameActions {
         mode: this.mode,
         difficulty: this.difficulty,
         seed: this.seed,
+        opponent: this.setup.opponent,
+        map: this.setup.map,
+        trail: this.setup.trail,
         label: `Day ${info.day + 1} · ${formatHour(info.hour)}`,
         savedAt: Date.now(),
       },
-      save: saveSim(this.sim, this.mode, this.seed, this.difficulty),
+      save: saveSim(this.sim, this.mode, this.seed, this.difficulty, { opponent: this.setup.opponent, map: this.setup.map }),
       view: { x: rts.target.x, z: rts.target.z, yaw: rts.yaw, dist: rts.dist, speed: this.speed },
     });
     if (!ok && !this.warnedStorage) {
@@ -457,6 +479,7 @@ export class Game implements GameActions {
       mag: 0,
       reload: null,
       charges: 0,
+      dozer: false,
       plant: null,
       battery: null,
       batterySec: 0,
@@ -481,7 +504,11 @@ export class Game implements GameActions {
         mag: t.mag,
         reload: u.reload[c] > 0 ? 1 - u.reload[c] / t.reloadSec : null,
         charges: u.charges[c],
-        plant: u.plantTimer[c] > 0 ? 1 - u.plantTimer[c] / t.plantSec : null,
+        dozer: t.dozer,
+        plant:
+          u.plantTimer[c] > 0
+            ? 1 - u.plantTimer[c] / (t.dozer && this.sim.structureById(u.targetStruct[c])?.kind === 'ditch' ? DOZER_FILL_SEC : t.plantSec)
+            : null,
         battery: t.fly ? Math.max(0, u.battery[c] / t.battery) : null,
         batterySec: Math.max(0, Math.round(u.battery[c])),
         strike: !!t.blast,
@@ -522,16 +549,29 @@ export class Game implements GameActions {
         case 'wave':
           if (e.owner !== this.player) this.toast(`Wave ${e.index}/${e.total} incoming from the east! (${e.size} troops)`, 4);
           break;
+        case 'hired':
+          if (e.owner === this.player) this.toast(`${e.name} hired: they're waiting outside the Contracts Office`);
+          break;
+        case 'ramp':
+          if (e.owner === this.player) this.toast('Ramp in place: infantry can climb onto their wall');
+          break;
         case 'upgraded':
           if (e.owner === this.player) this.toast(`${STRUCTURE_DEFS[e.kind].name} upgraded${e.level > 1 ? ` to level ${e.level}` : ''}`);
           break;
         case 'structureDestroyed':
           if (e.owner === this.player && !STRUCTURE_DEFS[e.kind].trap) this.toast(`Your ${STRUCTURE_DEFS[e.kind].name} was destroyed`);
           break;
-        case 'result':
+        case 'result': {
           setHud({ result: { result: e.result, reason: e.reason } });
           clearGame(); // a finished match isn't worth resuming
+          const stage = this.setup.trail;
+          if (stage !== null) {
+            if (e.result === 'victory') clearTrailStage(stage);
+            const next = e.result === 'victory' && TRAIL[stage + 1] ? { stage: stage + 1, title: TRAIL[stage + 1].title } : null;
+            setHud({ trail: { stage, title: TRAIL[stage].title, next } });
+          }
           break;
+        }
         case 'taunt':
           setHud({ taunt: { name: e.name, text: e.text } });
           this.tauntTimer = 6;
@@ -691,6 +731,16 @@ export class Game implements GameActions {
           ? { name: up.name, description: up.description, cost: costText(up.cost), blocker: this.sim.economy.upgradeBlocker(this.player, s.id) }
           : null;
       })(),
+      contracts:
+        s.kind === 'contracts' && mine
+          ? CONTRACTS.map((ct, index) => ({
+              index,
+              name: ct.name,
+              blurb: ct.blurb,
+              cost: `$${ct.funds}`,
+              blocker: this.sim.economy.hireBlocker(this.player, s.id, index),
+            }))
+          : null,
       recruit:
         s.kind === 'motorpool' && mine
           ? VEHICLES.map((k) => {
@@ -741,10 +791,10 @@ export class Game implements GameActions {
       const s = this.sim.structureById(enemyStructure);
       const canBreach = (id: number): boolean => {
         const t = UNIT_TYPES[this.sim.units.kind[id]];
-        return this.sim.units.charges[id] > 0 || !!t.blast || t.siege || !!t.artillery || (s?.kind === 'ditch' && t.charges > 0);
+        return this.sim.units.charges[id] > 0 || !!t.blast || t.siege || !!t.artillery || (s?.kind === 'ditch' && (t.charges > 0 || t.dozer));
       };
       if (s && STRUCTURE_DEFS[s.kind].armored && !ids.some(canBreach)) {
-        this.toast('Walls and gates need engineers, operators, AT teams, tanks, howitzers or strike drones');
+        this.toast('Walls and gates need engineers, operators, AT teams, tanks, howitzers, breachers or strike drones');
         return;
       }
       this.sim.enqueue({ type: 'attackStructure', owner: this.player, ids, structure: enemyStructure });
@@ -950,6 +1000,18 @@ export class Game implements GameActions {
     const s = this.sim.structureById(this.selectedStructure);
     if (!s) return;
     this.sim.enqueue({ type: 'setActive', owner: this.player, id: s.id, active: !s.active });
+    setTimeout(() => this.pushHud(), 120);
+  }
+
+  hire(contract: number): void {
+    const s = this.sim.structureById(this.selectedStructure);
+    if (!s || s.kind !== 'contracts') return;
+    const why = this.sim.economy.hireBlocker(this.player, s.id, contract);
+    if (why) {
+      this.toast(why);
+      return;
+    }
+    this.sim.enqueue({ type: 'hire', owner: this.player, office: s.id, contract });
     setTimeout(() => this.pushHud(), 120);
   }
 
@@ -1224,10 +1286,17 @@ export class Game implements GameActions {
     clearGame();
     const params = new URLSearchParams(location.search);
     if (mode) params.set('mode', mode);
-    else {
-      params.delete('mode');
-      params.delete('difficulty');
-    }
+    else for (const k of ['mode', 'difficulty', 'seed', 'ai', 'map', 'trail']) params.delete(k);
+    location.search = params.toString();
+  }
+
+  playTrail(stage: number): void {
+    if (!TRAIL[stage]) return;
+    this.leaving = true;
+    clearGame();
+    const params = new URLSearchParams(location.search);
+    for (const k of ['mode', 'difficulty', 'seed', 'ai', 'map', 'trail']) params.delete(k);
+    new URLSearchParams(setupQuery(trailSetup(stage))).forEach((v, k) => params.set(k, v));
     location.search = params.toString();
   }
 

@@ -72,6 +72,8 @@ export type Command =
   | { type: 'setTax'; owner: number; level: number }
   | { type: 'setRecipe'; owner: number; id: number; recipe: number }
   | { type: 'recruit'; owner: number; barracks: number; kind: number; count: number }
+  /** Hire a PMC team (index into CONTRACTS) at a Contracts Office. */
+  | { type: 'hire'; owner: number; office: number; contract: number }
   /** Trade Post: buy (amount > 0) or sell (amount < 0). */
   | { type: 'trade'; owner: number; res: ResId; amount: number }
   /** Fire an illumination flare at a point (needs one of your soldiers within range; costs funds). */
@@ -122,6 +124,9 @@ export type SimEvent =
   /** A fuel trench caught fire. */
   | { type: 'ignited'; id: number; x: number; z: number }
   | { type: 'upgraded'; owner: number; id: number; kind: StructureKind; level: number }
+  | { type: 'hired'; owner: number; name: string; ids: number[] }
+  /** A Breacher pushed a ramp against `target`'s wall. */
+  | { type: 'ramp'; owner: number; target: number; x: number; z: number }
   /** Feedback for a player action that didn't happen (shown as a toast). */
   | { type: 'notice'; owner: number; text: string };
 
@@ -299,7 +304,7 @@ export class Sim {
         if (def.deckH !== undefined) {
           map.deck[i] = 1;
           map.deckH[i] = def.deckH;
-          if (kind === 'stairs') map.stairs[i] = 1;
+          if (kind === 'stairs' || kind === 'ramp') map.stairs[i] = 1;
         }
       }
     }
@@ -598,7 +603,11 @@ export class Sim {
       case 'stop':
         for (const id of c.ids) {
           if (!owned(id)) continue;
-          if (u.order[id] !== Order.Control && u.order[id] !== Order.Dive) u.order[id] = Order.Idle;
+          if (u.order[id] !== Order.Control && u.order[id] !== Order.Dive) {
+            u.order[id] = Order.Idle;
+            u.targetStruct[id] = -1;
+            this.combat.assault[id] = 0;
+          }
         }
         break;
       case 'attack':
@@ -630,7 +639,7 @@ export class Sim {
             continue;
           }
           // Small arms can't hurt walls: only charges and heavy guns take those orders.
-          if (armored && u.charges[id] === 0 && !t.siege) continue;
+          if (armored && u.charges[id] === 0 && !t.siege && !(t.dozer && STRUCTURE_DEFS[s.kind].trap === 'ditch')) continue;
           if (!t.armed) continue;
           u.order[id] = Order.Breach;
           u.targetStruct[id] = s.id;
@@ -727,6 +736,12 @@ export class Sim {
       case 'recruit':
         this.economy.recruit(c.owner, c.barracks, c.kind, c.count);
         break;
+      case 'hire': {
+        const why = this.economy.hireBlocker(c.owner, c.office, c.contract);
+        if (why) this.emit({ type: 'buildFailed', owner: c.owner, reason: why });
+        else this.economy.hire(c.owner, c.office, c.contract);
+        break;
+      }
       case 'trade':
         this.economy.trade(c.owner, c.res, Math.round(c.amount));
         break;

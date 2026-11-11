@@ -110,7 +110,9 @@ export type StructureKind =
   | 'mines'
   | 'ditch'
   | 'trench'
-  | 'wire';
+  | 'wire'
+  | 'ramp'
+  | 'contracts';
 
 export interface Cost {
   funds?: number;
@@ -448,6 +450,18 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     storage: { kind: 'gear', capacity: 60 },
     upgrades: [{ name: 'Secure armory', description: 'Holds 80% more, sturdier.', cost: { concrete: 10, steel: 4 }, storage: 1.8, hp: 1.4 }],
   },
+  contracts: {
+    kind: 'contracts',
+    name: 'Contracts Office',
+    description: 'Hire ready-made PMC teams for cash: they arrive at once and need no civilians or weapons. One contract a minute.',
+    w: 3,
+    h: 3,
+    blocks: true,
+    hp: 700,
+    buildable: true,
+    category: 'military',
+    cost: { timber: 20, concrete: 10, funds: 120 },
+  },
   barracks: {
     kind: 'barracks',
     name: 'Barracks',
@@ -741,6 +755,19 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     top: 0.4,
     line: true,
     trap: 'wire',
+  },
+  ramp: {
+    kind: 'ramp',
+    name: 'Assault Ramp',
+    description: 'Pushed against a wall by a Breacher: infantry can climb it onto the wall top. Destroy it to close the way.',
+    w: 1,
+    h: 1,
+    blocks: false,
+    hp: 450,
+    buildable: false,
+    category: 'defense',
+    cost: {},
+    deckH: 0.8,
   },
 };
 

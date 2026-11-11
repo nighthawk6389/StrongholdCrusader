@@ -2,7 +2,8 @@ import { generateDesertMap } from './map';
 import { Sim } from './sim';
 import { Res } from './structures';
 import { UnitKind } from './unitTypes';
-import { AiCommander, DIFFICULTY, OLD_SARGE, type Difficulty } from './ai';
+import { AiCommander, DIFFICULTY, PERSONALITIES, isOpponentKey, type Difficulty, type OpponentKey } from './ai';
+import { MAPS, isMapKey, type MapKey } from './maps';
 import { ringBlueprint, type Side } from './blueprint';
 import { WaveDirector, type Wave } from './waves';
 
@@ -10,6 +11,12 @@ export const PLAYER = 1;
 export const ENEMY = 2;
 
 export type GameMode = 'sandbox' | 'hold' | 'skirmish';
+
+/** Skirmish choices beyond the difficulty. */
+export interface MatchOptions {
+  opponent?: OpponentKey;
+  map?: MapKey;
+}
 
 export interface Scenario {
   sim: Sim;
@@ -111,32 +118,13 @@ function stockUp(sim: Sim, owner: number, extra = { timber: 0, concrete: 0, fund
 }
 
 /** 1v1 against an AI commander on a mirrored map. */
-function createSkirmish(seed: number, difficulty: Difficulty): Scenario {
+function createSkirmish(seed: number, difficulty: Difficulty, opts: MatchOptions): Scenario {
   const playerBase = { x: 28, z: 64 };
   const enemyBase = { x: 100, z: 64 };
-  const map = generateDesertMap({
-    width: 128,
-    height: 128,
-    seed,
-    clearings: [
-      { x: playerBase.x, z: playerBase.z, r: 15 },
-      { x: enemyBase.x, z: enemyBase.z, r: 15 },
-    ],
-    oases: [
-      { x: 47, z: 38, r: 3.5 },
-      { x: 81, z: 90, r: 3.5 },
-      { x: 64, z: 64, r: 4.5 },
-    ],
-    extraOases: 2,
-    oilPatches: 3,
-    groves: [
-      { x: 10, z: 86, r: 5 },
-      { x: 44, z: 88, r: 4 },
-      { x: 118, z: 42, r: 5 },
-      { x: 84, z: 40, r: 4 },
-    ],
-  });
+  const mapKey = isMapKey(opts.map) ? opts.map : 'basin';
+  const map = generateDesertMap(MAPS[mapKey].spec(seed, [playerBase, enemyBase]));
   const sim = new Sim({ map, seed, startSec: 45 });
+  const personality = PERSONALITIES[isOpponentKey(opts.opponent) ? opts.opponent : 'sarge'];
 
   for (const [owner, base, mirror] of [
     [PLAYER, playerBase, false],
@@ -154,15 +142,15 @@ function createSkirmish(seed: number, difficulty: Difficulty): Scenario {
     }
   }
 
-  const ai = new AiCommander(ENEMY, PLAYER, enemyBase, OLD_SARGE, difficulty);
+  const ai = new AiCommander(ENEMY, PLAYER, enemyBase, personality, difficulty);
   sim.controllers.push(ai);
   sim.defender = PLAYER;
   sim.opponent = ENEMY;
   return { sim, mode: 'skirmish', ai, player: PLAYER, playerBase, enemyBase };
 }
 
-export function createScenario(mode: GameMode, seed = 1337, difficulty: Difficulty = 'normal'): Scenario {
-  if (mode === 'skirmish') return createSkirmish(seed, difficulty);
+export function createScenario(mode: GameMode, seed = 1337, difficulty: Difficulty = 'normal', opts: MatchOptions = {}): Scenario {
+  if (mode === 'skirmish') return createSkirmish(seed, difficulty, opts);
   const playerBase = { x: 28, z: 64 };
   const enemyBase = { x: 100, z: 70 };
   const map = generateDesertMap({

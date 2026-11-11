@@ -18,6 +18,10 @@ const DECK_SPREAD = 1.6;
 const RAID_COOLDOWN = 300;
 /** How far wave troops will wander to raid soft buildings when walls stop them. */
 const RAID_RADIUS = 36;
+/** Seconds for a Breacher to bulldoze a ditch tile flat. */
+export const DOZER_FILL_SEC = 1.5;
+/** A Breacher only pushes one ramp per stretch of wall this long. */
+const RAMP_SPACING = 4;
 
 // Hitboxes for aimed (direct-control) fire, in tiles above the unit's feet.
 const BODY_H = 0.86;
@@ -312,7 +316,10 @@ export class Combat {
     const def = STRUCTURE_DEFS[s.kind];
     const ditch = def.trap === 'ditch';
     // Engineers fill ditches with a shovel (no charge used); walls and gates take a charge.
-    const engineer = u.charges[i] > 0 || (ditch && type.charges > 0 && !type.vehicle);
+    // Breachers bulldoze ditches and push a ramp (their "charge") against anything with a walkable top.
+    const engineer = type.dozer
+      ? ditch || (u.charges[i] > 0 && this.rampable(s, u.owner[i]))
+      : u.charges[i] > 0 || (ditch && type.charges > 0 && !type.vehicle);
     if (!engineer && def.armored && !type.siege) return this.finishBreach(i);
 
     // Planting (or filling) in progress.
@@ -323,6 +330,9 @@ export class Combat {
         u.plantTimer[i] = 0;
         if (ditch) {
           sim.damageStructure(s, s.hp + 1);
+        } else if (type.dozer) {
+          this.placeRamp(i, s);
+          return this.finishBreach(i);
         } else {
           u.charges[i]--;
           this.explode(s, i);
@@ -333,9 +343,9 @@ export class Combat {
     }
 
     const gap = distToRect(u.x[i], u.z[i], s);
-    if (engineer && gap <= 0.8 && u.layer[i] === 0) {
+    if (engineer && gap <= (type.dozer ? 1.0 : 0.8) && u.layer[i] === 0) {
       u.vx[i] = u.vz[i] = 0;
-      u.plantTimer[i] = UNIT_TYPES[u.kind[i]].plantSec;
+      u.plantTimer[i] = type.dozer && ditch ? DOZER_FILL_SEC : type.plantSec;
       u.heading[i] = Math.atan2(s.tx + s.w / 2 - u.x[i], s.tz + s.h / 2 - u.z[i]);
       return;
     }
@@ -465,8 +475,9 @@ export class Combat {
       const obstacle = sim.structureById(sim.navObstacle);
       if (!obstacle) return;
       const t = UNIT_TYPES[u.kind[i]];
-      const canFill = STRUCTURE_DEFS[obstacle.kind].trap === 'ditch' && t.charges > 0;
-      if (engineer || canFill || t.siege || !STRUCTURE_DEFS[obstacle.kind].armored) {
+      const canFill = STRUCTURE_DEFS[obstacle.kind].trap === 'ditch' && (t.charges > 0 || t.dozer);
+      const charge = t.dozer ? u.charges[i] > 0 && this.rampable(obstacle, u.owner[i]) : engineer;
+      if (charge || canFill || t.siege || !STRUCTURE_DEFS[obstacle.kind].armored) {
         u.order[i] = Order.Breach;
         u.targetStruct[i] = obstacle.id;
         u.repath[i] = 0;
@@ -881,15 +892,66 @@ export class Combat {
     if (t.mag > 0 && u.reload[i] === 0 && u.ammo[i] < t.mag) u.reload[i] = t.reloadSec;
   }
 
+  /** Can a Breacher of `owner` push a ramp against this (a walkable top with no ramp of ours already on it)? */
+  rampable(s: Structure, owner: number): boolean {
+    if (STRUCTURE_DEFS[s.kind].deckH === undefined || s.kind === 'stairs' || s.kind === 'ramp') return false;
+    for (const r of this.sim.structures) {
+      if (r.kind === 'ramp' && r.owner === owner && distToRect(r.tx + 0.5, r.tz + 0.5, s) < RAMP_SPACING) return false;
+    }
+    return true;
+  }
+
+  /** Breacher: shove an assault ramp against structure `s`, on open ground right beside it. */
+  placeRamp(i: number, s: Structure): boolean {
+    const sim = this.sim;
+    const u = sim.units;
+    const map = sim.map;
+    let best: { tx: number; tz: number } | null = null;
+    let bestD = 2.2;
+    const consider = (x: number, z: number): void => {
+      if (!map.inBounds(x, z)) return;
+      const k = map.idx(x, z);
+      if (map.blocked[k] !== Block.Free || map.structAt[k] !== 0 || map.treeAt[k] >= 0) return;
+      const d = Math.hypot(x + 0.5 - u.x[i], z + 0.5 - u.z[i]);
+      if (d < bestD) {
+        bestD = d;
+        best = { tx: x, tz: z };
+      }
+    };
+    // Square-on to the wall (deck to deck needs a straight step).
+    for (let x = s.tx; x < s.tx + s.w; x++) {
+      consider(x, s.tz - 1);
+      consider(x, s.tz + s.h);
+    }
+    for (let z = s.tz; z < s.tz + s.h; z++) {
+      consider(s.tx - 1, z);
+      consider(s.tx + s.w, z);
+    }
+    if (!best || u.charges[i] === 0) {
+      sim.emit({ type: 'notice', owner: u.owner[i], text: 'No room for a ramp here: try another stretch of wall' });
+      return false;
+    }
+    const { tx, tz } = best;
+    const rot = Math.atan2(s.tx + s.w / 2 - (tx + 0.5), s.tz + s.h / 2 - (tz + 0.5));
+    const r = sim.placeStructure('ramp', u.owner[i], tx, tz, rot);
+    if (!r) return false;
+    u.charges[i]--;
+    sim.emit({ type: 'ramp', owner: u.owner[i], target: s.owner, x: tx + 0.5, z: tz + 0.5 });
+    sim.emit({ type: 'notice', owner: s.owner, text: 'The enemy has pushed a ramp against your wall!' });
+    return true;
+  }
+
   /** Possessed engineer/operator: plant a charge on the enemy structure you're standing against. */
   startPlant(i: number): void {
     const sim = this.sim;
     const u = sim.units;
-    if (u.charges[i] === 0 || u.plantTimer[i] > 0) return;
+    const dozer = UNIT_TYPES[u.kind[i]].dozer;
+    if ((u.charges[i] === 0 && !dozer) || u.plantTimer[i] > 0) return;
     let best: Structure | undefined;
-    let bestD = 1.0;
+    let bestD = dozer ? 1.3 : 1.0;
     for (const s of sim.structures) {
       if (s.owner === u.owner[i] || s.owner === 0) continue;
+      if (dozer && !(STRUCTURE_DEFS[s.kind].trap === 'ditch' || (u.charges[i] > 0 && this.rampable(s, u.owner[i])))) continue;
       const d = distToRect(u.x[i], u.z[i], s);
       if (d < bestD) {
         bestD = d;
@@ -897,10 +959,15 @@ export class Combat {
       }
     }
     if (!best || u.layer[i] !== 0) {
-      sim.emit({ type: 'notice', owner: u.owner[i], text: 'Get right up against an enemy wall, gate or building to plant' });
+      const text = dozer
+        ? u.charges[i] > 0
+          ? 'Drive right up to an enemy wall (for a ramp) or a ditch (to fill it)'
+          : 'Out of ramps: drive up to a ditch to fill it'
+        : 'Get right up against an enemy wall, gate or building to plant';
+      sim.emit({ type: 'notice', owner: u.owner[i], text });
       return;
     }
-    u.plantTimer[i] = UNIT_TYPES[u.kind[i]].plantSec;
+    u.plantTimer[i] = dozer && STRUCTURE_DEFS[best.kind].trap === 'ditch' ? DOZER_FILL_SEC : UNIT_TYPES[u.kind[i]].plantSec;
     u.targetStruct[i] = best.id;
     u.vx[i] = u.vz[i] = 0;
   }
@@ -916,7 +983,10 @@ export class Combat {
     u.plantTimer[i] = 0;
     const s = sim.structureById(u.targetStruct[i]);
     u.targetStruct[i] = -1;
-    if (s && u.charges[i] > 0) {
+    if (s && UNIT_TYPES[u.kind[i]].dozer) {
+      if (STRUCTURE_DEFS[s.kind].trap === 'ditch') sim.damageStructure(s, s.hp + 1);
+      else this.placeRamp(i, s);
+    } else if (s && u.charges[i] > 0) {
       u.charges[i]--;
       this.explode(s, i);
     }

@@ -501,7 +501,7 @@ docs/
 | **M5** | **Direct control, full** ✅ | Aimed fire is a 3D ray from the camera through the crosshair, against body and head hitboxes. Head hits ×2 (×3 through a scope). Walls, rocks and buildings stop rounds by height, so parapets cover bodies but not heads. Magazines and reloads, aim bloom, and a moving penalty. Charges planted by hand; operators climb walls by walking into them; anyone takes stairs both ways. The rest of the selection follows as a squad. **Gun Tower**: a crewed HMG that fires on its own and can be aimed by hand. Searchlights can be swept by hand. **Drone Bay**: recon drones (thermal, fly over walls) and strike drones (dive and explode) on batteries that recharge at the bay. HUD: hit, headshot and kill markers, damage direction, ammo, reload, battery, scope, optional slow motion; phone buttons for every action. Old Sarge builds gun towers and a drone bay and sends strike drones during assaults. |
 | **M6a** | **Siege depth** ✅ | Fuel from oil derricks. A Motor Pool builds armored cars, battle tanks and howitzers (crewed by idle civilians). Armor vs armor-piercing damage, splash, and siege guns that knock down walls. Howitzers deploy and lob shells with flight time and scatter. AT specialists. Ground-only flow fields for vehicles. Line-placed minefields (hidden until engineers or dogs find them; engineers defuse them), anti-tank ditches (block everyone, shots pass, engineers fill them), fuel trenches (lit by command, flares or blasts; spread and burn), razor wire (slows infantry, flattened by vehicles). Tank and howitzer direct control. Old Sarge fields armor; Hold the Line's late waves bring a car, tanks and a howitzer. |
 | — | **Playtest round 1** ✅ | Crowds no longer jam (formation slots never collide; stalled units near their goal settle; head-on walkers slide past). Mixed selections split by type. Normal and Hard think faster and attack earlier and harder. Recon drones see through stealth; strike drones hit harder and need no breach kit. Gun towers weaker and pricier; heavy weapons do +75% to them. Darker unlit nights. Flares limited to 3 (+1 a minute). Building upgrades (levels; watchtower → gun tower). Generator workers now stay at their post. |
-| **M6b** | **Variety** | 3–4 more AI personalities (Jackal, The Engineer, Warden…), map variety, Commander's Trail ladder, PMC hires, a breaching vehicle |
+| **M6b** | **Variety** ✅ | Four new AI commanders on a data-driven personality system (tempo, armor wants, build order, upgrade priorities): **Jackal** (farm raids, cars, early attacks), **The Engineer** (wire, mines, ditches and fuel trenches outside the walls, lit under the enemy; howitzers and a Breacher), **The Broker** (taxes, trading, PMC hires), **Warden** (gun towers on every wall, searchlights, big garrison, late tank assaults). Four mirrored skirmish maps (Oasis Basin, Dune Sea, Rocky Pass, Oil Fields) with tinted terrain. Commander's Trail: six stages, progress in localStorage, "Next stage" on victory. Contracts Office (instant PMC teams for cash, one a minute). Breacher vehicle: mine plow, fast ditch filling, assault ramps that let infantry over walls. Skirmish setup menu (opponent, map, difficulty); saves remember the match. Fixes: the AI no longer builds against doorways; workers who can't reach a store try another. |
 | **M7** | **Polish & launch** | Final art/audio, tutorial, settings, saves, PWA polish, phone tuning, balance, final name |
 
 ---
@@ -533,8 +533,9 @@ docs/
 6. ~~**M4** night & stealth.~~ Done.
 7. ~~**M5** full direct control.~~ Done.
 8. ~~**M6a** siege depth.~~ Done.
-9. **M6b** variety: more AI personalities (one that lays minefields and fuel trenches), maps, the Commander's
-   Trail ladder, PMC hires and a breaching vehicle.
+9. ~~**M6b** variety.~~ Done.
+10. **M7** polish and launch: Nightshade, The Quartermaster and Duchess Varga, final art and audio, tutorial,
+    settings, PWA polish, phone tuning, balance, final name.
 
 ---
 

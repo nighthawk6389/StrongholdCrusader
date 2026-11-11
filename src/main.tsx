@@ -1,8 +1,8 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Game } from './game/Game';
-import { clearGame, readGame, readMeta, type SaveMeta } from './game/saveSlot';
-import type { GameMode } from './sim/scenario';
+import { clearGame, metaSetup, readGame, readMeta } from './game/saveSlot';
+import { sameMatch, setupFromParams, setupQuery, trailCleared, type MatchSetup } from './game/setup';
 import { Hud } from './ui/Hud';
 import { MainMenu } from './ui/MainMenu';
 import './ui/hud.css';
@@ -12,21 +12,23 @@ const hudRoot = document.getElementById('hud-root') as HTMLElement;
 const inputOverlay = document.getElementById('input-overlay') as HTMLElement;
 
 const params = new URLSearchParams(location.search);
-const mode = params.get('mode');
+const setup = setupFromParams(params);
 const root = createRoot(hudRoot);
 
-/** The autosave belongs to this link's game (same mode, opponent difficulty and map seed)? */
-function matches(meta: SaveMeta): boolean {
-  const diff = params.get('difficulty') ?? 'normal';
-  const seed = Number(params.get('seed')) || 1337;
-  return meta.mode === mode && meta.seed === seed && (mode !== 'skirmish' || meta.difficulty === diff);
+/** Keep unrelated URL flags (debug, quality, …) when switching matches. */
+function go(query: string): void {
+  const keep = new URLSearchParams(location.search);
+  for (const k of ['mode', 'difficulty', 'seed', 'ai', 'map', 'trail']) keep.delete(k);
+  const next = new URLSearchParams(query);
+  keep.forEach((v, k) => next.set(k, v));
+  location.search = next.toString();
 }
 
-if (mode === 'hold' || mode === 'sandbox' || mode === 'skirmish') {
+if (setup) {
   // Coming back to the same game (reload, or the browser dropped the tab while you were away): resume it.
   const meta = readMeta();
-  const resume = meta && matches(meta) ? readGame() : null;
-  const game = new Game(canvas, inputOverlay, mode, resume);
+  const resume = meta && sameMatch(metaSetup(meta), setup) ? readGame() : null;
+  const game = new Game(canvas, inputOverlay, setup, resume);
   game.start();
   root.render(
     <StrictMode>
@@ -36,24 +38,17 @@ if (mode === 'hold' || mode === 'sandbox' || mode === 'skirmish') {
   // Expose for debugging in the console during development.
   (window as unknown as { game: Game }).game = game;
 } else {
-  const start = (m: GameMode, difficulty?: string): void => {
+  const start = (s: MatchSetup): void => {
     clearGame(); // a new game replaces the saved one
-    params.set('mode', m);
-    if (difficulty) params.set('difficulty', difficulty);
-    location.search = params.toString();
+    go(setupQuery(s));
   };
   const saved = readMeta();
   const resume = (): void => {
-    if (!saved) return;
-    params.set('mode', saved.mode);
-    params.set('difficulty', saved.difficulty);
-    if (saved.seed !== 1337) params.set('seed', String(saved.seed));
-    else params.delete('seed');
-    location.search = params.toString();
+    if (saved) go(setupQuery(metaSetup(saved)));
   };
   root.render(
     <StrictMode>
-      <MainMenu onStart={start} saved={saved} onContinue={resume} />
+      <MainMenu onStart={start} saved={saved} onContinue={resume} trailDone={trailCleared()} />
     </StrictMode>,
   );
 }

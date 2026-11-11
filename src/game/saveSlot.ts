@@ -1,6 +1,8 @@
-import type { Difficulty } from '../sim/ai';
+import type { Difficulty, OpponentKey } from '../sim/ai';
+import type { MapKey } from '../sim/maps';
 import type { GameMode } from '../sim/scenario';
 import type { SimSave } from '../sim/save';
+import type { MatchSetup } from './setup';
 
 /** One autosave slot in localStorage: the game itself plus a small summary for the main menu. */
 const DATA_KEY = 'siege-save';
@@ -10,6 +12,10 @@ export interface SaveMeta {
   mode: GameMode;
   difficulty: Difficulty;
   seed: number;
+  /** Skirmish opponent, map and trail stage (absent in older saves). */
+  opponent?: OpponentKey;
+  map?: MapKey;
+  trail?: number | null;
   /** In-game time when saved, e.g. "Day 2 · 21:40". */
   label: string;
   /** Wall-clock time of the save (ms since epoch). */
@@ -20,6 +26,18 @@ export interface StoredGame {
   meta: SaveMeta;
   save: SimSave;
   view: { x: number; z: number; yaw: number; dist: number; speed: number };
+}
+
+/** The match a saved game belongs to. */
+export function metaSetup(m: SaveMeta): MatchSetup {
+  return {
+    mode: m.mode,
+    difficulty: m.difficulty,
+    seed: m.seed,
+    opponent: m.opponent ?? 'sarge',
+    map: m.map ?? 'basin',
+    trail: m.trail ?? null,
+  };
 }
 
 export function readMeta(): SaveMeta | null {

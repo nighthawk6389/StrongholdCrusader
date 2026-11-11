@@ -77,6 +77,8 @@ export class GameMap {
   readonly treeAt: Int32Array;
   /** Incremented whenever passability changes (flow-field caches key off this). */
   version = 0;
+  /** Look of the terrain (sand/rock colour shift), set by the map type. */
+  tint = { hue: 0, sat: 0, light: 0 };
 
   constructor(
     readonly width: number,
@@ -302,6 +304,19 @@ export interface DesertMapSpec {
   oilPatches?: number;
   /** Guaranteed acacia groves (timber sources). */
   groves?: { x: number; z: number; r: number }[];
+  /** Guaranteed oil seeps (centres). */
+  oil?: { x: number; z: number }[];
+  /** Copy the west half onto the east half, mirrored, so both sides start alike. */
+  mirror?: boolean;
+  /** Dune height multiplier (default 1). */
+  duneScale?: number;
+  /** Rock-ridge noise threshold: lower means more rock (default 0.64). */
+  rockiness?: number;
+  /** Wild acacia noise threshold: higher means fewer trees (default 0.69). */
+  wildTrees?: number;
+  /** North–south rock ridges (a band around `x`), open at the `gaps` (z ranges). */
+  ridges?: { x: number; w: number; gaps: [number, number][] }[];
+  tint?: { hue: number; sat: number; light: number };
 }
 
 function smoothstep(e0: number, e1: number, x: number): number {
@@ -313,13 +328,16 @@ function smoothstep(e0: number, e1: number, x: number): number {
 export function generateDesertMap(spec: DesertMapSpec): GameMap {
   const { width, height, seed } = spec;
   const map = new GameMap(width, height, seed);
+  if (spec.tint) map.tint = { ...spec.tint };
   const rng = new Rng(seed ^ 0x9e3779b9);
   const w1 = width + 1;
+  const dunes = spec.duneScale ?? 1;
+  const rockiness = spec.rockiness ?? 0.64;
 
   // 1. Dune heights at vertices.
   for (let vz = 0; vz <= height; vz++) {
     for (let vx = 0; vx <= width; vx++) {
-      const big = (fbm(vx * 0.03, vz * 0.03, seed, 4) - 0.5) * 3.4;
+      const big = (fbm(vx * 0.03, vz * 0.03, seed, 4) - 0.5) * 3.4 * dunes;
       const small = (fbm(vx * 0.11, vz * 0.11, seed + 7, 3) - 0.5) * 0.6;
       map.heights[vz * w1 + vx] = big + small;
     }
@@ -329,7 +347,7 @@ export function generateDesertMap(spec: DesertMapSpec): GameMap {
   const oasisSeeds = spec.oases.map((o) => ({ ...o }));
   const extra = spec.extraOases ?? 2;
   for (let tries = 0, added = 0; added < extra && tries < 200; tries++) {
-    const x = rng.range(12, width - 12);
+    const x = rng.range(12, spec.mirror ? width / 2 - 8 : width - 12);
     const z = rng.range(12, height - 12);
     const r = rng.range(2.5, 4.5);
     const nearClearing = spec.clearings.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + r + 10);
@@ -381,22 +399,30 @@ export function generateDesertMap(spec: DesertMapSpec): GameMap {
         const inClearing = spec.clearings.some((c) => Math.hypot(cx - c.x, cz - c.z) < c.r + 3);
         if (!inClearing) {
           const ridge = fbm(cx * 0.06, cz * 0.06, seed + 31, 4);
-          if (ridge > 0.64 || hash2(tx, tz, seed + 99) < 0.006) type = Tile.Rock;
+          if (ridge > rockiness || hash2(tx, tz, seed + 99) < 0.006) type = Tile.Rock;
+          for (const rg of spec.ridges ?? []) {
+            const wobble = (fbm(cx * 0.15, cz * 0.15, seed + 41, 2) - 0.5) * 3;
+            if (Math.abs(cx - rg.x - wobble) > rg.w / 2) continue;
+            if (rg.gaps.some(([a, b]) => cz >= a && cz <= b)) continue;
+            type = Tile.Rock;
+          }
         }
       }
       map.tiles[i] = type;
     }
   }
 
-  // 5. Oil patches on open sand.
+  // 5. Oil patches on open sand (the guaranteed ones first).
   const oil = spec.oilPatches ?? 3;
-  for (let tries = 0, added = 0; added < oil && tries < 300; tries++) {
-    const x = rng.range(8, width - 8);
-    const z = rng.range(8, height - 8);
+  const fixedOil = spec.oil ?? [];
+  for (let tries = 0, added = 0; added < oil + fixedOil.length && tries < 300 + fixedOil.length; tries++) {
+    const fixed = added < fixedOil.length ? fixedOil[added] : null;
+    const x = fixed ? fixed.x : rng.range(8, spec.mirror ? width / 2 - 4 : width - 8);
+    const z = fixed ? fixed.z : rng.range(8, height - 8);
     const tx = Math.floor(x);
     const tz = Math.floor(z);
-    if (map.tiles[tz * width + tx] !== Tile.Sand) continue;
-    if (spec.clearings.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 4)) continue;
+    if (!fixed && map.tiles[tz * width + tx] !== Tile.Sand) continue;
+    if (!fixed && spec.clearings.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 4)) continue;
     for (let dz = -3; dz <= 3; dz++) {
       for (let dx = -3; dx <= 3; dx++) {
         const nx = tx + dx;
@@ -455,11 +481,43 @@ export function generateDesertMap(spec: DesertMapSpec): GameMap {
       const grove = (spec.groves ?? []).some(
         (g) => Math.hypot(g.x - cx, g.z - cz) + (fbm(cx * 0.4, cz * 0.4, seed + 3, 2) - 0.5) * 2 < g.r,
       );
-      const wild = fbm(cx * 0.07, cz * 0.07, seed + 77, 3) > 0.69;
+      const wild = fbm(cx * 0.07, cz * 0.07, seed + 77, 3) > (spec.wildTrees ?? 0.69);
       if ((grove && h < 0.5) || (wild && h < 0.22)) map.addTree(tx, tz, 1, 2, h * 2.3);
     }
   }
 
+  if (spec.mirror) mirrorWestToEast(map);
   map.version++;
   return map;
+}
+
+/** Make the east half a mirror image of the west half (terrain, trees, oases). */
+function mirrorWestToEast(map: GameMap): void {
+  const { width: w, height: h } = map;
+  const w1 = w + 1;
+  for (let tz = 0; tz < h; tz++) {
+    for (let tx = Math.ceil(w / 2); tx < w; tx++) {
+      const src = tz * w + (w - 1 - tx);
+      map.tiles[tz * w + tx] = map.tiles[src];
+      map.blocked[tz * w + tx] = map.blocked[src];
+    }
+  }
+  for (let vz = 0; vz <= h; vz++) {
+    for (let vx = Math.floor(w / 2) + 1; vx <= w; vx++) map.heights[vz * w1 + vx] = map.heights[vz * w1 + (w - vx)];
+  }
+  const west = map.trees.filter((t) => t.x < w / 2);
+  map.trees.length = 0;
+  map.treeAt.fill(-1);
+  const put = (t: Tree): void => {
+    map.treeAt[Math.floor(t.z) * w + Math.floor(t.x)] = map.trees.length;
+    map.trees.push(t);
+  };
+  for (const t of west) put({ ...t });
+  for (const t of west) put({ ...t, x: w - t.x });
+  const oases = map.oases.filter((o) => o.x <= w / 2 + 0.5);
+  map.oases.length = 0;
+  for (const o of oases) {
+    map.oases.push(o);
+    if (o.x < w / 2 - 1) map.oases.push({ ...o, x: w - o.x });
+  }
 }

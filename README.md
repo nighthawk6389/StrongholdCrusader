@@ -12,8 +12,9 @@ soldiers.
 - **Design & technical plan:** [docs/PLAN.md](docs/PLAN.md)
 - **Status:** **M0** (foundations), **M1** (economy), **M2** (fortifications & combat), **M3**
   (skirmish vs an AI commander), **M4** (night & stealth), **M5** (full direct control: aimed fire, gun
-  towers, drones) and **M6a** (siege depth: vehicles, artillery, mines, ditches, fuel trenches, wire) are
-  playable. Next up is **M6b** (AI personalities, maps, Commander's Trail, PMC hires).
+  towers, drones), **M6a** (siege depth: vehicles, artillery, mines, ditches, fuel trenches, wire) and **M6b**
+  (five AI commanders, four maps, the Commander's Trail, PMC hires, the Breacher) are playable. Next up is
+  **M7** (polish and launch).
 
 ## Play locally
 
@@ -23,22 +24,37 @@ npm run dev        # http://localhost:5173
 ```
 
 URL options: `?debug=1` shows FPS and sim timing. `?quality=low|high` forces
-the render preset. `?seed=123` picks a different map.
+the render preset. `?seed=123` reshuffles the map's details.
 
 ## Game modes
 
-- **Skirmish vs Old Sarge:** a 1v1 against an AI commander who runs a real economy and builds a walled
-  fortress. He trains a mixed army, mans his walls and launches assaults with engineers. Destroy his HQ or kill
-  his Commander, and protect yours. Easy, Normal and Hard differ in reaction speed, attack timing and size, and
-  a small starting bonus. He never cheats on vision.
+- **Commander's Trail:** six stages against tougher and tougher commanders, each on its own map: Boot Camp
+  (Old Sarge, Easy), Open Sands (Jackal), Black Gold (The Broker), The Pass (The Engineer), Sarge's Rematch
+  (Hard) and The Fortress (Warden, Hard). Win a stage to unlock the next; progress is kept in your browser.
+- **Skirmish:** a 1v1 against an AI commander of your choice, on a map of your choice. Every commander runs a
+  real economy, builds a walled fortress, mans the walls and attacks. Destroy their HQ or kill their Commander,
+  and protect yours. Easy, Normal and Hard differ in reaction speed, attack timing and size, and a small
+  starting bonus. They never cheat on vision.
+  - **Old Sarge** (balanced veteran): walls up early, steady infantry pushes, a tank or two.
+  - **Jackal** (raider): light walls, armored cars, raiding parties on your farms and work camps from the
+    first minutes, early and frequent attacks.
+  - **The Engineer** (sapper): razor wire, a minefield, anti-tank ditches and a fuel trench outside the front
+    wall (lit when you walk into it), howitzers and a Breacher.
+  - **The Broker** (trader): high taxes, sells everything, hires PMC teams when the cash piles up.
+  - **Warden** (fortress): gun towers on every wall, extra searchlights, a big garrison, late heavy assaults
+    with tanks.
+- **Maps** (skirmish), all mirrored so both sides start alike: **Oasis Basin** (balanced), **Dune Sea** (open
+  dunes, scarce timber), **Rocky Pass** (two ridges, three passes) and **Oil Fields** (oil everywhere, little
+  farmland).
 - **Hold the Line:** six escalating waves attack from the east over about 15 minutes, two of them at night.
   Waves with combat engineers blow holes in your walls and gates, and the night waves bring special forces.
   The later waves bring armor: an armored car, then a tank, and finally two tanks and a howitzer. Lose your HQ
   or your Commander and it's over.
 - **Sandbox:** no waves. Build at your own pace and skirmish with the hostile patrol.
 
-The start screen picks the mode. You can also link straight to a mode with `?mode=skirmish&difficulty=normal`,
-`?mode=hold` or `?mode=sandbox`.
+The start screen picks the mode. You can also link straight to a match: `?mode=skirmish&ai=jackal&map=pass&difficulty=hard`
+(`ai`: sarge, jackal, engineer, broker, warden; `map`: basin, dunes, pass, oilfields), a trail stage with
+`?mode=skirmish&trail=0` (0–5), `?mode=hold` or `?mode=sandbox`.
 
 ## Saving
 
@@ -108,6 +124,13 @@ Siege warfare:
   - **Armored Car:** fast, armored scout with a machine gun.
   - **Battle Tank:** heavy armor and a main gun that knocks down walls and gates.
   - **Howitzer:** stop it to deploy, then it lobs shells over walls at anything your side can see.
+  - **Breacher:** an armored dozer. It plows through minefields (mines in front of the blade are shoved aside),
+    fills an anti-tank ditch in a second or two, and pushes an **assault ramp** against an enemy wall (two per
+    Breacher). Infantry climb the ramp onto the wall top and down the defenders' own stairs. Order it to attack
+    a wall, or drive it there yourself and press **G**. Destroy an enemy ramp to close the way.
+- **Contracts Office:** hire a ready-made PMC team for cash: a fire team, machine gunners, snipers, sappers,
+  an AT team or an armored car. They turn up at once and need no civilians or weapons, but cost two to three
+  times as much, and you can sign one contract a minute.
 - **Armor:** rifles and machine guns barely scratch vehicles. AT rockets, tank guns, mines, charges and strike
   drones hurt them.
 - **Traps and obstacles** (drag a line, like walls):
@@ -116,8 +139,7 @@ Siege warfare:
   - **Fuel Trench:** select it and **Ignite** (or hit it with a flare or an explosion). It burns anyone standing
     in it and lights up the night.
   - **Razor Wire:** slows enemy infantry to a crawl; vehicles flatten it.
-- Old Sarge (Normal and up) builds a Motor Pool and brings tanks; on Hard, a howitzer too. He trains AT teams
-  once you field armor.
+- AI commanders (Normal and up) build a Motor Pool and bring armor, and train AT teams once you field yours.
 
 Take direct control:
 - **Any soldier:** press **F** (or tap **Take control**) and the rest of your selection follows you as a squad.
@@ -133,8 +155,8 @@ Take direct control:
   darkness; they fly over walls and spot for your troops) and **strike drones** (dive onto a unit, building or
   wherever you point and explode). Drones run on batteries: they fly home to recharge when low, and crash if
   they run flat. A lone soldier struggles to hit one; a squad or a gun tower will bring it down.
-- Old Sarge builds gun towers by his gate and a drone bay. On Normal and Hard he sends strike drones at your gun
-  towers and wall defenders.
+- AI commanders build gun towers by their gate (Warden: on every wall) and a drone bay. On Normal and Hard they
+  send strike drones at your gun towers and wall defenders.
 
 ## Controls
 
@@ -159,9 +181,10 @@ Take direct control:
 |---|---|
 | `npm run dev` | Vite dev server |
 | `npm run build` | Typecheck + production build to `dist/` |
-| `npm test` | Simulation unit tests (Vitest): economy, fortifications, combat, waves, AI, night & stealth, direct control, drones, determinism, perf |
+| `npm test` | Simulation unit tests (Vitest): economy, fortifications, combat, waves, AI and its personalities, maps, night & stealth, direct control, drones, vehicles and traps, PMC hires, saves, determinism, perf |
 | `HOLD_REPORT=1 npx vitest run tests/hold-report.test.ts --silent=false` | Prints a simulated Hold the Line match for balancing (add `GARRISON=1` to man the walls) |
 | `AI_REPORT=1 DIFF=normal npx vitest run tests/ai-report.test.ts --silent=false` | Prints a 20-minute skirmish timeline of the AI against a passive player |
+| `PERSONALITY_REPORT=1 [WHO=jackal,warden] [MAPS=basin,pass] [VS=sarge] npx vitest run tests/personality-report.test.ts --silent=false` | Each AI commander on each map against a passive player (or, with `VS`, an AI defender): result, first assault, losses, raids, hires, traps, gun towers, vehicles |
 | `npm run preview` | Serve the production build |
 
 ## Deploying to Vercel
