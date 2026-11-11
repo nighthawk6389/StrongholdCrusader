@@ -947,6 +947,45 @@ function TauntRadio() {
   );
 }
 
+function TutorialCard({ game }: { game: GameActions }) {
+  const t = useHud((s) => s.tutorial);
+  const view = useHud((s) => s.view);
+  const busy = useHud((s) => !!s.building || s.buildOpen || !!s.placing);
+  const [hidden, setHidden] = useState(false);
+  if (!t || t.finished) return null;
+  // Small screens: tuck the card away while a panel or direct control needs the room.
+  const cramped = typeof matchMedia !== 'undefined' && matchMedia('(max-height: 500px)').matches && (busy || view === 'control');
+  if (hidden || cramped) {
+    return (
+      <button type="button" className={`panel tutorial-tab ${view === 'control' ? 'in-control' : ''}`} onClick={() => setHidden(false)}>
+        📘 {t.index + 1}/{t.total}
+      </button>
+    );
+  }
+  return (
+    <div className={`panel tutorial-card ${t.done ? 'done' : ''} ${view === 'control' ? 'in-control' : ''}`} role="status">
+      <div className="tut-head">
+        <span className="tut-step">
+          Tutorial {t.index + 1}/{t.total}
+        </span>
+        <button type="button" className="tut-x" onClick={() => setHidden(true)} title="Hide">
+          –
+        </button>
+      </div>
+      <div className="tut-title">{t.done ? `✓ ${t.title}` : t.title}</div>
+      {!t.done && <div className="tut-text">{t.text}</div>}
+      <div className="tut-bar">
+        <div style={{ width: `${((t.index + (t.done ? 1 : 0)) / t.total) * 100}%` }} />
+      </div>
+      {!t.done && (
+        <button type="button" className="tut-skip" onClick={() => game.skipTutorialStep()}>
+          Skip this step
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ResultOverlay({ game }: { game: GameActions }) {
   const result = useHud((s) => s.result)!;
   const mode = useHud((s) => s.gameMode);
@@ -955,8 +994,11 @@ function ResultOverlay({ game }: { game: GameActions }) {
   return (
     <div className="modal-backdrop">
       <div className={`panel modal result ${win ? 'win' : 'lose'}`}>
-        <h2>{win ? 'Victory' : 'Defeat'}</h2>
+        <h2>{win ? (mode === 'tutorial' ? 'Tutorial complete' : 'Victory') : 'Defeat'}</h2>
         <p>{result.reason}</p>
+        {mode === 'tutorial' && win && (
+          <p className="small">You know the basics. The Commander's Trail is next: eight commanders, each tougher than the last.</p>
+        )}
         {trail && (
           <p className="small">
             {win
@@ -993,7 +1035,9 @@ function Help({ game }: { game: GameActions }) {
         <h2>
           {s.gameMode === 'hold'
             ? 'Hold the Line'
-            : s.trail
+            : s.gameMode === 'tutorial'
+              ? 'Tutorial'
+              : s.trail
               ? `Commander's Trail ${s.trail.stage + 1}: ${s.trail.title}`
               : s.gameMode === 'skirmish'
                 ? `Skirmish vs ${s.opponent?.name ?? 'AI'}`
@@ -1129,6 +1173,7 @@ export function Hud({ game }: { game: GameActions }) {
       {toast && <div className={`toast panel ${view === 'control' ? 'low' : ''}`}>{toast}</div>}
       <NvgOverlay />
       <TauntRadio />
+      <TutorialCard game={game} />
       {showHelp && <Help game={game} />}
       {showSettings && <SettingsPanel onClose={() => setHud({ showSettings: false })} />}
       {result && <ResultOverlay game={game} />}

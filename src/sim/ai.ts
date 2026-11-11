@@ -63,7 +63,7 @@ export const DIFFICULTY: Record<Difficulty, AiTuning> = {
 type Near = 'trees' | 'fertile' | 'rock' | 'oil' | 'home' | 'producers';
 
 interface BuildStep {
-  kind: StructureKind | 'fortFront' | 'fortRing' | 'nightKit' | 'gunTowers' | 'traps' | 'searchlights';
+  kind: StructureKind | 'fortFront' | 'fortRing' | 'fortOuter' | 'nightKit' | 'gunTowers' | 'traps' | 'searchlights';
   /** Target number of this kind (cumulative), so destroyed buildings get rebuilt. */
   count?: number;
   near?: Near;
@@ -82,7 +82,7 @@ interface Tempo {
 
 type LineKey = 'start' | 'attack' | 'lostBuilding' | 'hqHit' | 'attackFailed' | 'win' | 'lose';
 
-export type OpponentKey = 'sarge' | 'jackal' | 'engineer' | 'warden' | 'broker';
+export type OpponentKey = 'sarge' | 'jackal' | 'engineer' | 'warden' | 'broker' | 'nightshade' | 'quartermaster' | 'varga';
 
 export interface Personality {
   key: OpponentKey;
@@ -104,6 +104,10 @@ export interface Personality {
   contracts?: boolean;
   /** Runs high taxes and sells surplus hard. */
   trader?: boolean;
+  /** Main attacks wait for darkness (unless overwhelming); special forces raid twice a night, four at a time. */
+  nightOps?: boolean;
+  /** A second, outer ring of walls (build step 'fortOuter'). */
+  outerRing?: boolean;
   /** Lights the fuel trenches when the enemy walks into them. */
   ignites?: boolean;
   /** Upgrade priorities (default: producers and housing). */
@@ -391,16 +395,194 @@ export const THE_BROKER: Personality = {
   },
 };
 
+/** Nightshade: special forces and the dark. Cuts your power, then comes over the walls at night. */
+export const NIGHTSHADE: Personality = {
+  key: 'nightshade',
+  name: 'Nightshade',
+  title: 'Night raider',
+  blurb: 'Special forces who own the dark: they black out your power and lights, then attack at night. Daytime is quiet. Too quiet.',
+  mix: {
+    [UnitKind.Rifleman]: 3,
+    [UnitKind.Gunner]: 1,
+    [UnitKind.Marksman]: 2,
+    [UnitKind.Engineer]: 1,
+    [UnitKind.AT]: 1,
+    [UnitKind.Operator]: 4,
+  },
+  build: [
+    { kind: 'lumber', count: 1, near: 'trees' },
+    { kind: 'orchard', count: 1, near: 'fertile' },
+    { kind: 'quarry', count: 1, near: 'rock' },
+    { kind: 'house', count: 3, near: 'home' },
+    { kind: 'scrapyard', count: 1, near: 'home' },
+    { kind: 'arms', count: 1, near: 'home' },
+    { kind: 'market', count: 1, near: 'home' },
+    { kind: 'scrapyard', count: 2, near: 'home' },
+    { kind: 'lumber', count: 2, near: 'trees' },
+    { kind: 'ranch', count: 1, near: 'home' },
+    { kind: 'fortFront' },
+    { kind: 'arms', count: 2, near: 'home' },
+    { kind: 'generator', count: 2, near: 'home' },
+    { kind: 'dronebay', count: 1, near: 'home', eager: true },
+    { kind: 'nightKit' },
+    { kind: 'quarry', count: 2, near: 'rock' },
+    { kind: 'house', count: 4, near: 'home' },
+    { kind: 'orchard', count: 2, near: 'fertile' },
+    { kind: 'scrapyard', count: 3, near: 'home' },
+    { kind: 'depot', count: 2, near: 'producers' },
+    { kind: 'gunTowers' },
+    { kind: 'mortar', count: 1, near: 'home' },
+    { kind: 'fortRing' },
+    { kind: 'house', count: 5, near: 'home' },
+    { kind: 'derrick', count: 1, near: 'oil' },
+    { kind: 'motorpool', count: 1, near: 'home' },
+  ],
+  armor: [
+    [UnitKind.ArmoredCar, 1, 2],
+    [UnitKind.Tank, 0, 1],
+  ],
+  tempo: { attackSize: 0.9, attackGap: 0.9 },
+  nightOps: true,
+  upgrades: ['scrapyard', 'arms', 'quarry', 'lumber', 'orchard', 'house', 'generator'],
+  lines: {
+    start: ['Nightshade. You will not see us. You will only notice what is missing.'],
+    attack: ['Lights out.', 'Move quiet. Strike once.', 'They sleep. We work.'],
+    lostBuilding: ['Acceptable.', 'Noted. Retaliation scheduled.'],
+    hqHit: ['Daylight makes you brave.', 'Enjoy the sun while it lasts.'],
+    attackFailed: ['Withdraw. The night is long.', 'Fade back. Next time, darker.'],
+    win: ['Goodnight.'],
+    lose: ['...the dawn came early.'],
+  },
+};
+
+/** Duchess Varga: armor first, armor always. Tanks and Breachers roll at your walls again and again. */
+export const DUCHESS_VARGA: Personality = {
+  key: 'varga',
+  name: 'Duchess Varga',
+  title: 'Iron fist',
+  blurb: 'Armor-heavy and relentless: tanks, armored cars and Breachers come at your walls again and again. Bring AT rockets and mines.',
+  mix: { [UnitKind.Rifleman]: 4, [UnitKind.Gunner]: 1, [UnitKind.Engineer]: 2, [UnitKind.AT]: 2, [UnitKind.Operator]: 1 },
+  build: [
+    { kind: 'lumber', count: 1, near: 'trees' },
+    { kind: 'orchard', count: 1, near: 'fertile' },
+    { kind: 'quarry', count: 1, near: 'rock' },
+    { kind: 'house', count: 3, near: 'home' },
+    { kind: 'scrapyard', count: 1, near: 'home' },
+    { kind: 'market', count: 1, near: 'home' },
+    { kind: 'scrapyard', count: 2, near: 'home' },
+    { kind: 'derrick', count: 1, near: 'oil', eager: true },
+    { kind: 'motorpool', count: 1, near: 'home', eager: true },
+    { kind: 'arms', count: 1, near: 'home' },
+    { kind: 'lumber', count: 2, near: 'trees' },
+    { kind: 'ranch', count: 1, near: 'home' },
+    { kind: 'scrapyard', count: 3, near: 'home' },
+    { kind: 'fortFront' },
+    { kind: 'derrick', count: 2, near: 'oil', eager: true },
+    { kind: 'quarry', count: 2, near: 'rock' },
+    { kind: 'house', count: 4, near: 'home' },
+    { kind: 'scrapyard', count: 4, near: 'home' },
+    { kind: 'nightKit' },
+    { kind: 'orchard', count: 2, near: 'fertile' },
+    { kind: 'depot', count: 2, near: 'producers' },
+    { kind: 'gunTowers' },
+    { kind: 'generator', count: 2, near: 'home' },
+    { kind: 'dronebay', count: 1, near: 'home' },
+    { kind: 'fortRing' },
+    { kind: 'house', count: 5, near: 'home' },
+  ],
+  armor: [
+    [UnitKind.Tank, 1, 3],
+    [UnitKind.Breacher, 1, 2],
+    [UnitKind.ArmoredCar, 1, 2],
+    [UnitKind.Tank, 2, 3],
+    [UnitKind.Howitzer, 0, 1],
+  ],
+  tempo: { attackSize: 1.15, attackGap: 0.85, attackGrowth: 1.1 },
+  upgrades: ['scrapyard', 'derrick', 'quarry', 'lumber', 'arms', 'house', 'orchard', 'generator'],
+  lines: {
+    start: ['Duchess Varga. I collect castles. Yours will do nicely.'],
+    attack: ['Engines on. Crush it.', 'Treads forward. Do not stop for anything.', 'Again. And again. Until it breaks.'],
+    lostBuilding: ['How tiresome.', 'I have more steel than you have patience.'],
+    hqHit: ['You dare scratch my paint?', 'Insolent.'],
+    attackFailed: ['Repair the tanks. We go again.', 'A setback. Steel is patient.'],
+    win: ['Another castle for the collection.'],
+    lose: ['Hm. You may keep this one.'],
+  },
+};
+
+/** The Quartermaster: the biggest economy on the map behind two rings of walls, then a late, crushing push. */
+export const THE_QUARTERMASTER: Personality = {
+  key: 'quartermaster',
+  name: 'The Quartermaster',
+  title: 'Economic turtle',
+  blurb: 'Builds the biggest economy on the map behind two rings of walls, upgrades everything, and holds back. Then comes a late push with tanks and guns. Hit early, or face the bill.',
+  mix: { [UnitKind.Rifleman]: 4, [UnitKind.Gunner]: 2, [UnitKind.Marksman]: 2, [UnitKind.Engineer]: 2, [UnitKind.AT]: 1 },
+  build: [
+    { kind: 'lumber', count: 1, near: 'trees' },
+    { kind: 'orchard', count: 1, near: 'fertile' },
+    { kind: 'quarry', count: 1, near: 'rock' },
+    { kind: 'lumber', count: 2, near: 'trees' },
+    { kind: 'quarry', count: 2, near: 'rock' },
+    { kind: 'house', count: 3, near: 'home' },
+    { kind: 'scrapyard', count: 1, near: 'home' },
+    { kind: 'market', count: 1, near: 'home' },
+    { kind: 'orchard', count: 2, near: 'fertile' },
+    { kind: 'ranch', count: 1, near: 'home' },
+    { kind: 'scrapyard', count: 2, near: 'home' },
+    { kind: 'arms', count: 1, near: 'home' },
+    { kind: 'fortFront' },
+    { kind: 'house', count: 4, near: 'home' },
+    { kind: 'depot', count: 2, near: 'producers' },
+    { kind: 'quarry', count: 3, near: 'rock' },
+    { kind: 'lumber', count: 3, near: 'trees' },
+    { kind: 'fortRing' },
+    { kind: 'scrapyard', count: 3, near: 'home' },
+    { kind: 'gunTowers' },
+    { kind: 'nightKit' },
+    { kind: 'house', count: 5, near: 'home' },
+    { kind: 'arms', count: 2, near: 'home' },
+    { kind: 'generator', count: 2, near: 'home' },
+    { kind: 'fortOuter' },
+    { kind: 'mortar', count: 1, near: 'home' },
+    { kind: 'derrick', count: 1, near: 'oil' },
+    { kind: 'motorpool', count: 1, near: 'home' },
+    { kind: 'ranch', count: 2, near: 'home' },
+    { kind: 'house', count: 6, near: 'home' },
+    { kind: 'scrapyard', count: 4, near: 'home' },
+    { kind: 'dronebay', count: 1, near: 'home' },
+  ],
+  armor: [
+    [UnitKind.Tank, 2, 3],
+    [UnitKind.Howitzer, 1, 2],
+    [UnitKind.ArmoredCar, 1, 1],
+  ],
+  tempo: { firstAttack: 1.5, attackSize: 1.35, attackGap: 1.0, attackGrowth: 1.2, garrison: 1.3 },
+  outerRing: true,
+  upgrades: ['scrapyard', 'quarry', 'lumber', 'orchard', 'ranch', 'arms', 'house', 'depot', 'generator', 'guntower', 'gate'],
+  lines: {
+    start: ['The Quartermaster. Everything in order, everything in triplicate.'],
+    attack: ['Requisition approved. Proceed.', 'The bill has come due.', 'Deliver the shipment. All of it.'],
+    lostBuilding: ['That will need a form.', 'Replacement scheduled.'],
+    hqHit: ['Mind the inventory!', 'Unauthorized access to headquarters.'],
+    attackFailed: ['Write it off. Order more.', 'Stocks remain adequate.'],
+    win: ['Account closed.'],
+    lose: ['Audit complete. I appear to be insolvent.'],
+  },
+};
+
 export const PERSONALITIES: Record<OpponentKey, Personality> = {
   sarge: OLD_SARGE,
   jackal: JACKAL,
   engineer: THE_ENGINEER,
   broker: THE_BROKER,
   warden: WARDEN,
+  nightshade: NIGHTSHADE,
+  varga: DUCHESS_VARGA,
+  quartermaster: THE_QUARTERMASTER,
 };
 
 /** Opponents in menu order (roughly easiest first). */
-export const OPPONENTS: OpponentKey[] = ['sarge', 'jackal', 'engineer', 'broker', 'warden'];
+export const OPPONENTS: OpponentKey[] = ['sarge', 'jackal', 'engineer', 'broker', 'nightshade', 'varga', 'quartermaster', 'warden'];
 
 export function isOpponentKey(k: string | null | undefined): k is OpponentKey {
   return !!k && k in PERSONALITIES;
@@ -438,6 +620,8 @@ export class AiCommander implements Controller {
   private readonly tuning: AiTuning;
   private readonly front: Side;
   private readonly pieces: Piece[];
+  /** Second ring (The Quartermaster). */
+  private readonly outer: Piece[];
   private readonly reserved: (tx: number, tz: number) => boolean;
   private readonly impossible = new Set<string>();
   private readonly garrison = new Set<number>();
@@ -475,7 +659,10 @@ export class AiCommander implements Controller {
     this.attackSize = this.tuning.attackSize;
     this.front = front;
     this.pieces = ringBlueprint(home.x, home.z, ring, ['east', 'west', 'north', 'south']);
-    this.reserved = ringReserve(home.x, home.z, ring);
+    this.outer = personality.outerRing ? ringBlueprint(home.x, home.z, ring + 4, ['east', 'west', 'north', 'south']) : [];
+    const inner = ringReserve(home.x, home.z, ring);
+    const outer = ringReserve(home.x, home.z, ring + 4);
+    this.reserved = personality.outerRing ? (x, z) => inner(x, z) || outer(x, z) : inner;
     this.fieldworks = personality.build.some((b) => b.kind === 'traps') ? this.layoutFieldworks() : [];
   }
 
@@ -687,7 +874,7 @@ export class AiCommander implements Controller {
   private trade(sim: Sim): void {
     if (!sim.economy.hasMarket(this.owner)) return;
     const p = sim.economy.player(this.owner);
-    const walling = this.pieces.some((pc) => !sim.structureAt(pc.tx, pc.tz));
+    const walling = this.pieces.some((pc) => !sim.structureAt(pc.tx, pc.tz)) || this.outer.some((pc) => !sim.structureAt(pc.tx, pc.tz));
     // The Broker sells hard once he's set up (not while he still needs the timber).
     const trader = !!this.personality.trader && sim.elapsed > 360;
     const keep: [ResId, number][] = [
@@ -802,8 +989,8 @@ export class AiCommander implements Controller {
     if (this.difficulty !== 'easy' && p.idle >= 8 && sim.elapsed > 150 && this.expand(sim)) return;
 
     for (const step of this.personality.build) {
-      if (step.kind === 'fortFront' || step.kind === 'fortRing') {
-        const done = this.fortify(sim, step.kind === 'fortFront');
+      if (step.kind === 'fortFront' || step.kind === 'fortRing' || step.kind === 'fortOuter') {
+        const done = this.fortify(sim, step.kind === 'fortFront', step.kind === 'fortOuter' ? this.outer : this.pieces);
         if (!done) return; // keep pouring concrete into the walls before moving on
         continue;
       }
@@ -859,9 +1046,9 @@ export class AiCommander implements Controller {
   }
 
   /** Build the next pieces of the fortress. Returns true when that phase is complete. */
-  private fortify(sim: Sim, frontOnly: boolean): boolean {
+  private fortify(sim: Sim, frontOnly: boolean, pieces: Piece[] = this.pieces): boolean {
     const p = sim.economy.player(this.owner);
-    const todo = this.pieces.filter((pc) => {
+    const todo = pieces.filter((pc) => {
       if (frontOnly && pc.side !== this.front && !(pc.kind === 'tower' && this.isFrontCorner(pc))) return false;
       const key = `${pc.kind}@${pc.tx},${pc.tz}`;
       if (this.impossible.has(key)) return false;
@@ -1254,6 +1441,17 @@ export class AiCommander implements Controller {
           best = k;
         }
       }
+      // Night raiders keep a special-forces team on hand before anything else.
+      const ops = byKind.get(UnitKind.Operator) ?? 0;
+      if (
+        this.personality.nightOps &&
+        this.difficulty !== 'easy' &&
+        ops < (this.difficulty === 'hard' ? 6 : 4) &&
+        !sim.economy.recruitBlocker(this.owner, UnitKind.Operator) &&
+        p.funds >= UNIT_TYPES[UnitKind.Operator].funds + 5
+      ) {
+        best = UnitKind.Operator;
+      }
       if (best >= 0) sim.enqueue({ type: 'recruit', owner: this.owner, barracks: barracks.id, kind: best, count: 1 });
     }
 
@@ -1332,6 +1530,8 @@ export class AiCommander implements Controller {
       sim.elapsed - this.lastIntelAt < 90 &&
       strength >= Math.max(this.attackSize * 0.8, this.knownEnemy * 2.2 + 3);
     if (!canBreach || !(scheduled || opportunity)) return;
+    // Nightshade waits for darkness unless the odds are overwhelming.
+    if (this.personality.nightOps && sim.cycle.daylight > 0.35 && strength < this.attackSize * 1.6) return;
     this.launchAttack(sim, free, strength);
   }
 
@@ -1345,6 +1545,7 @@ export class AiCommander implements Controller {
   private stage: { ids: number[]; x: number; z: number; since: number; size: number } | null = null;
   private saboteurs: number[] = [];
   private sabotageNight = -1;
+  private sabotageCount = 0;
   private lastReinforceAt = -1e9;
   private launchedStrength = 0;
   private lastHuntAt = -1e9;
@@ -1587,12 +1788,17 @@ export class AiCommander implements Controller {
       return;
     }
     const nightNo = Math.floor(sim.timeSec / CYCLE_SEC);
-    if (this.sabotageNight === nightNo) return;
-    const ops = free.filter((i) => u.kind[i] === UnitKind.Operator && u.charges[i] > 0 && u.order[i] === Order.Idle).slice(0, 3);
+    const raidsPerNight = this.personality.nightOps ? 2 : 1;
+    if (this.sabotageNight === nightNo && this.sabotageCount >= raidsPerNight) return;
+    if (this.sabotageNight !== nightNo) this.sabotageCount = 0;
+    const ops = free
+      .filter((i) => u.kind[i] === UnitKind.Operator && u.charges[i] > 0 && u.order[i] === Order.Idle)
+      .slice(0, this.personality.nightOps ? 4 : 3);
     if (ops.length < 2) return;
     const target = this.sabotageTarget(sim);
     if (!target) return;
     this.sabotageNight = nightNo;
+    this.sabotageCount++;
     this.saboteurs = ops;
     for (const o of ops) free.splice(free.indexOf(o), 1);
     sim.enqueue({ type: 'attackStructure', owner: this.owner, ids: ops, structure: target.id });

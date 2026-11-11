@@ -14,8 +14,8 @@ soldiers.
   (skirmish vs an AI commander), **M4** (night & stealth), **M5** (full direct control: aimed fire, gun
   towers, drones), **M6a** (siege depth: vehicles, artillery, mines, ditches, fuel trenches, wire) and **M6b**
   (five AI commanders, four maps, the Commander's Trail, PMC hires, the Breacher) are playable, plus two playtest
-  rounds. **M7a** (sound, settings, offline/install) is done; next up is **M7b** (tutorial, the last three
-  commanders, phone tuning).
+  rounds. **M7a** (sound, settings, offline/install) and **M7b** (tutorial, the last three commanders, phone tuning) are
+  done; next up is **M7c** (final name, art pass, launch).
 
 ## Play locally
 
@@ -29,9 +29,14 @@ the render preset. `?seed=123` reshuffles the map's details.
 
 ## Game modes
 
-- **Commander's Trail:** six stages against tougher and tougher commanders, each on its own map: Boot Camp
-  (Old Sarge, Easy), Open Sands (Jackal), Black Gold (The Broker), The Pass (The Engineer), Sarge's Rematch
-  (Hard) and The Fortress (Warden, Hard). Win a stage to unlock the next; progress is kept in your browser.
+- **Tutorial:** fourteen short guided steps, from moving the camera to storming an enemy outpost: build an
+  economy, wall in, man the walls, train a soldier, take direct control, set rations and taxes, light up for the
+  night. Each step completes when you do it (or skip it). A card shows the current step; on small phones it tucks
+  away while a panel is open.
+- **Commander's Trail:** eight stages against tougher and tougher commanders, each on its own map: Boot Camp
+  (Old Sarge, Easy), Open Sands (Jackal), Black Gold (The Broker), The Pass (The Engineer), Lights Out
+  (Nightshade), Iron Duchess (Duchess Varga, Hard), The Long Siege (The Quartermaster, Hard) and The Fortress
+  (Warden, Hard). Win a stage to unlock the next; progress is kept in your browser.
 - **Skirmish:** a 1v1 against an AI commander of your choice, on a map of your choice. Every commander runs a
   real economy, builds a walled fortress, mans the walls and attacks. Destroy their HQ or kill their Commander,
   and protect yours. Easy, Normal and Hard differ in reaction speed, attack timing and size, and a small
@@ -44,6 +49,12 @@ the render preset. `?seed=123` reshuffles the map's details.
   - **The Broker** (trader): high taxes, sells everything, hires PMC teams when the cash piles up.
   - **Warden** (fortress): gun towers on every wall, extra searchlights, a big garrison, late heavy assaults
     with tanks.
+  - **Nightshade** (night raider): special forces. Twice a night they slip over your walls to blow up your
+    generators and gun towers, and the main attacks wait for darkness.
+  - **Duchess Varga** (iron fist): the motor pool comes first: tanks, armored cars and Breachers, again and
+    again.
+  - **The Quartermaster** (economic turtle): the biggest economy on the map behind two rings of walls, upgrades
+    everything, then a late push with tanks and guns.
 - **Maps** (skirmish), all mirrored so both sides start alike, with a new layout every game: **Oasis Basin**
   (balanced), **Dune Sea** (open dunes, scarce timber), **Rocky Pass** (two ridges, three passes), **Oil Fields**
   (oil everywhere, little farmland), **Ruined Town** (a bombed-out town in the middle: broken walls block movement
@@ -64,8 +75,8 @@ the render preset. `?seed=123` reshuffles the map's details.
 - **Sandbox:** no waves. Build at your own pace and skirmish with the hostile patrol.
 
 The start screen picks the mode. You can also link straight to a match: `?mode=skirmish&ai=jackal&map=pass&difficulty=hard`
-(`ai`: sarge, jackal, engineer, broker, warden; `map`: basin, dunes, pass, oilfields), a trail stage with
-`?mode=skirmish&trail=0` (0–5), `?mode=hold` or `?mode=sandbox`.
+(`ai`: sarge, jackal, engineer, broker, nightshade, varga, quartermaster, warden; `map`: basin, dunes, pass, oilfields), a trail stage with
+`?mode=skirmish&trail=0` (0–7), the tutorial with `?mode=tutorial`, `?mode=hold` or `?mode=sandbox`.
 
 ## Sound, settings and offline play
 

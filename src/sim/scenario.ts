@@ -10,7 +10,7 @@ import { WaveDirector, type Wave } from './waves';
 export const PLAYER = 1;
 export const ENEMY = 2;
 
-export type GameMode = 'sandbox' | 'hold' | 'skirmish';
+export type GameMode = 'sandbox' | 'hold' | 'skirmish' | 'tutorial';
 
 /** Skirmish choices beyond the difficulty. */
 export interface MatchOptions {
@@ -149,8 +149,45 @@ function createSkirmish(seed: number, difficulty: Difficulty, opts: MatchOptions
   return { sim, mode: 'skirmish', ai, player: PLAYER, playerBase, enemyBase };
 }
 
+/**
+ * Tutorial: your pre-built core with plenty of materials, a few soldiers and two engineers, and a small
+ * walled enemy outpost to the east that never attacks. Take it to finish.
+ */
+function createTutorial(seed: number): Scenario {
+  const playerBase = { x: 28, z: 64 };
+  const enemyBase = { x: 98, z: 64 };
+  const map = generateDesertMap(MAPS.basin.spec(seed, [playerBase, { x: 100, z: 64 }]));
+  const sim = new Sim({ map, seed, startSec: 20 });
+  placeCore(sim, PLAYER, playerBase.x, playerBase.z, false);
+  sim.placeStructure('floodlight', PLAYER, playerBase.x + 4, playerBase.z + 3, Math.PI / 2);
+  sim.placeStructure('floodlight', PLAYER, playerBase.x - 5, playerBase.z - 1, -Math.PI / 2);
+  stockUp(sim, PLAYER, { timber: 160, concrete: 140, funds: 400 });
+  const eco = sim.economy.player(PLAYER);
+  eco.stock[Res.Steel] = 40;
+  eco.stock[Res.Rifle] = 4;
+  sim.economy.spawnArrivals(PLAYER, 10);
+  sim.spawnUnit(UnitKind.Commander, PLAYER, playerBase.x - 3.5, playerBase.z + 0.5, Math.PI / 2);
+  for (let i = 0; i < 8; i++) {
+    const kind = i < 2 ? UnitKind.Engineer : UnitKind.Rifleman;
+    sim.spawnUnit(kind, PLAYER, playerBase.x + 2.6 + Math.floor(i / 4) * 0.8, playerBase.z - 1.5 + (i % 4) * 0.8, Math.PI / 2);
+  }
+  // The outpost: a small walled camp with a gatehouse facing you, a handful of guards and their Commander.
+  const E = enemyBase;
+  const outpostHq = sim.placeStructure('hq', ENEMY, E.x - 1, E.z - 2)!;
+  outpostHq.hp *= 0.35; // battered: a few charges or a determined squad will finish it
+  sim.placeStructure('house', ENEMY, E.x + 2, E.z + 3);
+  buildWalledBase(sim, ENEMY, E.x, E.z, 6, ['west']);
+  sim.placeStructure('floodlight', ENEMY, E.x - 4, E.z - 3, -Math.PI / 2);
+  for (let i = 0; i < 3; i++) sim.spawnUnit(UnitKind.Rifleman, ENEMY, E.x - 3 + (i % 2) * 1.2, E.z - 3.5 + Math.floor(i / 2) * 7, -Math.PI / 2);
+  sim.spawnUnit(UnitKind.Commander, ENEMY, E.x + 3.5, E.z - 3.5, -Math.PI / 2);
+  sim.defender = PLAYER;
+  sim.opponent = ENEMY;
+  return { sim, mode: 'tutorial', ai: null, player: PLAYER, playerBase, enemyBase };
+}
+
 export function createScenario(mode: GameMode, seed = 1337, difficulty: Difficulty = 'normal', opts: MatchOptions = {}): Scenario {
   if (mode === 'skirmish') return createSkirmish(seed, difficulty, opts);
+  if (mode === 'tutorial') return createTutorial(seed);
   const playerBase = { x: 28, z: 64 };
   const enemyBase = { x: 100, z: 70 };
   const map = generateDesertMap({

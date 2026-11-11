@@ -1969,3 +1969,169 @@ kbd {
     min-height: 30px;
   }
 }
+
+/* ---------- M7b: tutorial */
+
+.tutorial-card {
+  position: absolute;
+  top: calc(64px + var(--safe-top));
+  right: calc(8px + var(--safe-right, 0px));
+  width: 290px;
+  padding: 10px 12px;
+  pointer-events: auto;
+  border: 1px solid var(--accent-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 6;
+}
+
+.tutorial-card.done {
+  border-color: #7dc878;
+}
+
+.tut-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tut-step {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.tut-x {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.tut-title {
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.tutorial-card.done .tut-title {
+  color: #9be096;
+}
+
+.tut-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.tut-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.tut-bar > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s;
+}
+
+.tut-skip {
+  appearance: none;
+  align-self: flex-end;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.tutorial-tab {
+  position: absolute;
+  top: calc(64px + var(--safe-top));
+  right: calc(8px + var(--safe-right, 0px));
+  pointer-events: auto;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.tutorial-card-entry {
+  border-style: dashed;
+}
+
+@media (max-width: 900px), (max-height: 500px) {
+  .tutorial-card {
+    width: 230px;
+    padding: 8px 10px;
+    gap: 4px;
+    top: calc(52px + var(--safe-top));
+  }
+  .tut-title {
+    font-size: 14px;
+  }
+  .tut-text {
+    font-size: 12px;
+  }
+  .tutorial-tab {
+    top: calc(52px + var(--safe-top));
+  }
+}
+
+.mode-card.tutorial-card-entry {
+  grid-column: 1 / -1;
+}
+
+/* ---------- M7b: small-phone tuning */
+
+@media (max-height: 500px) {
+  /* The tutorial card lives bottom-right on short screens, clear of the top bars and buttons. */
+  .tutorial-card {
+    top: auto;
+    bottom: calc(8px + var(--safe-bottom));
+    width: 220px;
+  }
+  .tutorial-tab {
+    top: auto;
+    bottom: calc(8px + var(--safe-bottom));
+  }
+  .control-view .tutorial-tab,
+  .tutorial-tab.in-control {
+    bottom: auto;
+    top: calc(52px + var(--safe-top));
+  }
+  /* Building panels stay below the top bars and scroll if they must. */
+  .selection.building-panel {
+    max-height: calc(100dvh - 118px - var(--safe-top) - var(--safe-bottom));
+    overflow-y: auto;
+  }
+  .recruit-grid {
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: 5px;
+  }
+  .recruit-card {
+    padding: 6px 8px;
+    gap: 3px;
+  }
+}
+
+@media (max-height: 500px) and (max-width: 700px) {
+  .tutorial-card {
+    width: 178px;
+  }
+  .tut-text {
+    font-size: 11.5px;
+  }
+}

@@ -184,6 +184,8 @@ export interface HudState {
   result: { result: 'victory' | 'defeat'; reason: string } | null;
   /** Skirmish opponent (and the map you're on). */
   opponent: { name: string; difficulty: string; title: string; blurb: string; map: string } | null;
+  /** Tutorial card: the current step (null outside the tutorial). */
+  tutorial: { index: number; total: number; title: string; text: string; done: boolean; finished: boolean } | null;
   /** Commander's Trail stage being played; `next` is set after a win that unlocks another stage. */
   trail: { stage: number; title: string; next: { stage: number; title: string } | null } | null;
   /** Latest radio message from the opponent. */
@@ -240,6 +242,7 @@ export const useHud = create<HudState>(() => ({
   result: null,
   opponent: null,
   trail: null,
+  tutorial: null,
   taunt: null,
   power: { supply: 0, demand: 0 },
   nightShift: false,

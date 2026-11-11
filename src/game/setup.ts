@@ -61,12 +61,28 @@ export const TRAIL: TrailStage[] = [
     seed: 3131,
   },
   {
-    title: "Sarge's Rematch",
-    brief: 'Old Sarge, no more training wheels: faster, harder, with tanks.',
-    opponent: 'sarge',
-    map: 'pass',
+    title: 'Lights Out',
+    brief: 'Nightshade owns the dark. Guard your generators and light the walls: the attacks come at night.',
+    opponent: 'nightshade',
+    map: 'ruins',
+    difficulty: 'normal',
+    seed: 7171,
+  },
+  {
+    title: 'Iron Duchess',
+    brief: "Duchess Varga's tanks and Breachers come again and again. Mines, ditches and AT rockets.",
+    opponent: 'varga',
+    map: 'oilfields',
     difficulty: 'hard',
-    seed: 5353,
+    seed: 8282,
+  },
+  {
+    title: 'The Long Siege',
+    brief: 'The Quartermaster hides the richest economy on the map behind two rings of walls. Hit early, or face the bill.',
+    opponent: 'quartermaster',
+    map: 'flats',
+    difficulty: 'hard',
+    seed: 9393,
   },
   {
     title: 'The Fortress',
@@ -110,7 +126,7 @@ const asDifficulty = (d: string | null): Difficulty => (d === 'easy' || d === 'h
 
 export function setupFromParams(params: URLSearchParams): MatchSetup | null {
   const mode = params.get('mode');
-  if (mode !== 'hold' && mode !== 'sandbox' && mode !== 'skirmish') return null;
+  if (mode !== 'hold' && mode !== 'sandbox' && mode !== 'skirmish' && mode !== 'tutorial') return null;
   const trail = Number(params.get('trail'));
   if (mode === 'skirmish' && params.has('trail') && Number.isInteger(trail) && TRAIL[trail]) return trailSetup(trail);
   const ai = params.get('ai');

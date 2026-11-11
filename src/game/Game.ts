@@ -12,6 +12,8 @@ import { DRONE_COST } from '../sim/drones';
 import { CONTRACTS } from '../sim/contracts';
 import { audio, type Listener } from '../audio/AudioEngine';
 import { getSettings, onSettings } from './settings';
+import { TUTORIAL_STEPS, Tutorial } from './tutorial';
+import { useHud } from '../ui/store';
 import { MAPS } from '../sim/maps';
 import { TRAIL, clearTrailStage, setupQuery, trailSetup, type MatchSetup } from './setup';
 import { DOZER_FILL_SEC } from '../sim/combat';
@@ -69,6 +71,7 @@ export interface GameActions {
   restart(mode?: GameMode): void;
   /** Start a Commander's Trail stage. */
   playTrail(stage: number): void;
+  skipTutorialStep(): void;
   reload(): void;
   plantCharge(): void;
   toggleNvg(): void;
@@ -128,6 +131,9 @@ export class Game implements GameActions {
   private followers: number[] = [];
   private slowMo = false;
   private lastHit = { unit: -1, at: 0 };
+  /** Tutorial mode: the step tracker and what it watches. */
+  private tutorial: Tutorial | null = null;
+  private tut = { recruited: 0, moved: false, camStart: { x: 0, z: 0, yaw: 0, dist: 0 }, refresh: 0 };
   readonly seed: number;
   /** What this match is (mode, opponent, map, trail stage). */
   readonly setup: MatchSetup;
@@ -220,10 +226,15 @@ export class Game implements GameActions {
       trail: setup.trail !== null ? { stage: setup.trail, title: TRAIL[setup.trail].title, next: null } : null,
       quality: quality.name,
       debug: params.has('debug'),
-      showHelp: !seenHelp && getSettings().showHints,
+      showHelp: !seenHelp && getSettings().showHints && mode !== 'tutorial',
       slowMo: this.slowMo,
     });
     window.addEventListener('resize', () => this.renderer.resize());
+    if (mode === 'tutorial') {
+      this.tutorial = new Tutorial();
+      const r = this.renderer.rts;
+      this.tut.camStart = { x: r.target.x, z: r.target.z, yaw: r.yaw, dist: r.dist };
+    }
     if (resume && !loadFailed) this.resumeFrom(resume);
     if (loadFailed) this.toast("Couldn't load your saved game, so here's a fresh one", 4);
 
@@ -367,6 +378,7 @@ export class Game implements GameActions {
     const events = this.sim.drainEvents();
     this.handleEvents(events);
     this.playSounds(events);
+    if (this.tutorial) this.updateTutorial(dt, events);
     audio.update(dt, this.sim.cycle.daylight, this.paused || !!this.sim.result);
     if (this.selectedStructure >= 0 && !this.sim.structureById(this.selectedStructure)) this.deselectStructure();
     this.renderer.render({
@@ -544,6 +556,62 @@ export class Game implements GameActions {
       reload: spec && s.reload > 0 ? 1 - s.reload / spec.reloadSec : null,
       crewed: spec ? this.sim.combat.crewed(s) : true,
     };
+  }
+
+  private updateTutorial(dt: number, events: SimEvent[]): void {
+    const t = this.tutorial!;
+    const u = this.sim.units;
+    for (const e of events) if (e.type === 'recruited' && e.owner === this.player) this.tut.recruited++;
+    if (!this.tut.moved) {
+      for (let i = 0; i < u.count && !this.tut.moved; i++) {
+        if (u.alive[i] && u.owner[i] === this.player && UNIT_TYPES[u.kind[i]].armed && u.order[i] === Order.Move) this.tut.moved = true;
+      }
+    }
+    const r = this.renderer.rts;
+    const c0 = this.tut.camStart;
+    const cameraMoved =
+      Math.hypot(r.target.x - c0.x, r.target.z - c0.z) > 6 || Math.abs(r.yaw - c0.yaw) > 0.4 || Math.abs(r.dist / c0.dist - 1) > 0.2;
+    let selectedSoldiers = 0;
+    for (const id of this.selected) if (UNIT_TYPES[u.kind[id]].armed) selectedSoldiers++;
+    const changed = t.update(
+      {
+        sim: this.sim,
+        player: this.player,
+        cameraMoved,
+        selectedSoldiers,
+        controlling: this.controlled >= 0,
+        moraleOpen: useHud.getState().moraleOpen,
+        recruited: this.tut.recruited,
+        moved: this.tut.moved,
+      },
+      dt,
+    );
+    this.tut.refresh -= dt;
+    if (changed || this.tut.refresh <= 0) {
+      this.tut.refresh = 0.5;
+      this.pushTutorial();
+    }
+  }
+
+  private pushTutorial(): void {
+    const t = this.tutorial;
+    if (!t) return;
+    const step = t.step;
+    setHud({
+      tutorial: {
+        index: Math.min(t.index, TUTORIAL_STEPS.length - 1),
+        total: TUTORIAL_STEPS.length,
+        title: step?.title ?? 'Tutorial complete',
+        text: step ? (isTouchDevice() ? step.touch : step.desktop) : "You're ready. Try the Commander's Trail next.",
+        done: t.celebrating,
+        finished: t.finished,
+      },
+    });
+  }
+
+  skipTutorialStep(): void {
+    this.tutorial?.skip();
+    this.pushTutorial();
   }
 
   /** Where the "ears" are: the possessed unit, or the point the RTS camera looks at. */

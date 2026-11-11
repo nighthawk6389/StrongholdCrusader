@@ -39,6 +39,7 @@ const SKIP = new Set([
   'personality',
   'tuning',
   'pieces',
+  'outer',
   'reserved',
   'fieldworks',
   // Terrain is regenerated from the seed and never changes during a match.

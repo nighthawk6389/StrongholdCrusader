@@ -504,7 +504,7 @@ docs/
 | **M6b** | **Variety** ✅ | Four new AI commanders on a data-driven personality system (tempo, armor wants, build order, upgrade priorities): **Jackal** (farm raids, cars, early attacks), **The Engineer** (wire, mines, ditches and fuel trenches outside the walls, lit under the enemy; howitzers and a Breacher), **The Broker** (taxes, trading, PMC hires), **Warden** (gun towers on every wall, searchlights, big garrison, late tank assaults). Four mirrored skirmish maps (Oasis Basin, Dune Sea, Rocky Pass, Oil Fields) with tinted terrain. Commander's Trail: six stages, progress in localStorage, "Next stage" on victory. Contracts Office (instant PMC teams for cash, one a minute). Breacher vehicle: mine plow, fast ditch filling, assault ramps that let infantry over walls. Skirmish setup menu (opponent, map, difficulty); saves remember the match. Fixes: the AI no longer builds against doorways; workers who can't reach a store try another. |
 | — | **Playtest round 2** ✅ | Howitzer range cut to 30 (a little beyond gun towers); new **Mortar Pit** with counter-battery radar (fires back at any gun that shelled within reach, seen or not). Map variety: random layout every skirmish, two new maps (Ruined Town with cover-giving, salvageable ruins; Salt Flats with resources on the edges), guaranteed outcrops and a connectivity guarantee. No build radius for farms, work sites and stores. A crafty, bolder AI: scouting and intel-based army estimates, flank attacks on the weakest side with a feint at the gate, opportunistic attacks when it clearly outnumbers you, reinforcing winning assaults and pulling back broken ones, night sabotage by special forces (generators, gun towers), hunting an exposed Commander (strike drones too), mortar pits when shelled, extra producers for idle hands, and a rations/taxes planner that maximizes income within morale targets. Hard attacks earlier and more often. |
 | **M7a** | **Sound, settings, offline** ✅ | Procedural WebAudio (no files): per-weapon gunfire, explosions, shell whistles, mortars, build, fire, radio, alerts; stereo + distance falloff from the camera; voice cap; adaptive music (day/night pad, combat pulse, plucks). Settings screen (volumes, quality, camera speeds, edge pan, look sensitivity/invert, help card) saved in localStorage. Service worker (network-first pages, cache-first hashed assets, offline play), PNG + maskable icons, manifest polish. |
-| **M7b** | **Onboarding & rivals** | Guided tutorial, Nightshade, The Quartermaster, Duchess Varga, phone tuning, balance pass |
+| **M7b** | **Onboarding & rivals** ✅ | Guided 14-step tutorial mode (own scenario with a quiet walled outpost; steps complete from game state; skip; completion remembered). Nightshade (night-only main attacks, operators first, two sabotage raids a night), Duchess Varga (early motor pool, tanks/cars/Breachers), The Quartermaster (second ring of walls, big economy, late push). Trail grows to 8 stages. Small-phone tuning (tutorial card placement, building panels below the top bars, 4-column recruit grid). Combat fix: units give up on targets their shots can't reach (wall corners) instead of firing forever. |
 | **M7c** | **Launch** | Final name and branding, art pass, store/landing page, release checklist |
 
 ---
@@ -538,8 +538,7 @@ docs/
 8. ~~**M6a** siege depth.~~ Done.
 9. ~~**M6b** variety.~~ Done.
 10. ~~**M7a** sound, settings, offline.~~ Done.
-11. **M7b** onboarding and rivals: a guided tutorial, Nightshade, The Quartermaster and Duchess Varga, phone
-    tuning, a balance pass.
+11. ~~**M7b** onboarding and rivals.~~ Done.
 12. **M7c** launch: final name (Q-B), art pass, release.
 
 ---

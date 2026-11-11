@@ -89,6 +89,48 @@ describe('AI personalities', () => {
     expect(ai.hires).toBe(hired);
   });
 
+  it('Duchess Varga rolls out armor early: tanks, then a Breacher', { timeout: 60_000 }, () => {
+    const { sim } = match({ opponent: 'varga' });
+    runSec(sim, 450);
+    const armor = sim.units.kind.filter((k, i) => sim.units.alive[i] && sim.units.owner[i] === ENEMY && (k === UnitKind.Tank || k === UnitKind.Breacher));
+    expect(armor.length).toBeGreaterThanOrEqual(1);
+    expect(count(sim, ENEMY, ['motorpool'])).toBe(1);
+  });
+
+  it('Nightshade holds its main attack for darkness and sends special forces after your power', { timeout: 60_000 }, () => {
+    const { sim } = match({ opponent: 'nightshade' });
+    const hq = sim.economy.hqOf(PLAYER)!;
+    hq.hp = 1e9; // keep the match going
+    sim.units.hp[sim.commanderOf(PLAYER)] = 1e9;
+    let dayAssault = false;
+    let opsSent = false;
+    const gens = new Set(sim.structures.filter((s) => s.owner === PLAYER && s.kind === 'generator').map((s) => s.id));
+    for (let t = 0; t < 640 * 20; t++) {
+      sim.step();
+      sim.drainEvents();
+      if (t % 20) continue;
+      const u = sim.units;
+      for (let i = 0; i < u.count; i++) {
+        if (!u.alive[i] || u.owner[i] !== ENEMY) continue;
+        if (sim.combat.assault[i] && sim.cycle.daylight > 0.6 && sim.elapsed < 300) dayAssault = true;
+        if (u.kind[i] === UnitKind.Operator && gens.has(u.targetStruct[i])) opsSent = true;
+      }
+    }
+    expect(dayAssault).toBe(false);
+    expect(opsSent).toBe(true);
+  });
+
+  it('The Quartermaster raises a second ring of walls', { timeout: 90_000 }, () => {
+    const { sim } = match({ opponent: 'quartermaster' });
+    sim.economy.hqOf(PLAYER)!.hp = 1e9;
+    sim.units.hp[sim.commanderOf(PLAYER)] = 1e9;
+    runSec(sim, 900);
+    const outer = sim.structures.filter(
+      (s) => s.owner === ENEMY && s.kind === 'wall' && Math.max(Math.abs(s.tx - 100), Math.abs(s.tz - 64)) === 15,
+    ).length;
+    expect(outer).toBeGreaterThan(20);
+  });
+
   it('a personality match saves and reloads exactly (raids in flight)', { timeout: 60_000 }, () => {
     const { sim } = match({ opponent: 'jackal', map: 'dunes' });
     runSec(sim, 200);

@@ -4,6 +4,7 @@ import { DEFAULT_SEED, TRAIL, trailSetup, type MatchSetup } from '../game/setup'
 import { OPPONENTS, PERSONALITIES, type Difficulty, type OpponentKey } from '../sim/ai';
 import { MAPS, MAP_KEYS, type MapKey } from '../sim/maps';
 import { SettingsPanel } from './SettingsPanel';
+import { tutorialDone } from '../game/tutorial';
 
 const DIFFS: { key: Difficulty; name: string }[] = [
   { key: 'easy', name: 'Easy' },
@@ -16,6 +17,7 @@ const DIFF_NAME: Record<Difficulty, string> = { easy: 'Easy', normal: 'Normal', 
 /** One line describing a saved game for the Continue card. */
 function savedText(m: SaveMeta): string {
   if (m.mode === 'hold') return 'Hold the Line';
+  if (m.mode === 'tutorial') return 'Tutorial';
   if (m.mode === 'sandbox') return 'Sandbox';
   if (m.trail !== undefined && m.trail !== null && TRAIL[m.trail]) return `Commander's Trail ${m.trail + 1}: ${TRAIL[m.trail].title}`;
   const who = PERSONALITIES[m.opponent ?? 'sarge']?.name ?? 'AI';
@@ -76,12 +78,23 @@ export function MainMenu({
           </div>
         )}
         <div className="menu-modes">
+          <button
+            type="button"
+            className={`mode-card tutorial-card-entry ${tutorialDone() || trailDone > 0 ? '' : 'primary'}`}
+            onClick={() => onStart({ mode: 'tutorial', difficulty: 'easy', seed: DEFAULT_SEED, opponent: 'sarge', map: 'basin', trail: null })}
+          >
+            <span className="mode-title">{tutorialDone() ? '✓ Tutorial' : 'New here? Start with the tutorial'}</span>
+            <span className="mode-desc">
+              Fourteen short steps: build an economy, wall in, man the walls, train soldiers, take direct control, and
+              storm an enemy outpost. About ten minutes.
+            </span>
+          </button>
           <div className="mode-card primary trail-card">
             <span className="mode-title">Commander's Trail</span>
             <span className="mode-desc">
               {finished
                 ? 'You beat every commander on the trail. Replay any stage.'
-                : `Six commanders, each tougher than the last, each on their own ground. Stage ${next + 1} of ${TRAIL.length}.`}
+                : `A ladder of ${TRAIL.length} commanders, each tougher than the last, each on their own ground. Stage ${next + 1} of ${TRAIL.length}.`}
             </span>
             <div className="trail-stages">
               {TRAIL.map((s, k) => {

@@ -100,6 +100,13 @@ export class Combat {
   readonly assaultTarget = new Uint8Array(MAX_UNITS);
   /** Ticks before a blocked raider looks for another soft target. */
   private raidCooldown = new Uint16Array(MAX_UNITS);
+  /** Firing at a target without hurting it (shots blocked by a wall corner, say): who, since when, its health then. */
+  private engaged = new Int32Array(MAX_UNITS).fill(-1);
+  private engagedAt = new Int32Array(MAX_UNITS);
+  private engagedHp = new Float32Array(MAX_UNITS);
+  /** A target given up on, and until which tick it's ignored. */
+  private ignored = new Int32Array(MAX_UNITS).fill(-1);
+  private ignoredUntil = new Int32Array(MAX_UNITS);
 
   constructor(private sim: Sim) {}
 
@@ -172,6 +179,23 @@ export class Combat {
       u.target[i] = -1;
       return -1;
     }
+    // Six seconds of shooting without a scratch on it: the shots aren't getting through. Give up on it
+    // for a while and get on with the job rather than plinking at a wall forever.
+    const tick = this.sim.tick;
+    if (this.engaged[i] !== t) {
+      this.engaged[i] = t;
+      this.engagedAt[i] = tick;
+      this.engagedHp[i] = u.hp[t];
+    } else if (u.hp[t] < this.engagedHp[i] - 0.01) {
+      this.engagedAt[i] = tick;
+      this.engagedHp[i] = u.hp[t];
+    } else if (tick - this.engagedAt[i] > 6 * TICK_RATE) {
+      this.ignored[i] = t;
+      this.ignoredUntil[i] = tick + 15 * TICK_RATE;
+      this.engaged[i] = -1;
+      u.target[i] = -1;
+      return -1;
+    }
     return t;
   }
 
@@ -180,8 +204,9 @@ export class Combat {
     let best = -1;
     let bestScore = Infinity;
     const seen = this.sim.vision.seen[u.owner[i]];
+    const skip = this.sim.tick < this.ignoredUntil[i] ? this.ignored[i] : -1;
     for (let j = 0; j < u.count; j++) {
-      if (!u.alive[j] || u.owner[j] === u.owner[i] || !seen[j]) continue;
+      if (!u.alive[j] || u.owner[j] === u.owner[i] || !seen[j] || j === skip) continue;
       const dx = u.x[j] - u.x[i];
       const dz = u.z[j] - u.z[i];
       const d = Math.hypot(dx, dz);
