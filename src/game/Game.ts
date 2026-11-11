@@ -10,6 +10,8 @@ import type { Difficulty } from '../sim/ai';
 import { DRONE_KINDS, RECRUITABLE, UNIT_TYPES, UnitKind, VEHICLES } from '../sim/unitTypes';
 import { DRONE_COST } from '../sim/drones';
 import { CONTRACTS } from '../sim/contracts';
+import { audio, type Listener } from '../audio/AudioEngine';
+import { getSettings, onSettings } from './settings';
 import { MAPS } from '../sim/maps';
 import { TRAIL, clearTrailStage, setupQuery, trailSetup, type MatchSetup } from './setup';
 import { DOZER_FILL_SEC } from '../sim/combat';
@@ -218,7 +220,7 @@ export class Game implements GameActions {
       trail: setup.trail !== null ? { stage: setup.trail, title: TRAIL[setup.trail].title, next: null } : null,
       quality: quality.name,
       debug: params.has('debug'),
-      showHelp: !seenHelp,
+      showHelp: !seenHelp && getSettings().showHints,
       slowMo: this.slowMo,
     });
     window.addEventListener('resize', () => this.renderer.resize());
@@ -226,6 +228,14 @@ export class Game implements GameActions {
     if (loadFailed) this.toast("Couldn't load your saved game, so here's a fresh one", 4);
 
     // Leaving the screen (app switch, tab change, lock screen, closing): pause and save.
+    // Sound: browsers only start audio after a gesture; volumes follow the settings.
+    audio.setVolumes(getSettings());
+    onSettings((s) => audio.setVolumes(s));
+    const unlock = (): void => audio.unlock();
+    window.addEventListener('pointerdown', unlock, { capture: true });
+    window.addEventListener('keydown', unlock, { capture: true });
+    document.addEventListener('visibilitychange', () => audio.setSuspended(document.hidden));
+
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) this.onLeave();
       else if (this.pausedForAway) {
@@ -356,6 +366,8 @@ export class Game implements GameActions {
 
     const events = this.sim.drainEvents();
     this.handleEvents(events);
+    this.playSounds(events);
+    audio.update(dt, this.sim.cycle.daylight, this.paused || !!this.sim.result);
     if (this.selectedStructure >= 0 && !this.sim.structureById(this.selectedStructure)) this.deselectStructure();
     this.renderer.render({
       alpha: this.paused ? 1 : this.acc / TICK_SEC,
@@ -532,6 +544,78 @@ export class Game implements GameActions {
       reload: spec && s.reload > 0 ? 1 - s.reload / spec.reloadSec : null,
       crewed: spec ? this.sim.combat.crewed(s) : true,
     };
+  }
+
+  /** Where the "ears" are: the possessed unit, or the point the RTS camera looks at. */
+  private listener(): Listener {
+    const e = this.renderer.camera.matrixWorld.elements;
+    const len = Math.hypot(e[0], e[2]) || 1;
+    const u = this.sim.units;
+    if (this.controlled >= 0 && u.isAlive(this.controlled)) {
+      return { x: u.x[this.controlled], z: u.z[this.controlled], rx: e[0] / len, rz: e[2] / len, range: 10 };
+    }
+    const t = this.renderer.rts.target;
+    return { x: t.x, z: t.z, rx: e[0] / len, rz: e[2] / len, range: Math.max(9, this.renderer.rts.dist * 0.45) };
+  }
+
+  private playSounds(events: SimEvent[]): void {
+    if (!audio.ready || events.length === 0) return;
+    const L = this.listener();
+    const u = this.sim.units;
+    const base = this.basePos;
+    for (const e of events) {
+      switch (e.type) {
+        case 'shot': {
+          const t = e.unit >= 0 ? UNIT_TYPES[u.kind[e.unit]] : null;
+          const kind = !t ? 'mg' : t.silenced ? 'silenced' : t.ap || t.splash > 0.6 ? 'heavy' : t.mag >= 100 ? 'mg' : 'rifle';
+          audio.play(kind, { x: e.fromX, z: e.fromZ }, L, 0.55);
+          if (Math.hypot(e.fromX - base.x, e.fromZ - base.z) < 45 || Math.hypot(e.fromX - L.x, e.fromZ - L.z) < L.range * 2) {
+            audio.intensity = Math.min(1, audio.intensity + 0.02);
+          }
+          break;
+        }
+        case 'explosion':
+          audio.play('explosion', e, L);
+          audio.intensity = Math.min(1, audio.intensity + 0.05);
+          break;
+        case 'shell':
+          audio.play('mortar', { x: e.fromX, z: e.fromZ }, L, 0.8);
+          if (Math.hypot(e.toX - L.x, e.toZ - L.z) < L.range * 2) audio.play('whistle', { x: e.toX, z: e.toZ }, L, 1, e.flight);
+          break;
+        case 'structureDestroyed':
+          audio.play(e.kind === 'hq' ? 'bigExplosion' : 'crumble', e, L);
+          break;
+        case 'structureAdded': {
+          const s = this.sim.structureById(e.id);
+          if (s && s.owner === this.player && this.sim.elapsed > 1) audio.play('build', { x: s.tx + s.w / 2, z: s.tz + s.h / 2 }, L, 0.7);
+          break;
+        }
+        case 'upgraded':
+          if (e.owner === this.player) audio.play('build');
+          break;
+        case 'ignited':
+          audio.play('whoosh', e, L);
+          break;
+        case 'launched':
+          if (e.owner === this.player) audio.play('drone', undefined, undefined, 0.6);
+          break;
+        case 'taunt':
+          audio.play('radio', undefined, undefined, 0.7);
+          break;
+        case 'wave':
+          audio.play('alert');
+          break;
+        case 'ramp':
+          if (e.target === this.player) audio.play('alert');
+          break;
+        case 'hired':
+          if (e.owner === this.player) audio.play('hire', undefined, undefined, 0.7);
+          break;
+        case 'result':
+          audio.play(e.result === 'victory' ? 'victory' : 'defeat', undefined, undefined, 0.8);
+          break;
+      }
+    }
   }
 
   private handleEvents(events: SimEvent[]): void {

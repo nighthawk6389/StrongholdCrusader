@@ -1,5 +1,6 @@
 import { useEffect, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { GameActions } from '../game/Game';
+import { audio } from '../audio/AudioEngine';
 import type { PhaseName } from '../sim/clock';
 import { RATION_LEVELS, TAX_LEVELS } from '../sim/economy';
 import {
@@ -9,7 +10,8 @@ import {
   type BuildCategory,
   type StructureStatus,
 } from '../sim/structures';
-import { useHud, type EcoSnapshot } from './store';
+import { setHud, useHud, type EcoSnapshot } from './store';
+import { SettingsPanel } from './SettingsPanel';
 
 // ------------------------------------------------------------------ icons
 
@@ -99,7 +101,10 @@ function Btn(props: {
       className={`btn ${props.active ? 'active' : ''} ${props.className ?? ''}`}
       title={props.title}
       disabled={props.disabled}
-      onClick={props.onClick}
+      onClick={() => {
+        audio.play('click', undefined, undefined, 0.5);
+        props.onClick?.();
+      }}
     >
       {props.children}
     </button>
@@ -182,6 +187,9 @@ function TopBar({ game }: { game: GameActions }) {
             ⛶
           </Btn>
         )}
+        <Btn onClick={() => setHud({ showSettings: true })} title="Settings">
+          ⚙
+        </Btn>
         <Btn onClick={() => game.showHelp()} title="Controls">
           ?
         </Btn>
@@ -1093,6 +1101,7 @@ export function Hud({ game }: { game: GameActions }) {
   const view = useHud((s) => s.view);
   const toast = useHud((s) => s.toast);
   const showHelp = useHud((s) => s.showHelp);
+  const showSettings = useHud((s) => s.showSettings);
   const buildOpen = useHud((s) => s.buildOpen);
   const placing = useHud((s) => s.placing);
   const result = useHud((s) => s.result);
@@ -1121,6 +1130,7 @@ export function Hud({ game }: { game: GameActions }) {
       <NvgOverlay />
       <TauntRadio />
       {showHelp && <Help game={game} />}
+      {showSettings && <SettingsPanel onClose={() => setHud({ showSettings: false })} />}
       {result && <ResultOverlay game={game} />}
       <PortraitHint />
     </div>

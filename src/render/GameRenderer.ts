@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Sim, SimEvent } from '../sim/sim';
 import { CameraDirector, OtsCameraRig, RtsCameraRig } from './cameras';
+import { getSettings } from '../game/settings';
 import { DayNight } from './daynight';
 import { Fx } from './fx';
 import { STRUCTURE_DEFS, type Structure, type StructureKind } from '../sim/structures';
@@ -19,7 +20,8 @@ export interface Quality {
 
 export function detectQuality(): Quality {
   const params = new URLSearchParams(location.search);
-  const forced = params.get('quality');
+  const chosen = getSettings().quality;
+  const forced = params.get('quality') ?? (chosen === 'auto' ? null : chosen);
   const coarse = matchMedia('(pointer: coarse)').matches;
   const low = forced ? forced === 'low' : coarse || (navigator.hardwareConcurrency ?? 8) <= 4;
   return low

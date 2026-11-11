@@ -13,8 +13,9 @@ soldiers.
 - **Status:** **M0** (foundations), **M1** (economy), **M2** (fortifications & combat), **M3**
   (skirmish vs an AI commander), **M4** (night & stealth), **M5** (full direct control: aimed fire, gun
   towers, drones), **M6a** (siege depth: vehicles, artillery, mines, ditches, fuel trenches, wire) and **M6b**
-  (five AI commanders, four maps, the Commander's Trail, PMC hires, the Breacher) are playable. Next up is
-  **M7** (polish and launch).
+  (five AI commanders, four maps, the Commander's Trail, PMC hires, the Breacher) are playable, plus two playtest
+  rounds. **M7a** (sound, settings, offline/install) is done; next up is **M7b** (tutorial, the last three
+  commanders, phone tuning).
 
 ## Play locally
 
@@ -65,6 +66,19 @@ the render preset. `?seed=123` reshuffles the map's details.
 The start screen picks the mode. You can also link straight to a match: `?mode=skirmish&ai=jackal&map=pass&difficulty=hard`
 (`ai`: sarge, jackal, engineer, broker, warden; `map`: basin, dunes, pass, oilfields), a trail stage with
 `?mode=skirmish&trail=0` (0–5), `?mode=hold` or `?mode=sandbox`.
+
+## Sound, settings and offline play
+
+- **Sound:** every sound is synthesized live in the browser (no audio files): gunfire that differs by weapon,
+  explosions, incoming shell whistles, mortars, building, fire, radio chatter for enemy taunts, and alerts. Sounds
+  are placed in stereo and fade with distance from where the camera is looking (or from the soldier you're
+  controlling). Background music shifts from a warm day pad to a darker night one and a pulse rises with the
+  fighting. Sound starts on your first click or tap (browsers require it).
+- **Settings** (**⚙** on the start screen and in game): master, effects and music volume; graphics quality
+  (auto, low, high); camera pan and rotate speed; edge scrolling; look sensitivity and inverted look for direct
+  control; and whether the help card shows when a game starts. Settings are saved in your browser.
+- **Offline and install:** after one visit the game is cached and loads without a network. On phones, use "Add
+  to Home Screen" (or the browser's install option) to get a full-screen app icon.
 
 ## Saving
 

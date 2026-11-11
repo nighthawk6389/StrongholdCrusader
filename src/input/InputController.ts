@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Game } from '../game/Game';
 import { UNIT_TYPES } from '../sim/unitTypes';
 import { setHud, useHud } from '../ui/store';
+import { getSettings } from '../game/settings';
 
 interface Ptr {
   id: number;
@@ -101,7 +102,8 @@ export class InputController {
   update(dt: number): void {
     if (this.mode !== 'rts') return;
     const k = this.keys;
-    const speed = this.rts.dist * 1.1 * dt;
+    const set = getSettings();
+    const speed = this.rts.dist * 1.1 * dt * set.panSpeed;
     let right = 0;
     let up = 0;
     if (k.has('KeyA') || k.has('ArrowLeft')) right -= 1;
@@ -110,7 +112,7 @@ export class InputController {
     if (k.has('KeyS') || k.has('ArrowDown')) up -= 1;
 
     // Edge scrolling (desktop mouse only, not while dragging).
-    if (this.finePointer && this.mouse.inside && !this.boxing && this.ptrs.size === 0 && document.hasFocus()) {
+    if (set.edgePan && this.finePointer && this.mouse.inside && !this.boxing && this.ptrs.size === 0 && document.hasFocus()) {
       const r = this.canvas.getBoundingClientRect();
       const m = 6;
       if (this.mouse.x <= r.left + m) right -= 1;
@@ -119,8 +121,8 @@ export class InputController {
       if (this.mouse.y >= r.bottom - m) up -= 1;
     }
     if (right || up) this.rts.pan(right * speed, up * speed);
-    if (k.has('KeyQ')) this.rts.rotate(1.6 * dt);
-    if (k.has('KeyE')) this.rts.rotate(-1.6 * dt);
+    if (k.has('KeyQ')) this.rts.rotate(1.6 * dt * set.rotateSpeed);
+    if (k.has('KeyE')) this.rts.rotate(-1.6 * dt * set.rotateSpeed);
     if (k.has('Equal') || k.has('NumpadAdd')) this.rts.zoom(1 - dt * 1.5);
     if (k.has('Minus') || k.has('NumpadSubtract')) this.rts.zoom(1 + dt * 1.5);
   }
@@ -203,8 +205,9 @@ export class InputController {
     if (performance.now() - this.lockChangedAt < 80) return;
     const mx = Math.max(-120, Math.min(120, e.movementX));
     const my = Math.max(-120, Math.min(120, e.movementY));
-    const sens = this.ots.aiming ? 0.0012 : 0.0024;
-    this.ots.addLook(-mx * sens, -my * sens);
+    const set = getSettings();
+    const sens = (this.ots.aiming ? 0.0012 : 0.0024) * set.lookSensitivity;
+    this.ots.addLook(-mx * sens, -my * sens * (set.invertLook ? -1 : 1));
   }
 
   // ------------------------------------------------------------------ pointer events
@@ -276,7 +279,7 @@ export class InputController {
 
     if (p.type === 'mouse') {
       if (this.rotatingMouse || (p.button === 2 && p.moved > DRAG_PX)) {
-        this.rts.rotate(-dx * 0.006);
+        this.rts.rotate(-dx * 0.006 * getSettings().rotateSpeed);
         return;
       }
       if (p.button === 0 && p.moved > DRAG_PX && !this.game.placing) this.updateBox(p);
@@ -564,8 +567,9 @@ export class InputController {
       this.joy.dy = dy / max;
       this.joyKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
     } else if (this.lookPtr && p.id === this.lookPtr.id) {
-      const sens = this.ots.aiming ? 0.0035 : 0.0065;
-      this.ots.addLook(-(p.x - this.lookPtr.x) * sens, -(p.y - this.lookPtr.y) * sens * 0.8);
+      const set = getSettings();
+      const sens = (this.ots.aiming ? 0.0035 : 0.0065) * set.lookSensitivity;
+      this.ots.addLook(-(p.x - this.lookPtr.x) * sens, -(p.y - this.lookPtr.y) * sens * 0.8 * (set.invertLook ? -1 : 1));
       this.lookPtr.x = p.x;
       this.lookPtr.y = p.y;
     }

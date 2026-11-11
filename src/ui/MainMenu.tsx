@@ -3,6 +3,7 @@ import { agoText, type SaveMeta } from '../game/saveSlot';
 import { DEFAULT_SEED, TRAIL, trailSetup, type MatchSetup } from '../game/setup';
 import { OPPONENTS, PERSONALITIES, type Difficulty, type OpponentKey } from '../sim/ai';
 import { MAPS, MAP_KEYS, type MapKey } from '../sim/maps';
+import { SettingsPanel } from './SettingsPanel';
 
 const DIFFS: { key: Difficulty; name: string }[] = [
   { key: 'easy', name: 'Easy' },
@@ -37,6 +38,7 @@ export function MainMenu({
   const [diff, setDiff] = useState<Difficulty>('normal');
   const [opponent, setOpponent] = useState<OpponentKey>('sarge');
   const [map, setMap] = useState<MapKey>('basin');
+  const [settings, setSettings] = useState(false);
   const next = Math.min(trailDone, TRAIL.length - 1);
   const finished = trailDone >= TRAIL.length;
   const foe = PERSONALITIES[opponent];
@@ -48,7 +50,12 @@ export function MainMenu({
   return (
     <div className="menu-screen">
       <div className="menu-card panel">
-        <div className="menu-kicker">Prototype · M6</div>
+        <div className="menu-top">
+          <div className="menu-kicker">Prototype · M7</div>
+          <button type="button" className="btn menu-settings" onClick={() => setSettings(true)} title="Settings">
+            ⚙ Settings
+          </button>
+        </div>
         <h1>Siege RTS</h1>
         <p className="muted">
           Build an outpost in the desert, wall it in, arm your people, and take the fight to a rival commander, by
@@ -149,6 +156,7 @@ export function MainMenu({
         </div>
         <p className="menu-foot muted">Best in landscape on phones · desktop: mouse + keyboard</p>
       </div>
+      {settings && <SettingsPanel onClose={() => setSettings(false)} />}
     </div>
   );
 }

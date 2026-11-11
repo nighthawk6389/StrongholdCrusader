@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { audio } from './audio/AudioEngine';
 import { Game } from './game/Game';
 import { clearGame, metaSetup, readGame, readMeta } from './game/saveSlot';
 import { sameMatch, setupFromParams, setupQuery, trailCleared, type MatchSetup } from './game/setup';
@@ -10,6 +11,13 @@ import './ui/hud.css';
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const hudRoot = document.getElementById('hud-root') as HTMLElement;
 const inputOverlay = document.getElementById('input-overlay') as HTMLElement;
+
+// Offline play and installing to the home screen (production builds only).
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+  });
+}
 
 const params = new URLSearchParams(location.search);
 const setup = setupFromParams(params);
@@ -36,7 +44,8 @@ if (setup) {
     </StrictMode>,
   );
   // Expose for debugging in the console during development.
-  (window as unknown as { game: Game }).game = game;
+  (window as unknown as { game: Game; audio: typeof audio }).game = game;
+  (window as unknown as { audio: typeof audio }).audio = audio;
 } else {
   const start = (s: MatchSetup): void => {
     clearGame(); // a new game replaces the saved one

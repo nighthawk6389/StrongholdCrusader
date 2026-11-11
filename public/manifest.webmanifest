@@ -1,11 +1,20 @@
 {
   "name": "Siege RTS (working title)",
   "short_name": "Siege RTS",
-  "description": "Modern castle-siege RTS with day/night stealth.",
+  "description": "A present-day castle-siege RTS with day/night stealth and direct control. Plays offline once installed.",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
   "orientation": "landscape",
   "background_color": "#1b1712",
   "theme_color": "#1b1712",
-  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+  "categories": ["games"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
 }

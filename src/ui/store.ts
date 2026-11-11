@@ -213,6 +213,7 @@ export interface HudState {
   playerUnits: number;
   enemyUnits: number;
   showHelp: boolean;
+  showSettings: boolean;
   debug: boolean;
   quality: string;
   toast: string | null;
@@ -260,6 +261,7 @@ export const useHud = create<HudState>(() => ({
   playerUnits: 0,
   enemyUnits: 0,
   showHelp: false,
+  showSettings: false,
   debug: false,
   quality: 'high',
   toast: null,
