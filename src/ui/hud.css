@@ -1641,3 +1641,36 @@ kbd {
 .toast.low {
   top: calc(124px + var(--safe-top));
 }
+
+/* ---------- save games */
+
+.continue-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 14px 0 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--accent-strong);
+  background: rgba(240, 199, 125, 0.12);
+}
+
+.continue-card > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.continue-card .start-btn {
+  flex: none;
+  margin: 0;
+}
+
+@media (max-width: 520px) {
+  .continue-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

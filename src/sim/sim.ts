@@ -211,6 +211,15 @@ export class Sim {
     return e;
   }
 
+  /** After a save is restored into this sim: rebuild the indexes and caches that aren't saved. */
+  afterRestore(): void {
+    this.structById.clear();
+    for (const s of this.structures) this.structById.set(s.id, s);
+    this.flow.clear();
+    this.queue = [];
+    this.events = [];
+  }
+
   /** Dev helper: jump the day/night clock to the start of a phase (does not advance the sim). */
   skipToPhase(phase: PhaseName): void {
     const now = this.timeSec;

@@ -1,5 +1,8 @@
 import { useState } from 'react';
+import { agoText, type SaveMeta } from '../game/saveSlot';
 import type { GameMode } from '../sim/scenario';
+
+const MODE_NAME: Record<GameMode, string> = { skirmish: 'Skirmish vs Old Sarge', hold: 'Hold the Line', sandbox: 'Sandbox' };
 
 const DIFFS = [
   { key: 'easy', name: 'Easy' },
@@ -7,17 +10,40 @@ const DIFFS = [
   { key: 'hard', name: 'Hard' },
 ];
 
-export function MainMenu({ onStart }: { onStart: (mode: GameMode, difficulty?: string) => void }) {
+export function MainMenu({
+  onStart,
+  saved,
+  onContinue,
+}: {
+  onStart: (mode: GameMode, difficulty?: string) => void;
+  saved: SaveMeta | null;
+  onContinue: () => void;
+}) {
   const [diff, setDiff] = useState('normal');
   return (
     <div className="menu-screen">
       <div className="menu-card panel">
-        <div className="menu-kicker">Prototype · M3</div>
+        <div className="menu-kicker">Prototype · M5</div>
         <h1>Siege RTS</h1>
         <p className="muted">
           Build an outpost in the desert, wall it in, arm your people, and take the fight to a rival commander, by
           day and by night. Take direct control of any soldier when it counts.
         </p>
+        {saved && (
+          <div className="continue-card">
+            <div>
+              <span className="mode-title">Continue</span>
+              <span className="mode-desc">
+                {MODE_NAME[saved.mode]}
+                {saved.mode === 'skirmish' ? ` (${saved.difficulty})` : ''} · {saved.label} · saved {agoText(saved.savedAt)}
+              </span>
+              <span className="muted small">Starting a new game below replaces it.</span>
+            </div>
+            <button type="button" className="btn primary start-btn" onClick={onContinue}>
+              Continue
+            </button>
+          </div>
+        )}
         <div className="menu-modes">
           <div className="mode-card primary skirmish-card">
             <span className="mode-title">Skirmish vs Old Sarge</span>

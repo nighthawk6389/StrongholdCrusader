@@ -38,6 +38,13 @@ the render preset. `?seed=123` picks a different map.
 The start screen picks the mode. You can also link straight to a mode with `?mode=skirmish&difficulty=normal`,
 `?mode=hold` or `?mode=sandbox`.
 
+## Saving
+
+The game saves itself to your browser when you switch away from it (another tab or app, the lock screen, closing
+the tab), when you reload the page, and every 30 seconds while you play. Open the same game link again, or press
+**Continue** on the start screen, and you're back where you left off, paused. Starting a new game replaces the
+save, and a finished match (win or lose) clears it. There's one save slot, kept per browser and device.
+
 ## How to play
 
 Grow your outpost:

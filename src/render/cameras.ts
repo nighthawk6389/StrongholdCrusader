@@ -50,6 +50,12 @@ export class RtsCameraRig {
     this.goalYaw += dyaw;
   }
 
+  /** Snap the orbit angle and zoom (restoring a saved view). */
+  setView(yaw: number, dist: number): void {
+    this.yaw = this.goalYaw = yaw;
+    this.dist = this.goalDist = Math.min(this.maxDist, Math.max(this.minDist, dist));
+  }
+
   private clampGoal(): void {
     this.goal.x = Math.min(Math.max(this.goal.x, 0), this.map.width);
     this.goal.z = Math.min(Math.max(this.goal.z, 0), this.map.height);

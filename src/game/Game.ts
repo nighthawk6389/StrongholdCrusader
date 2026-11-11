@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { TICK_SEC, formatHour, type PhaseName } from '../sim/clock';
 import { TAX_LEVELS } from '../sim/economy';
-import { createScenario, ENEMY, type GameMode } from '../sim/scenario';
+import { createScenario, ENEMY, type GameMode, type Scenario } from '../sim/scenario';
+import { loadSim, saveSim } from '../sim/save';
+import { clearGame, writeGame, type StoredGame } from './saveSlot';
 import type { Sim, SimEvent } from '../sim/sim';
 import { PRICES, RES_INFO, Res, STRUCTURE_DEFS, costText, footprint, type ResId, type StructureKind } from '../sim/structures';
 import type { Difficulty } from '../sim/ai';
@@ -16,6 +18,8 @@ const MAX_STEPS_PER_FRAME = 8;
 const NO_SELECTION: ReadonlySet<number> = new Set();
 const HELP_KEY = 'm5-help-seen';
 const SLOWMO_KEY = 'slowmo';
+/** Real seconds between autosaves while playing. */
+const AUTOSAVE_SEC = 30;
 /** Structures you can take direct control of. */
 const CONTROLLABLE_STRUCTURES: StructureKind[] = ['guntower', 'searchlight'];
 /** Buildings whose facing matters (lights): auto-aimed away from the HQ, R turns them. */
@@ -64,6 +68,10 @@ export interface GameActions {
   launchDrone(kind: number): void;
 }
 
+function isTouchDevice(): boolean {
+  return matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+}
+
 /** Bresenham line between two tiles (inclusive). */
 export function tileLine(x0: number, z0: number, x1: number, z1: number): [number, number][] {
   const out: [number, number][] = [];
@@ -106,6 +114,13 @@ export class Game implements GameActions {
   private followers: number[] = [];
   private slowMo = false;
   private lastHit = { unit: -1, at: 0 };
+  readonly seed: number;
+  readonly difficulty: Difficulty;
+  /** Navigating away on purpose (restart / main menu): don't autosave over the cleared slot. */
+  private leaving = false;
+  private autosaveTimer = 0;
+  private pausedForAway = false;
+  private warnedStorage = false;
   /** Building being placed, its rotation, and the footprint origin currently previewed. */
   placing: StructureKind | null = null;
   placeRot = 0;
@@ -133,11 +148,28 @@ export class Game implements GameActions {
   private tauntTimer = 0;
   private readonly basePos: { x: number; z: number };
 
-  constructor(canvas: HTMLCanvasElement, overlay: HTMLElement, mode: GameMode) {
+  constructor(canvas: HTMLCanvasElement, overlay: HTMLElement, mode: GameMode, resume: StoredGame | null = null) {
     const params = new URLSearchParams(location.search);
     const diffParam = params.get('difficulty');
-    const difficulty: Difficulty = diffParam === 'easy' || diffParam === 'hard' ? diffParam : 'normal';
-    const scenario = createScenario(mode, Number(params.get('seed')) || 1337, difficulty);
+    let difficulty: Difficulty = diffParam === 'easy' || diffParam === 'hard' ? diffParam : 'normal';
+    let seed = Number(params.get('seed')) || 1337;
+    let scenario: Scenario | null = null;
+    let loadFailed = false;
+    if (resume) {
+      try {
+        scenario = loadSim(resume.save);
+        difficulty = resume.meta.difficulty;
+        seed = resume.meta.seed;
+      } catch {
+        // An old or damaged save: start fresh rather than crash.
+        clearGame();
+        scenario = null;
+        loadFailed = true;
+      }
+    }
+    if (!scenario) scenario = createScenario(mode, seed, difficulty);
+    this.seed = seed;
+    this.difficulty = difficulty;
     this.sim = scenario.sim;
     this.mode = mode;
     this.player = scenario.player;
@@ -166,6 +198,70 @@ export class Game implements GameActions {
       slowMo: this.slowMo,
     });
     window.addEventListener('resize', () => this.renderer.resize());
+    if (resume && !loadFailed) this.resumeFrom(resume);
+    if (loadFailed) this.toast("Couldn't load your saved game, so here's a fresh one", 4);
+
+    // Leaving the screen (app switch, tab change, lock screen, closing): pause and save.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.onLeave();
+      else if (this.pausedForAway) {
+        this.pausedForAway = false;
+        this.toast(isTouchDevice() ? 'Paused while you were away: tap ▶ to carry on' : 'Paused while you were away: press P to carry on', 4);
+      }
+    });
+    window.addEventListener('pagehide', () => this.onLeave());
+  }
+
+  /** Put the camera back, release anyone you were possessing, and wait paused for the player. */
+  private resumeFrom(g: StoredGame): void {
+    const u = this.sim.units;
+    for (let i = 0; i < u.count; i++) {
+      if (!u.alive[i] || u.owner[i] !== this.player) continue;
+      if (u.order[i] === Order.Control || u.order[i] === Order.Follow) {
+        u.order[i] = Order.Idle;
+        u.vx[i] = u.vz[i] = 0;
+        u.plantTimer[i] = 0;
+      }
+    }
+    this.renderer.rts.jumpTo(g.view.x, g.view.z);
+    this.renderer.rts.setView(g.view.yaw, g.view.dist);
+    this.speed = g.view.speed || 1;
+    this.paused = true;
+    setHud({ speed: this.speed, paused: true, showHelp: false });
+    this.toast(isTouchDevice() ? 'Welcome back! Paused: tap ▶ to carry on' : 'Welcome back! Paused: press P to carry on', 5);
+  }
+
+  private onLeave(): void {
+    if (this.leaving || this.sim.result) return;
+    if (!this.paused) {
+      this.paused = true;
+      this.pausedForAway = true;
+      setHud({ paused: true });
+    }
+    this.saveNow();
+  }
+
+  /** Write the autosave slot. Returns false if nothing was saved. */
+  saveNow(): boolean {
+    if (this.leaving || this.sim.result) return false;
+    const info = this.sim.cycle;
+    const rts = this.renderer.rts;
+    const ok = writeGame({
+      meta: {
+        mode: this.mode,
+        difficulty: this.difficulty,
+        seed: this.seed,
+        label: `Day ${info.day + 1} · ${formatHour(info.hour)}`,
+        savedAt: Date.now(),
+      },
+      save: saveSim(this.sim, this.mode, this.seed, this.difficulty),
+      view: { x: rts.target.x, z: rts.target.z, yaw: rts.yaw, dist: rts.dist, speed: this.speed },
+    });
+    if (!ok && !this.warnedStorage) {
+      this.warnedStorage = true;
+      this.toast("Couldn't save: this browser isn't letting the game store data", 4);
+    }
+    return ok;
   }
 
   start(): void {
@@ -182,6 +278,13 @@ export class Game implements GameActions {
     this.last = now;
     const slow = this.slowMo && (this.controlled >= 0 || this.controlledStruct >= 0) ? 0.5 : 1;
     if (!this.paused) this.acc += dt * this.speed * slow;
+    if (!this.paused) {
+      this.autosaveTimer += dt;
+      if (this.autosaveTimer >= AUTOSAVE_SEC) {
+        this.autosaveTimer = 0;
+        this.saveNow();
+      }
+    }
 
     this.input.update(dt);
 
@@ -407,6 +510,7 @@ export class Game implements GameActions {
           break;
         case 'result':
           setHud({ result: { result: e.result, reason: e.reason } });
+          clearGame(); // a finished match isn't worth resuming
           break;
         case 'taunt':
           setHud({ taunt: { name: e.name, text: e.text } });
@@ -762,7 +866,7 @@ export class Game implements GameActions {
       this.sim.enqueue({ type: 'buildWall', owner: this.player, tiles: flat });
       // Chain the next segment from where this one ended.
       const end = this.wallEnd ?? this.wallAnchor;
-      this.wallAnchor = useHudIsTouch() && end ? { ...end } : null;
+      this.wallAnchor = isTouchDevice() && end ? { ...end } : null;
       this.wallEnd = null;
       this.renderer.setWallGhost([]);
       return;
@@ -1031,6 +1135,8 @@ export class Game implements GameActions {
   }
 
   restart(mode?: GameMode): void {
+    this.leaving = true;
+    clearGame();
     const params = new URLSearchParams(location.search);
     if (mode) params.set('mode', mode);
     else {
@@ -1072,8 +1178,4 @@ export class Game implements GameActions {
   unitScreenAnchor(id: number, out: THREE.Vector3): THREE.Vector3 {
     return this.renderer.units.unitPosition(id, 1, out).setY(out.y + 0.55);
   }
-}
-
-function useHudIsTouch(): boolean {
-  return matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 }
