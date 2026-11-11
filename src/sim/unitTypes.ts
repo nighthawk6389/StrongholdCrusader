@@ -52,6 +52,8 @@ export interface UnitType {
   sight: number;
   /** Fraction of sight kept in darkness (1 = night vision / thermal). */
   nightVision: number;
+  /** Thermal camera: stealth doesn't hide anything from it. */
+  thermal: boolean;
   /** Multiplier on enemies' detection range in darkness (1 = normal, lower = stealthier). */
   stealth: number;
   /** Silenced weapons don't give the shooter's position away. */
@@ -116,6 +118,7 @@ const base = {
   plantSec: 4,
   sight: 16,
   nightVision: 0.35,
+  thermal: false,
   stealth: 1,
   silenced: false,
   climber: false,
@@ -319,8 +322,8 @@ export const UNIT_TYPES: UnitType[] = [
     id: 7,
     key: 'recon',
     name: 'Recon Drone',
-    speed: 6,
-    hp: 30,
+    speed: 7,
+    hp: 45,
     radius: 0.32,
     range: 0,
     damage: 0,
@@ -331,25 +334,26 @@ export const UNIT_TYPES: UnitType[] = [
     autoJitter: 0,
     spread: 0,
     structDamage: 0,
-    sight: 20,
+    sight: 24,
     nightVision: 1,
+    thermal: true,
     stealth: 0.6,
     mag: 0,
     zoom: 2.5,
     fly: 7,
-    battery: 150,
+    battery: 210,
     armed: false,
     gear: null,
     funds: 0,
-    blurb: 'Thermal camera in the sky. Flies over walls and spots for your troops. Unarmed.',
+    blurb: 'Thermal camera in the sky: sees through stealth and darkness, flies over walls, spots for your troops. Unarmed.',
   },
   {
     ...base,
     id: 8,
     key: 'strike',
     name: 'Strike Drone',
-    speed: 7,
-    hp: 25,
+    speed: 9,
+    hp: 40,
     radius: 0.3,
     range: 0,
     damage: 0,
@@ -366,8 +370,8 @@ export const UNIT_TYPES: UnitType[] = [
     mag: 0,
     zoom: 1.6,
     fly: 6,
-    battery: 110,
-    blast: { damage: 95, radius: 2.6, structDamage: 320 },
+    battery: 150,
+    blast: { damage: 150, radius: 3.0, structDamage: 480 },
     armed: false,
     gear: null,
     funds: 0,

@@ -4,11 +4,11 @@ import type { StructureRenderer } from './structures';
 
 const DAY_SKY = new THREE.Color(0xdcccab);
 const DUSK_SKY = new THREE.Color(0xd98a5c);
-const NIGHT_SKY = new THREE.Color(0x0a0f1e);
+const NIGHT_SKY = new THREE.Color(0x05070f);
 const HEMI_SKY_DAY = new THREE.Color(0xc9dcff);
 const HEMI_GROUND_DAY = new THREE.Color(0xb08a5a);
-const HEMI_SKY_NIGHT = new THREE.Color(0x30406a);
-const HEMI_GROUND_NIGHT = new THREE.Color(0x14110d);
+const HEMI_SKY_NIGHT = new THREE.Color(0x24325a);
+const HEMI_GROUND_NIGHT = new THREE.Color(0x0b0907);
 const SUN_LOW = new THREE.Color(0xffa25e);
 const SUN_HIGH = new THREE.Color(0xfff4e2);
 
@@ -70,11 +70,12 @@ export class DayNight {
 
     this.moon.target.position.copy(focus);
     this.moon.position.copy(focus).add(new THREE.Vector3(-30, 70, -25));
-    this.moon.intensity = 0.55 * this.night;
+    this.moon.intensity = 0.22 * this.night;
 
     this.hemi.color.copy(HEMI_SKY_DAY).lerp(HEMI_SKY_NIGHT, this.night);
     this.hemi.groundColor.copy(HEMI_GROUND_DAY).lerp(HEMI_GROUND_NIGHT, this.night);
-    this.hemi.intensity = 1.25 - this.night * 0.9;
+    // Unlit ground at night should be properly dark: that's what makes lights and surprise attacks matter.
+    this.hemi.intensity = 1.25 - this.night * 1.13;
     if (this.nvg) {
       // Image intensifier: amplify the starlight into a flat, bright (green-tinted in CSS) picture.
       this.hemi.intensity = Math.max(this.hemi.intensity, 1.1);

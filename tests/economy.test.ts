@@ -126,6 +126,7 @@ describe('economy: production chains', () => {
     sim.enqueue({ type: 'setRations', owner: PLAYER, level: 0 }); // don't eat, so we can count deliveries
     runSec(sim, 1);
     const p = sim.economy.player(PLAYER);
+    p.morale = 100; // hungry people leave eventually; keep them around for the measurement
     const before = p.stock[Res.Produce];
     let delivered = 0;
     for (let i = 0; i < 120 * TICK_RATE; i++) {

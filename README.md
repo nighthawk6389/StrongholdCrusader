@@ -84,7 +84,8 @@ Fight at night:
   - **Floodlights** light a cone (R aims them).
   - **Searchlight towers** sweep a long beam.
   - Burning buildings light up their surroundings.
-  - **Flares** ($15) light an area for 30 seconds: select soldiers, press **V** or **Flare**, then click.
+  - **Flares** ($15) light an area for 30 seconds: select soldiers, press **V** or **Flare**, then click. You
+    hold up to 3 and get another one every minute (the count is on the Flare button).
 - **Power:** lights and sensors need power. The HQ gives a little; a staffed **Generator** gives 12. The power
   gauge sits next to the resources.
 - **Detection:**
@@ -92,6 +93,14 @@ Fight at night:
   - **K9 kennels** sniff out everyone close by, even operators lying still.
   - Unsilenced gunfire gives the shooter away for a few seconds.
 - **Night vision:** take control of an SF Operator or a Marksman at night to see through their optics.
+
+Upgrades: select a building and press **⬆** to improve it (a gold chevron marks each level).
+- Housing → Apartment block (+6 housing). Depots, ration stores and the armory store 80% more.
+- Lumber camps, quarries, scrap yards, orchards, ranches, arms factories and derricks work 30% faster (some
+  have a second level).
+- Generators get a turbine (+8 power); floodlights and searchlights reach further.
+- Gatehouses get steel doors and gun towers get armor plating; a watchtower can be turned into a gun tower.
+- The HQ can be fortified (tougher, more storage, more power).
 
 Siege warfare:
 - **Fuel:** an **Oil Derrick** on an oil seep (the dark patches) pumps fuel for vehicles and fuel trenches.
@@ -117,12 +126,13 @@ Take direct control:
   operators plant charges by hand (**G**), operators climb walls by walking into them, and anyone can take the
   stairs up and down.
 - **Gun Tower:** a watchtower with a heavy machine gun. It fires on its own while one of your soldiers is up top.
-  Select it and take control to aim it yourself.
+  Select it and take control to aim it yourself. To crack one: snipe its crew, or hit it with AT rockets, tank
+  shells, artillery, charges or strike drones (all do 75% extra damage to gun emplacements).
 - **Searchlight:** take control to sweep the beam by hand.
-- **Drone Bay:** launches **recon drones** (thermal camera; fly over walls and spot for your troops) and **strike
-  drones** (dive onto a unit, building or wherever you point and explode; they need a breach kit). Drones run on
-  batteries: they fly home to recharge when low, and crash if they run flat. Soldiers and gun towers shoot them
-  down.
+- **Drone Bay** (up to 4 drones): launches **recon drones** (thermal camera that sees through stealth and
+  darkness; they fly over walls and spot for your troops) and **strike drones** (dive onto a unit, building or
+  wherever you point and explode). Drones run on batteries: they fly home to recharge when low, and crash if
+  they run flat. A lone soldier struggles to hit one; a squad or a gun tower will bring it down.
 - Old Sarge builds gun towers by his gate and a drone bay. On Normal and Hard he sends strike drones at your gun
   towers and wall defenders.
 
@@ -136,7 +146,7 @@ Take direct control:
 | Walls | Drag along the ground | Tap the start, tap the end, **✓ Place** |
 | Orders | Right-click: ground = move, **wall top = man it**, enemy = attack | With soldiers selected, tap the ground, a wall top or an enemy |
 | Recruit | Click the **Barracks** | Tap the **Barracks** |
-| Select | Click, or drag a box. Double-click selects the same type. | Tap. Double-tap selects the same type. **▢ Box** toggles drag-select. |
+| Select | Click, or drag a box. Double-click selects the same type. In a mixed selection, click a type chip to keep only those, or its **×** to drop them. | Tap. Double-tap selects the same type. **▢ Box** toggles drag-select. Type chips work the same. |
 | Move | Right-click the ground | Tap the ground |
 | Camera | WASD / screen edges pan, wheel zooms, Q/E or right/middle-drag rotate | Drag pans, pinch zooms, twist rotates |
 | Take control | **F** on a soldier, drone, gun tower or searchlight: WASD + mouse, LMB fire (drone: dive), RMB aim/scope, R reload, G plant charge, V flare at the crosshair, N night vision, T slow motion, Esc/Tab exits | **Take control**, then left thumb moves, right thumb aims; **Fire**, **Aim**, **Reload**, **Charge** and **NVG** buttons |

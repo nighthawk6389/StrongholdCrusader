@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Sim, SimEvent } from '../sim/sim';
-import { footprint, type Structure, type StructureKind } from '../sim/structures';
+import { footprint, structureTop, type Structure, type StructureKind } from '../sim/structures';
 import { box, cone, cylinder, merge, sphere } from './geometry';
 import { COLORS, TEAM_COLORS } from './palette';
 
@@ -540,6 +540,11 @@ export class StructureRenderer {
         if (s) this.add(s);
       } else if (e.type === 'structureRemoved') {
         this.remove(e.id);
+      } else if (e.type === 'upgraded') {
+        // New look (and maybe a new kind): rebuild its mesh.
+        this.remove(e.id);
+        const s = this.sim.structureById(e.id);
+        if (s) this.add(s);
       }
     }
     if (this.wallsDirty) this.rebuildWalls();
@@ -627,9 +632,18 @@ export class StructureRenderer {
       root.add(gun);
       this.guns.push({ id: s.id, gun });
     }
+    // Upgrade badge: a gold chevron per level above 1.
+    for (let k = 1; k < (s.level ?? 1); k++) {
+      const chevron = new THREE.Mesh(this.badgeGeo, this.badgeMat);
+      chevron.position.set(s.w / 2 - 0.25, Math.max(0.6, structureTop(s.kind)) + 0.15 + k * 0.16, -s.h / 2 + 0.25);
+      root.add(chevron);
+    }
     this.group.add(root);
     this.objects.set(s.id, root);
   }
+
+  private badgeGeo = new THREE.ConeGeometry(0.16, 0.14, 3).rotateX(Math.PI);
+  private badgeMat = new THREE.MeshBasicMaterial({ color: 0xf0c050 });
 
   private remove(id: number): void {
     const o = this.objects.get(id);

@@ -77,6 +77,7 @@ export type Command =
   /** Fire an illumination flare at a point (needs one of your soldiers within range; costs funds). */
   | { type: 'flare'; owner: number; x: number; z: number }
   | { type: 'setNightShift'; owner: number; on: boolean }
+  | { type: 'upgrade'; owner: number; id: number }
   | { type: 'attack'; owner: number; ids: number[]; target: number }
   | { type: 'attackStructure'; owner: number; ids: number[]; structure: number }
   /** Send units to assault `target`'s HQ (breaching walls on the way). */
@@ -120,6 +121,7 @@ export type SimEvent =
   | { type: 'shell'; owner: number; fromX: number; fromZ: number; fromY: number; toX: number; toZ: number; toY: number; flight: number }
   /** A fuel trench caught fire. */
   | { type: 'ignited'; id: number; x: number; z: number }
+  | { type: 'upgraded'; owner: number; id: number; kind: StructureKind; level: number }
   /** Feedback for a player action that didn't happen (shown as a toast). */
   | { type: 'notice'; owner: number; text: string };
 
@@ -223,7 +225,10 @@ export class Sim {
   /** After a save is restored into this sim: rebuild the indexes and caches that aren't saved. */
   afterRestore(): void {
     this.structById.clear();
-    for (const s of this.structures) this.structById.set(s.id, s);
+    for (const s of this.structures) {
+      s.level ??= 1; // saves from before upgrades existed
+      this.structById.set(s.id, s);
+    }
     this.flow.clear();
     this.queue = [];
     this.events = [];
@@ -270,6 +275,7 @@ export class Sim {
       burn: 0,
       seenBy: 0,
       defuse: 0,
+      level: 1,
       aim: rot,
       cooldown: 0,
       ammo: def.turret?.mag ?? 0,
@@ -338,9 +344,10 @@ export class Sim {
     this.emit({ type: 'structureRemoved', id: s.id });
   }
 
-  /** Apply damage to a structure; destroys it at 0 hp. */
-  damageStructure(s: Structure, amount: number): void {
+  /** Apply damage to a structure; destroys it at 0 hp. `heavy`: rockets, shells and explosives (wreck gun emplacements). */
+  damageStructure(s: Structure, amount: number, heavy = false): void {
     if (s.hp <= 0) return;
+    if (heavy && STRUCTURE_DEFS[s.kind].turret) amount *= 1.75;
     s.hp -= amount;
     const cx = s.tx + s.w / 2;
     const cz = s.tz + s.h / 2;
@@ -397,6 +404,8 @@ export class Sim {
     // Climbers go over walls rather than through them.
     u.field[i] = fieldKey(map, { goal: shared ? fieldTile : goal, goalLayer, team, breach: breach && !climb, climb, ground: vehicle });
     u.stuck[i] = 0;
+    u.navBest[i] = Infinity;
+    u.navBestTick[i] = this.tick;
     return true;
   }
 
@@ -421,6 +430,15 @@ export class Sim {
     if (dist < 0.1 && layer === u.goalLayer[i]) {
       u.vx[i] = u.vz[i] = 0;
       return Nav.Arrived;
+    }
+    // Crowd jams: near the goal but jostled by others without getting any closer for a while?
+    // Call it arrived (good enough for a formation slot or a doorway) rather than shove forever.
+    if (dist < u.navBest[i] - 0.15) {
+      u.navBest[i] = dist;
+      u.navBestTick[i] = this.tick;
+    } else if (layer === u.goalLayer[i] && dist < 4.5 && this.tick - u.navBestTick[i] > 36) {
+      u.vx[i] = u.vz[i] = 0;
+      return Nav.Stuck;
     }
     if (u.field[i] < 0) return Nav.Unreachable;
     const spec = FlowFieldCache.decode(map, u.field[i]);
@@ -714,6 +732,10 @@ export class Sim {
         break;
       case 'flare': {
         const p = this.economy.player(c.owner);
+        if (p.flares <= 0) {
+          this.emit({ type: 'buildFailed', owner: c.owner, reason: 'No flares left: you get another one every minute' });
+          break;
+        }
         if (p.funds < FLARE_COST) {
           this.emit({ type: 'buildFailed', owner: c.owner, reason: 'Not enough funds for a flare' });
           break;
@@ -729,9 +751,16 @@ export class Sim {
           break;
         }
         p.funds -= FLARE_COST;
+        p.flares--;
         this.vision.addFlare(c.x, c.z, c.owner);
         this.traps.igniteNear(c.x, c.z, 1.5);
         this.emit({ type: 'flare', owner: c.owner, x: c.x, z: c.z });
+        break;
+      }
+      case 'upgrade': {
+        const why = this.economy.upgradeBlocker(c.owner, c.id);
+        if (why) this.emit({ type: 'buildFailed', owner: c.owner, reason: why });
+        else this.economy.upgrade(c.owner, c.id);
         break;
       }
       case 'setNightShift':
@@ -806,6 +835,7 @@ export class Sim {
       .map((id) => ({ id, f: (u.x[id] - mx) * fx + (u.z[id] - mz) * fz, r: (u.x[id] - mx) * rx + (u.z[id] - mz) * rz }))
       .sort((a, b) => b.f - a.f || a.id - b.id);
 
+    const taken = new Set<number>();
     for (let row = 0; row < rows; row++) {
       const slice = sorted.slice(row * cols, row * cols + cols).sort((a, b) => a.r - b.r || a.id - b.id);
       const inRow = slice.length;
@@ -815,19 +845,42 @@ export class Sim {
         const offF = -(row - (rows - 1) / 2) * FORMATION_SPACING;
         let sx = cx + rx * offR + fx * offF;
         let sz = cz + rz * offR + fz * offF;
-        if (!map.walkableAt(sx, sz, 0, team)) {
-          const t = map.nearestOnLayer(Math.floor(sx), Math.floor(sz), 0, team, 6);
-          if (t >= 0) {
-            sx = (t % map.width) + 0.5;
-            sz = Math.floor(t / map.width) + 0.5;
-          } else {
-            sx = gx;
-            sz = gz;
-          }
+        if (!map.walkableAt(sx, sz, 0, team) || taken.has(Math.floor(sx * 2) * 4096 + Math.floor(sz * 2))) {
+          // The slot is inside something (or already handed out): find the nearest free half-tile spot.
+          const spot = this.freeSlot(sx, sz, team, taken);
+          sx = spot?.x ?? gx;
+          sz = spot?.z ?? gz;
         }
+        taken.add(Math.floor(sx * 2) * 4096 + Math.floor(sz * 2));
         if (this.setDestination(id, sx, sz, 0, false, goalTile)) u.order[id] = Order.Move;
       }
     }
+  }
+
+  /** Nearest walkable half-tile spot (quarter-tile centres) not yet handed to another unit. */
+  private freeSlot(x: number, z: number, team: number, taken: Set<number>): { x: number; z: number } | null {
+    const map = this.map;
+    const hx = Math.floor(x * 2);
+    const hz = Math.floor(z * 2);
+    for (let r = 0; r <= 14; r++) {
+      let best: { x: number; z: number } | null = null;
+      let bestD = Infinity;
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          const px = (hx + dx + 0.5) / 2;
+          const pz = (hz + dz + 0.5) / 2;
+          if (taken.has((hx + dx) * 4096 + (hz + dz)) || !map.walkableAt(px, pz, 0, team)) continue;
+          const d = Math.hypot(px - x, pz - z);
+          if (d < bestD) {
+            bestD = d;
+            best = { x: px, z: pz };
+          }
+        }
+      }
+      if (best) return best;
+    }
+    return null;
   }
 
   /** Spread a group along the wall tops nearest the target, one per tile. */
@@ -1083,8 +1136,12 @@ export class Sim {
             const wi = this.pushWeight(i, j);
             const ci = Math.min(overlap * wi, 0.12);
             const cj = Math.min(overlap * (1 - wi), 0.12);
-            if (ci > 0) this.moveWithCollision(i, -dx * ci, -dz * ci);
-            if (cj > 0) this.moveWithCollision(j, dx * cj, dz * cj);
+            // Walking into each other? Both slide to their own right so they get past instead of
+            // pushing each other straight back.
+            const headOn = u.vx[i] * u.vx[j] + u.vz[i] * u.vz[j] < 0 && u.vx[i] * dx + u.vz[i] * dz > 0;
+            const side = headOn ? 0.6 : 0;
+            if (ci > 0) this.moveWithCollision(i, (-dx - dz * side) * ci, (-dz + dx * side) * ci);
+            if (cj > 0) this.moveWithCollision(j, (dx + dz * side) * cj, (dz - dx * side) * cj);
           }
         }
       }
@@ -1158,7 +1215,7 @@ export class Sim {
     }
     mix(this.structures.length);
     mix(this.vision.flares.length);
-    for (const s of this.structures) mix(Math.round(s.hp) * 4 + (s.powered ? 1 : 0) + (s.burn > 0 ? 2 : 0));
+    for (const s of this.structures) mix(Math.round(s.hp) * 4 + (s.powered ? 1 : 0) + (s.burn > 0 ? 2 : 0) + (s.level ?? 1) * 7);
     mix(this.combat.shells.length);
     for (let i = 0; i < u.count; i++) {
       if (!u.alive[i]) continue;

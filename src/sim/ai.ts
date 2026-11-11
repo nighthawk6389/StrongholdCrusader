@@ -38,22 +38,22 @@ export const DIFFICULTY: Record<Difficulty, AiTuning> = {
     bonus: { timber: 0, concrete: 0, funds: 0 },
   },
   normal: {
-    thinkTicks: 20,
-    firstAttack: 420,
-    attackSize: 9,
-    attackGrowth: 4,
-    attackGap: 170,
-    garrison: 5,
-    bonus: { timber: 20, concrete: 10, funds: 50 },
-  },
-  hard: {
-    thinkTicks: 10,
-    firstAttack: 330,
-    attackSize: 11,
+    thinkTicks: 12,
+    firstAttack: 360,
+    attackSize: 10,
     attackGrowth: 5,
     attackGap: 140,
-    garrison: 7,
-    bonus: { timber: 80, concrete: 50, funds: 250 },
+    garrison: 6,
+    bonus: { timber: 60, concrete: 40, funds: 180 },
+  },
+  hard: {
+    thinkTicks: 6,
+    firstAttack: 300,
+    attackSize: 12,
+    attackGrowth: 6,
+    attackGap: 115,
+    garrison: 8,
+    bonus: { timber: 140, concrete: 100, funds: 450 },
   },
 };
 
@@ -201,6 +201,30 @@ export class AiCommander implements Controller {
     this.military(sim);
     this.flares(sim);
     this.drones(sim);
+    this.upgrades(sim);
+  }
+
+  private lastUpgradeAt = -1e9;
+
+  /** With money to spare, upgrade producers and housing (and on Hard, turn watchtowers into gun towers). */
+  private upgrades(sim: Sim): void {
+    if (sim.elapsed - this.lastUpgradeAt < 25) return;
+    const p = sim.economy.player(this.owner);
+    if (p.funds < 160) return;
+    const order: StructureKind[] = ['scrapyard', 'quarry', 'lumber', 'arms', 'orchard', 'ranch', 'house', 'depot', 'generator'];
+    if (this.difficulty === 'hard') order.push('tower');
+    for (const kind of order) {
+      for (const s of sim.structures) {
+        if (s.owner !== this.owner || s.kind !== kind) continue;
+        if (sim.economy.upgradeBlocker(this.owner, s.id)) continue;
+        // Weapons first: don't spend steel the arms factory needs.
+        const up = STRUCTURE_DEFS[s.kind].upgrades?.[(s.level ?? 1) - 1];
+        if ((up?.cost.steel ?? 0) > 0 && p.stock[Res.Steel] < 20 + (up?.cost.steel ?? 0)) continue;
+        this.lastUpgradeAt = sim.elapsed;
+        sim.enqueue({ type: 'upgrade', owner: this.owner, id: s.id });
+        return;
+      }
+    }
   }
 
   private say(sim: Sim, kind: keyof Personality['lines']): void {
@@ -799,8 +823,7 @@ export class AiCommander implements Controller {
     if (night && recon === 0 && this.reconNight !== nightNo) {
       kind = UnitKind.ReconDrone;
       this.reconNight = nightNo; // one recon drone a night: if it's shot down, so be it
-    } else if (this.difficulty !== 'easy' && this.attackGroup.length > 0 && strike === 0 && p.stock[Res.Charges] >= 3) {
-      // Strike drones use a breach kit: only with kits to spare for the engineers.
+    } else if (this.difficulty !== 'easy' && this.attackGroup.length > 0 && strike === 0) {
       const tgt = this.strikeTarget(sim);
       if (tgt.structure >= 0 || tgt.unit >= 0) kind = UnitKind.StrikeDrone;
     }

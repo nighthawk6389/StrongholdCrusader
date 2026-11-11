@@ -1,6 +1,6 @@
 import { TICK_SEC } from './clock';
 import type { Sim } from './sim';
-import { STRUCTURE_DEFS, type Structure } from './structures';
+import { STRUCTURE_DEFS, maxHp, upgradeMul, type Structure } from './structures';
 import { UNIT_TYPES } from './unitTypes';
 import { MAX_UNITS } from './units';
 
@@ -30,6 +30,8 @@ interface Observer {
   z: number;
   sight: number;
   nv: number;
+  /** Thermal cameras ignore stealth. */
+  thermal?: boolean;
 }
 
 interface Sensor {
@@ -150,13 +152,14 @@ export class Vision {
       const cx = s.tx + s.w / 2;
       const cz = s.tz + s.h / 2;
       // Burning buildings light their surroundings.
-      if (s.hp < def.hp * 0.35 && s.kind !== 'wall' && !def.trap) disc(cx, cz, 4, 0.7);
+      if (s.hp < maxHp(s) * 0.35 && s.kind !== 'wall' && !def.trap) disc(cx, cz, 4, 0.7);
       // Burning fuel trenches light up the night.
       if (s.burn > 0) disc(cx, cz, 3.5, 0.85);
       if (!def.light || !s.powered) continue;
-      if (def.light.kind === 'area') disc(cx, cz, def.light.range, 0.75);
-      else if (def.light.kind === 'flood') cone(cx, cz, s.rot, FLOOD_COS, def.light.range, 1);
-      else cone(cx, cz, this.beamAngle(s), Math.cos(BEAM_HALF), def.light.range, 1);
+      const range = def.light.range * upgradeMul(s, 'light');
+      if (def.light.kind === 'area') disc(cx, cz, range, 0.75);
+      else if (def.light.kind === 'flood') cone(cx, cz, s.rot, FLOOD_COS, range, 1);
+      else cone(cx, cz, this.beamAngle(s), Math.cos(BEAM_HALF), range, 1);
     }
     for (const f of this.flares) disc(f.x, f.z, FLARE_RANGE, Math.min(1, f.ttl / 4));
   }
@@ -183,7 +186,7 @@ export class Vision {
       for (let i = 0; i < u.count; i++) {
         if (!u.alive[i] || u.owner[i] !== team) continue;
         const t = UNIT_TYPES[u.kind[i]];
-        observers.push({ x: u.x[i], z: u.z[i], sight: t.sight * (1 + 0.12 * Math.min(u.elev[i], 3)), nv: t.nightVision });
+        observers.push({ x: u.x[i], z: u.z[i], sight: t.sight * (1 + 0.12 * Math.min(u.elev[i], 3)), nv: t.nightVision, thermal: t.thermal });
       }
       for (const s of sim.structures) {
         if (s.owner !== team) continue;
@@ -218,7 +221,7 @@ export class Vision {
         }
         if (!found) {
           for (const o of observers) {
-            const range = o.sight * (lit + dark * o.nv) * stealth * dayBoost;
+            const range = o.sight * (lit + dark * o.nv) * (o.thermal ? 1 : stealth) * dayBoost;
             if (Math.abs(o.x - x) <= range && Math.abs(o.z - z) <= range && Math.hypot(o.x - x, o.z - z) <= range) {
               found = true;
               break;

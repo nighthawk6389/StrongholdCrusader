@@ -192,6 +192,26 @@ export interface StructureDef {
   hidden?: boolean;
   /** Trains vehicles (crew from idle civilians). */
   vehicles?: boolean;
+  /** Upgrades, in order: [level 2, level 3, ...]. */
+  upgrades?: UpgradeSpec[];
+}
+
+/** One building upgrade (effects stack with earlier levels). */
+export interface UpgradeSpec {
+  name: string;
+  description: string;
+  cost: Cost;
+  /** Multipliers. */
+  hp?: number;
+  storage?: number;
+  /** Work time multiplier (below 1 = faster). */
+  work?: number;
+  light?: number;
+  /** Additions. */
+  housing?: number;
+  power?: number;
+  /** Becomes a different building (keeps its place and health share). */
+  into?: StructureKind;
 }
 
 export interface TurretSpec {
@@ -230,6 +250,16 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     sight: 12,
     light: { kind: 'area', range: 5 },
     top: 3.4,
+    upgrades: [
+      {
+        name: 'Fortified HQ',
+        description: '50% tougher, stores 50% more, +4 power.',
+        cost: { concrete: 30, steel: 10, funds: 100 },
+        hp: 1.5,
+        storage: 1.5,
+        power: 4,
+      },
+    ],
   },
   hub: {
     kind: 'hub',
@@ -254,6 +284,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     category: 'core',
     cost: { timber: 8 },
     housing: 8,
+    upgrades: [{ name: 'Apartment block', description: '+6 housing, sturdier.', cost: { timber: 10, concrete: 8 }, housing: 6, hp: 1.3 }],
   },
   market: {
     kind: 'market',
@@ -279,6 +310,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     category: 'core',
     cost: { timber: 10 },
     storage: { kind: 'materials', capacity: 300 },
+    upgrades: [{ name: 'Warehouse', description: 'Stores 80% more.', cost: { timber: 12, concrete: 8 }, storage: 1.8 }],
   },
   rations: {
     kind: 'rations',
@@ -292,6 +324,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     category: 'food',
     cost: { timber: 12 },
     storage: { kind: 'food', capacity: 200 },
+    upgrades: [{ name: 'Cold store', description: 'Stores 80% more food.', cost: { timber: 10, concrete: 8, steel: 2 }, storage: 1.8 }],
   },
   lumber: {
     kind: 'lumber',
@@ -306,6 +339,10 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     cost: { timber: 4 },
     jobs: 1,
     producer: { output: Res.Timber, work: 3, batch: 5, gather: 'tree' },
+    upgrades: [
+      { name: 'Chainsaws', description: 'Cuts 30% faster.', cost: { steel: 3, funds: 20 }, work: 0.7 },
+      { name: 'Log loader', description: 'Another 25% faster.', cost: { steel: 6, funds: 40 }, work: 0.75 },
+    ],
   },
   quarry: {
     kind: 'quarry',
@@ -321,6 +358,10 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     jobs: 1,
     producer: { output: Res.Concrete, work: 9, batch: 5 },
     requires: 'nearRock',
+    upgrades: [
+      { name: 'Rock crusher', description: 'Mixes 30% faster.', cost: { steel: 4, funds: 25 }, work: 0.7 },
+      { name: 'Batch mixer', description: 'Another 25% faster.', cost: { steel: 8, funds: 50 }, work: 0.75 },
+    ],
   },
   orchard: {
     kind: 'orchard',
@@ -336,6 +377,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     jobs: 1,
     producer: { output: Res.Produce, work: 20, batch: 5 },
     requires: 'fertile',
+    upgrades: [{ name: 'Irrigation', description: 'Grows 30% faster.', cost: { timber: 8, steel: 2 }, work: 0.7 }],
   },
   ranch: {
     kind: 'ranch',
@@ -350,6 +392,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     cost: { timber: 10, funds: 20 },
     jobs: 1,
     producer: { output: Res.Meat, work: 26, batch: 4 },
+    upgrades: [{ name: 'Feed silo', description: 'Raises goats 30% faster.', cost: { timber: 10, steel: 2 }, work: 0.7 }],
   },
   scrapyard: {
     kind: 'scrapyard',
@@ -364,6 +407,10 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     cost: { timber: 10, funds: 30 },
     jobs: 1,
     producer: { output: Res.Steel, work: 12, batch: 3 },
+    upgrades: [
+      { name: 'Cutting torches', description: 'Salvages 30% faster.', cost: { concrete: 6, funds: 40 }, work: 0.7 },
+      { name: 'Hydraulic press', description: 'Another 25% faster.', cost: { concrete: 10, steel: 6, funds: 60 }, work: 0.75 },
+    ],
   },
   arms: {
     kind: 'arms',
@@ -385,6 +432,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
       { output: Res.NVKit, input: Res.Steel, inputAmount: 3, work: 15 },
       { output: Res.Launcher, input: Res.Steel, inputAmount: 4, work: 16 },
     ],
+    upgrades: [{ name: 'Assembly line', description: 'Builds weapons 30% faster.', cost: { concrete: 10, steel: 8 }, work: 0.7 }],
   },
   armory: {
     kind: 'armory',
@@ -398,6 +446,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     category: 'military',
     cost: { timber: 12, concrete: 4 },
     storage: { kind: 'gear', capacity: 60 },
+    upgrades: [{ name: 'Secure armory', description: 'Holds 80% more, sturdier.', cost: { concrete: 10, steel: 4 }, storage: 1.8, hp: 1.4 }],
   },
   barracks: {
     kind: 'barracks',
@@ -440,6 +489,14 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     deckH: 2.75,
     armored: true,
     sight: 18,
+    upgrades: [
+      {
+        name: 'Mount a heavy machine gun',
+        description: 'Turns it into a Gun Tower.',
+        cost: { concrete: 2, steel: 10 },
+        into: 'guntower',
+      },
+    ],
   },
   gate: {
     kind: 'gate',
@@ -456,6 +513,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     armored: true,
     rotatable: true,
     sight: 12,
+    upgrades: [{ name: 'Steel doors', description: '60% tougher.', cost: { concrete: 8, steel: 6 }, hp: 1.6 }],
   },
   stairs: {
     kind: 'stairs',
@@ -485,6 +543,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     power: -2,
     light: { kind: 'flood', range: 11 },
     top: 0.5,
+    upgrades: [{ name: 'High-power lamp', description: 'Lights 45% further.', cost: { steel: 2 }, light: 1.45 }],
   },
   searchlight: {
     kind: 'searchlight',
@@ -500,6 +559,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     power: -3,
     sight: 10,
     light: { kind: 'search', range: 24 },
+    upgrades: [{ name: 'Xenon lamp', description: 'Beam reaches 35% further.', cost: { steel: 4 }, light: 1.35 }],
   },
   sensor: {
     kind: 'sensor',
@@ -544,39 +604,41 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     jobs: 1,
     power: 12,
     top: 1.2,
+    upgrades: [{ name: 'Turbine', description: '+8 power.', cost: { concrete: 6, steel: 8 }, power: 8 }],
   },
   guntower: {
     kind: 'guntower',
     name: 'Gun Tower',
     description:
-      'A watchtower with a heavy machine gun. It fires on its own while one of your soldiers is up top, and you can take control to aim it yourself.',
+      'A watchtower with a heavy machine gun. It fires on its own while one of your soldiers is up top, and you can take control to aim it yourself. Weak spots: snipe the crew, or hit it with rockets, tank shells, artillery or strike drones.',
     w: 2,
     h: 2,
     blocks: true,
     hp: 1500,
     buildable: true,
     category: 'defense',
-    cost: { concrete: 16, timber: 4, steel: 6 },
+    cost: { concrete: 16, timber: 4, steel: 10 },
     deckH: 2.75,
     armored: true,
     sight: 18,
     turret: {
-      range: 22,
-      damage: 26,
-      autoDamage: 9,
+      range: 20,
+      damage: 22,
+      autoDamage: 7,
       cooldown: 2,
-      autoCooldown: 3,
-      spread: 0.06,
+      autoCooldown: 4,
+      spread: 0.08,
       suppress: 2.2,
       mag: 120,
       reloadSec: 5,
       turn: 2.6,
     },
+    upgrades: [{ name: 'Armor plating', description: '60% tougher.', cost: { concrete: 10, steel: 8 }, hp: 1.6 }],
   },
   dronebay: {
     kind: 'dronebay',
     name: 'Drone Bay',
-    description: 'Launches recon and strike drones (up to 3 in the air) and recharges them. Needs 2 power.',
+    description: 'Launches recon and strike drones (up to 4 in the air) and recharges them. Needs 2 power.',
     w: 2,
     h: 2,
     blocks: true,
@@ -585,7 +647,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     category: 'military',
     cost: { timber: 8, concrete: 6, steel: 6 },
     power: -2,
-    bay: { capacity: 3 },
+    bay: { capacity: 4 },
     top: 1.3,
   },
   derrick: {
@@ -603,6 +665,7 @@ export const STRUCTURE_DEFS: Record<StructureKind, StructureDef> = {
     producer: { output: Res.Fuel, work: 10, batch: 4 },
     requires: 'onOil',
     top: 2.6,
+    upgrades: [{ name: 'Second pump', description: 'Pumps 35% faster.', cost: { steel: 8, funds: 40 }, work: 0.65 }],
   },
   motorpool: {
     kind: 'motorpool',
@@ -736,6 +799,33 @@ export interface Structure {
   seenBy: number;
   /** Minefields: seconds of defusing by enemy engineers so far. */
   defuse: number;
+  /** Upgrade level (1 = as built). */
+  level: number;
+}
+
+/** Product of a multiplier over the upgrades a structure has. */
+export function upgradeMul(s: Structure, key: 'hp' | 'storage' | 'work' | 'light'): number {
+  const ups = STRUCTURE_DEFS[s.kind].upgrades;
+  let m = 1;
+  for (let k = 0; ups && k < (s.level ?? 1) - 1 && k < ups.length; k++) m *= ups[k][key] ?? 1;
+  return m;
+}
+
+/** Sum of an addition over the upgrades a structure has. */
+export function upgradeAdd(s: Structure, key: 'housing' | 'power'): number {
+  const ups = STRUCTURE_DEFS[s.kind].upgrades;
+  let a = 0;
+  for (let k = 0; ups && k < (s.level ?? 1) - 1 && k < ups.length; k++) a += ups[k][key] ?? 0;
+  return a;
+}
+
+export function maxHp(s: Structure): number {
+  return STRUCTURE_DEFS[s.kind].hp * upgradeMul(s, 'hp');
+}
+
+/** The next upgrade available, or null. */
+export function nextUpgrade(s: Structure): UpgradeSpec | null {
+  return STRUCTURE_DEFS[s.kind].upgrades?.[(s.level ?? 1) - 1] ?? null;
 }
 
 /** Footprint size for a kind at a rotation (gatehouses swap w/h at a quarter turn). */

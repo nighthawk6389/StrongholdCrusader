@@ -8,6 +8,10 @@ import {
   RES_INFO,
   Res,
   STRUCTURE_DEFS,
+  maxHp,
+  nextUpgrade,
+  upgradeAdd,
+  upgradeMul,
   footprint,
   resIdsFor,
   type Cost,
@@ -95,6 +99,9 @@ export class PlayerEconomy {
   departTimer = 0;
   /** Keep working through the night (costs morale after dark). */
   nightShift = false;
+  /** Flares on hand (one more every FLARE_REGEN_SEC, up to FLARE_MAX). */
+  flares = FLARE_MAX;
+  flareTimer = 0;
   powerSupply = 0;
   powerDemand = 0;
 
@@ -143,6 +150,9 @@ export interface PlaceCheck {
   ok: boolean;
   reason?: string;
 }
+
+export const FLARE_MAX = 3;
+export const FLARE_REGEN_SEC = 60;
 
 /** Economy: population, morale, storage, placement, recruiting, and the civilian work cycle. */
 export class Economy {
@@ -266,6 +276,42 @@ export class Economy {
     }
     this.recount();
     return s;
+  }
+
+  /** Why `id` can't be upgraded right now, or null if it can. */
+  upgradeBlocker(owner: number, id: number): string | null {
+    const s = this.sim.structureById(id);
+    if (!s || s.owner !== owner) return 'Not yours';
+    const up = nextUpgrade(s);
+    if (!up) return 'Fully upgraded';
+    return this.player(owner).shortOf(up.cost);
+  }
+
+  /** Pay for and apply the next upgrade. Returns true if it happened. */
+  upgrade(owner: number, id: number): boolean {
+    if (this.upgradeBlocker(owner, id)) return false;
+    const s = this.sim.structureById(id)!;
+    const up = nextUpgrade(s)!;
+    this.player(owner).pay(up.cost);
+    const before = maxHp(s);
+    if (up.into) {
+      // A different building on the same footprint (e.g. watchtower → gun tower).
+      const def = STRUCTURE_DEFS[up.into];
+      s.kind = up.into;
+      s.level = 1;
+      s.hp = (s.hp / before) * def.hp;
+      s.ammo = def.turret?.mag ?? 0;
+      s.cooldown = 0;
+      s.reload = 0;
+      s.target = -1;
+    } else {
+      s.level++;
+      s.hp += maxHp(s) - before;
+    }
+    this.sim.emit({ type: 'upgraded', owner, id: s.id, kind: s.kind, level: s.level });
+    this.recount();
+    this.allocatePower();
+    return true;
   }
 
   /** Per-tile check for a wall segment (no cost). */
@@ -589,6 +635,14 @@ export class Economy {
       if (u.task[i] === Task.Recruit) this.updateRecruit(i);
       else this.updateCivilian(i, this.players.get(u.owner[i])?.nightShift ? 1 : dayRate);
     }
+    for (const p of this.players.values()) {
+      if (p.flares >= FLARE_MAX) continue;
+      p.flareTimer += TICK_SEC;
+      if (p.flareTimer >= FLARE_REGEN_SEC) {
+        p.flareTimer = 0;
+        p.flares++;
+      }
+    }
     if (++this.secTimer >= TICK_RATE) {
       this.secTimer = 0;
       this.recount();
@@ -605,7 +659,7 @@ export class Economy {
       p.powerDemand = 0;
     }
     for (const s of this.sim.structures) {
-      const pw = STRUCTURE_DEFS[s.kind].power ?? 0;
+      const pw = (STRUCTURE_DEFS[s.kind].power ?? 0) + upgradeAdd(s, 'power');
       if (pw <= 0) continue;
       const p = this.player(s.owner);
       const running = !STRUCTURE_DEFS[s.kind].jobs || (s.active && s.workers.length > 0);
@@ -645,10 +699,11 @@ export class Economy {
       const def = STRUCTURE_DEFS[s.kind];
       if (!def.housing && !def.storage) continue;
       const p = this.player(s.owner);
-      p.housing += def.housing ?? 0;
-      if (def.storage?.kind === 'materials') p.materialsCap += def.storage.capacity;
-      if (def.storage?.kind === 'food') p.foodCap += def.storage.capacity;
-      if (def.storage?.kind === 'gear') p.gearCap += def.storage.capacity;
+      p.housing += (def.housing ?? 0) + upgradeAdd(s, 'housing');
+      const cap = (def.storage?.capacity ?? 0) * upgradeMul(s, 'storage');
+      if (def.storage?.kind === 'materials') p.materialsCap += cap;
+      if (def.storage?.kind === 'food') p.foodCap += cap;
+      if (def.storage?.kind === 'gear') p.gearCap += cap;
     }
   }
 
@@ -869,11 +924,18 @@ export class Economy {
     const def = STRUCTURE_DEFS[s.kind];
     const recipe = def.recipes?.[s.recipe];
     const prod = def.producer;
+    const door = this.door(s);
     if (!prod && !recipe) {
-      this.release(i);
+      // Operator jobs (generators): walk over and keep it running.
+      if (u.task[i] !== Task.Working) {
+        const r = this.reached(i, door.x, door.z);
+        if (r === true) {
+          u.task[i] = Task.Working;
+          s.status = 'ok';
+        }
+      }
       return;
     }
-    const door = this.door(s);
     const output = (recipe?.output ?? prod?.output) as ResId;
 
     switch (u.task[i]) {
@@ -888,7 +950,7 @@ export class Economy {
           this.goFetch(i, s, recipe.input, recipe.inputAmount);
         } else {
           u.task[i] = Task.Working;
-          u.taskTimer[i] = recipe?.work ?? prod!.work;
+          u.taskTimer[i] = (recipe?.work ?? prod!.work) * upgradeMul(s, 'work');
           u.carry[i] = CARRY_NONE;
           s.status = 'ok';
         }

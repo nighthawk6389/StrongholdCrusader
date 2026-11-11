@@ -116,6 +116,9 @@ export class UnitStore {
   readonly home = new Int32Array(MAX_UNITS).fill(-1);
   /** Artillery: how set up it is (0 = limbered, 1 = ready to fire). */
   readonly deploy = new Float32Array(MAX_UNITS);
+  /** Closest it has got to its current goal, and the tick it last got closer (crowd-jam detection). */
+  readonly navBest = new Float32Array(MAX_UNITS);
+  readonly navBestTick = new Int32Array(MAX_UNITS);
 
   spawn(kind: number, owner: number, x: number, z: number, heading: number): number {
     let id = -1;

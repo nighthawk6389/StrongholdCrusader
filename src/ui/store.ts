@@ -87,6 +87,9 @@ export interface BuildingInfo {
   /** Fuel trench: can be lit / is burning. */
   ignite: boolean;
   burning: boolean;
+  /** Upgrade level and the next upgrade on offer (null when fully upgraded or not upgradeable). */
+  level: number;
+  upgrade: { name: string; description: string; cost: string; blocker: string | null } | null;
 }
 
 export interface DroneOption {
@@ -158,6 +161,8 @@ export interface HudState {
   paused: boolean;
   selectionCount: number;
   selectionLabel: string;
+  /** The selection broken down by unit type (for splitting it). */
+  selectionGroups: { kind: number; name: string; count: number }[];
   canControl: boolean;
   /** Camera/control view. */
   view: 'rts' | 'control';
@@ -173,6 +178,8 @@ export interface HudState {
   /** Looking through night-vision optics (green view). */
   nvg: boolean;
   targeting: 'flare' | null;
+  /** Flares on hand. */
+  flares: number;
   controlledHp: number;
   controlledName: string;
   control: ControlInfo | null;
@@ -209,6 +216,7 @@ export const useHud = create<HudState>(() => ({
   paused: false,
   selectionCount: 0,
   selectionLabel: '',
+  selectionGroups: [],
   canControl: false,
   view: 'rts',
   gameMode: 'sandbox',
@@ -220,6 +228,7 @@ export const useHud = create<HudState>(() => ({
   nightShift: false,
   nvg: false,
   targeting: null,
+  flares: 3,
   controlledHp: 1,
   controlledName: '',
   control: null,

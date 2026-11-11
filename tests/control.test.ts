@@ -229,7 +229,7 @@ describe('drones', () => {
     return b.id;
   }
 
-  it('a bay launches drones for funds and steel (strike drones also take a breach kit)', () => {
+  it('a bay launches drones for funds and steel', () => {
     const sim = openSim();
     const b = bay(sim);
     const p = sim.economy.player(PLAYER);
@@ -242,7 +242,7 @@ describe('drones', () => {
     expect(drones.length).toBe(2);
     expect(p.funds).toBe(500 - 40 - 50);
     expect(p.stock[Res.Steel]).toBe(40 - 4 - 6);
-    expect(p.stock[Res.Charges]).toBe(2);
+    expect(p.stock[Res.Charges]).toBe(3);
     expect(u.elev[drones[0]]).toBeGreaterThan(5);
   });
 
@@ -319,12 +319,20 @@ describe('drones', () => {
     expect(sim.units.isAlive(d2)).toBe(false);
   });
 
-  it('soldiers shoot drones out of the sky', () => {
+  it('a squad shoots a drone out of the sky (a lone gunner struggles)', () => {
+    const lone = openSim();
+    const d1 = lone.spawnUnit(UnitKind.ReconDrone, PLAYER, 20.5, 20.5);
+    lone.units.battery[d1] = 999;
+    lone.spawnUnit(UnitKind.Rifleman, ENEMY, 20.5, 28.5);
+    runTicks(lone, 10 * TICK_RATE);
+    expect(lone.units.isAlive(d1)).toBe(true);
+
     const sim = openSim();
     const d = sim.spawnUnit(UnitKind.ReconDrone, PLAYER, 20.5, 20.5);
     sim.units.battery[d] = 999;
     sim.spawnUnit(UnitKind.Gunner, ENEMY, 20.5, 28.5);
-    runTicks(sim, 15 * TICK_RATE);
+    for (let k = 0; k < 3; k++) sim.spawnUnit(UnitKind.Rifleman, ENEMY, 18.5 + k * 2, 27.5);
+    runTicks(sim, 25 * TICK_RATE);
     expect(sim.units.isAlive(d)).toBe(false);
   });
 

@@ -5,7 +5,7 @@ import { createScenario, ENEMY, type GameMode, type Scenario } from '../sim/scen
 import { loadSim, saveSim } from '../sim/save';
 import { clearGame, writeGame, type StoredGame } from './saveSlot';
 import type { Sim, SimEvent } from '../sim/sim';
-import { PRICES, RES_INFO, Res, STRUCTURE_DEFS, costText, footprint, type ResId, type StructureKind } from '../sim/structures';
+import { PRICES, RES_INFO, Res, STRUCTURE_DEFS, costText, footprint, maxHp, nextUpgrade, type ResId, type StructureKind } from '../sim/structures';
 import type { Difficulty } from '../sim/ai';
 import { DRONE_KINDS, RECRUITABLE, UNIT_TYPES, UnitKind, VEHICLES } from '../sim/unitTypes';
 import { DRONE_COST } from '../sim/drones';
@@ -67,6 +67,10 @@ export interface GameActions {
   flareAtCrosshair(): void;
   launchDrone(kind: number): void;
   igniteSelected(): void;
+  upgradeSelected(): void;
+  /** Keep only this unit type in the selection / drop it from the selection. */
+  selectKindOnly(kind: number): void;
+  deselectKind(kind: number): void;
 }
 
 function isTouchDevice(): boolean {
@@ -378,12 +382,17 @@ export class Game implements GameActions {
       else if (u.owner[i] === ENEMY) theirs++;
     }
     const counts = new Map<string, number>();
+    const byKind = new Map<number, number>();
     let canControl = false;
     for (const id of this.selected) {
       const t = UNIT_TYPES[u.kind[id]];
       counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
+      byKind.set(t.id, (byKind.get(t.id) ?? 0) + 1);
       if (t.controllable) canControl = true;
     }
+    const selectionGroups = [...byKind.entries()]
+      .map(([kind, count]) => ({ kind, name: UNIT_TYPES[kind].name, count }))
+      .sort((a, b) => b.count - a.count || a.kind - b.kind);
     const label = [...counts.entries()].map(([n, c]) => (c > 1 ? `${c}× ${n}` : n)).join(', ');
     const c = this.controlled;
     const p = this.sim.economy.player(this.player);
@@ -417,6 +426,7 @@ export class Game implements GameActions {
         : null,
       power: { supply: p.powerSupply, demand: p.powerDemand },
       nightShift: p.nightShift,
+      flares: p.flares,
       nvg: this.renderer.nvg,
       targeting: this.targeting,
       placing: this.placingInfo(),
@@ -426,6 +436,7 @@ export class Game implements GameActions {
       day: info.day + 1,
       selectionCount: this.selected.size,
       selectionLabel: label,
+      selectionGroups,
       canControl,
       playerUnits: mine,
       enemyUnits: theirs,
@@ -510,6 +521,9 @@ export class Game implements GameActions {
           break;
         case 'wave':
           if (e.owner !== this.player) this.toast(`Wave ${e.index}/${e.total} incoming from the east! (${e.size} troops)`, 4);
+          break;
+        case 'upgraded':
+          if (e.owner === this.player) this.toast(`${STRUCTURE_DEFS[e.kind].name} upgraded${e.level > 1 ? ` to level ${e.level}` : ''}`);
           break;
         case 'structureDestroyed':
           if (e.owner === this.player && !STRUCTURE_DEFS[e.kind].trap) this.toast(`Your ${STRUCTURE_DEFS[e.kind].name} was destroyed`);
@@ -631,7 +645,7 @@ export class Game implements GameActions {
       storage,
       powered: !def.power || def.power > 0 || s.powered,
       hp: Math.max(0, Math.round(s.hp)),
-      maxHp: def.hp,
+      maxHp: Math.round(maxHp(s)),
       enemy: !mine,
       recipes: def.recipes
         ? { options: def.recipes.map((r) => `${RES_INFO[r.output].name} (${r.inputAmount} steel)`), selected: s.recipe }
@@ -670,6 +684,13 @@ export class Game implements GameActions {
       controllable: mine && CONTROLLABLE_STRUCTURES.includes(s.kind),
       ignite: mine && s.kind === 'trench' && s.burn === 0,
       burning: s.burn > 0,
+      level: s.level ?? 1,
+      upgrade: (() => {
+        const up = mine ? nextUpgrade(s) : null;
+        return up
+          ? { name: up.name, description: up.description, cost: costText(up.cost), blocker: this.sim.economy.upgradeBlocker(this.player, s.id) }
+          : null;
+      })(),
       recruit:
         s.kind === 'motorpool' && mine
           ? VEHICLES.map((k) => {
@@ -951,6 +972,10 @@ export class Game implements GameActions {
 
   startFlare(): void {
     if (this.controlled >= 0) return;
+    if (this.sim.economy.player(this.player).flares <= 0) {
+      this.toast('No flares left: you get another one every minute');
+      return;
+    }
     this.cancelPlacing();
     this.targeting = 'flare';
     this.pushHud();
@@ -1110,6 +1135,30 @@ export class Game implements GameActions {
       return;
     }
     this.sim.enqueue({ type: 'flare', owner: this.player, x: g.x, z: g.z });
+  }
+
+  selectKindOnly(kind: number): void {
+    const u = this.sim.units;
+    for (const id of [...this.selected]) if (u.kind[id] !== kind) this.selected.delete(id);
+    this.pushHud();
+  }
+
+  deselectKind(kind: number): void {
+    const u = this.sim.units;
+    for (const id of [...this.selected]) if (u.kind[id] === kind) this.selected.delete(id);
+    this.pushHud();
+  }
+
+  upgradeSelected(): void {
+    const s = this.sim.structureById(this.selectedStructure);
+    if (!s) return;
+    const why = this.sim.economy.upgradeBlocker(this.player, s.id);
+    if (why) {
+      this.toast(why);
+      return;
+    }
+    this.sim.enqueue({ type: 'upgrade', owner: this.player, id: s.id });
+    setTimeout(() => this.pushHud(), 120);
   }
 
   igniteSelected(): void {

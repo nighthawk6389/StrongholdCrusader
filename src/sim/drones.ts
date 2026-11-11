@@ -9,7 +9,7 @@ import { Order } from './units';
 /** What a Drone Bay charges to put a drone in the air. */
 export const DRONE_COST: Record<number, { funds: number; steel: number; gear?: ResId }> = {
   [UnitKind.ReconDrone]: { funds: 40, steel: 4 },
-  [UnitKind.StrikeDrone]: { funds: 50, steel: 6, gear: Res.Charges },
+  [UnitKind.StrikeDrone]: { funds: 50, steel: 6 },
 };
 
 /** Battery seconds left when a drone not under your control heads home. */
@@ -17,7 +17,7 @@ export const RETURN_AT = 22;
 /** Battery seconds regained per second while parked at a powered bay. */
 const RECHARGE = 6;
 const DOCK_RANGE = 1.6;
-const DIVE_SPEED = 11;
+const DIVE_SPEED = 14;
 /** A strike drone goes off this close to its target. */
 const STRIKE_REACH = 0.9;
 

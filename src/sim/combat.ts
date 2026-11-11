@@ -350,7 +350,7 @@ export class Combat {
         this.shotAt(i, hx, hz, 0.8);
         if (!type.silenced) sim.vision.reveal[i] = NOISE_SEC;
         if (type.splash > 0) sim.emit({ type: 'explosion', x: hx, z: hz, owner: u.owner[i] });
-        sim.damageStructure(s, type.structDamage);
+        sim.damageStructure(s, type.structDamage, type.siege);
         u.cooldown[i] = type.autoCooldown + sim.rng.int(type.autoJitter + 1);
       }
       // Still defend yourself against anyone in range.
@@ -524,7 +524,7 @@ export class Combat {
       if (!u.alive[j] || u.owner[j] === u.owner[i]) continue;
       if (Math.hypot(u.x[j] - bx, u.z[j] - bz) < 1.6) this.damageUnit(j, CHARGE_SPLASH, i, true);
     }
-    sim.damageStructure(s, CHARGE_DAMAGE);
+    sim.damageStructure(s, CHARGE_DAMAGE, true);
     sim.traps.igniteNear(bx, bz, 1.6);
   }
 
@@ -612,7 +612,7 @@ export class Combat {
       if (t >= reach) continue;
       const perp = Math.abs(rx * dz - rz * dx);
       // Drones are small, quick targets.
-      const r = type.fly ? type.radius * 0.6 : type.radius + 0.06;
+      const r = type.fly ? type.radius * 0.5 : type.radius + 0.06;
       if (perp < r) {
         hit = j;
         hitT = t;
@@ -803,7 +803,7 @@ export class Combat {
       (!STRUCTURE_DEFS[block.kind].armored || (o.shooter >= 0 && UNIT_TYPES[u.kind[o.shooter]].siege)) &&
       o.structDamage > 0
     ) {
-      sim.damageStructure(block, o.structDamage);
+      sim.damageStructure(block, o.structDamage, o.shooter >= 0 && UNIT_TYPES[u.kind[o.shooter]].siege);
     }
     const sp = o.shooter >= 0 ? UNIT_TYPES[u.kind[o.shooter]] : null;
     if (sp && sp.splash > 0) {
@@ -1091,7 +1091,7 @@ export class Combat {
     for (const s of [...sim.structures]) {
       if (s.owner === owner || s.owner === 0) continue;
       const d = distToRect(x, z, s);
-      if (d < b.radius * 0.6) sim.damageStructure(s, b.structDamage * (1 - d / b.radius));
+      if (d < b.radius * 0.6) sim.damageStructure(s, b.structDamage * (1 - d / b.radius), true);
     }
   }
 

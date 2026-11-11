@@ -1674,3 +1674,96 @@ kbd {
     align-items: stretch;
   }
 }
+
+/* ---------- selection split chips */
+
+.sel-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  max-width: 560px;
+}
+
+.sel-chip {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sel-chip button {
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.sel-chip-main {
+  padding: 5px 10px;
+  font-size: 12.5px;
+}
+
+.sel-chip-x {
+  padding: 5px 9px;
+  border-left: 1px solid rgba(255, 255, 255, 0.14) !important;
+  color: var(--muted, #b8ad99) !important;
+}
+
+.sel-chip button:hover {
+  background: rgba(240, 199, 125, 0.18);
+}
+
+@media (max-height: 500px) {
+  .sel-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    max-width: calc(100vw - 32px);
+  }
+  .sel-chip-main,
+  .sel-chip-x {
+    padding: 6px 9px;
+    white-space: nowrap;
+  }
+}
+
+.flare-count {
+  font-size: 11px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.upgrade-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.sel-chip {
+  flex: none;
+}
+
+@media (max-height: 500px) {
+  .sel-chips {
+    max-width: min(440px, calc(100vw - 300px));
+    scrollbar-width: none;
+  }
+  .sel-chip-main,
+  .sel-chip-x {
+    font-size: 12px;
+    padding: 5px 8px;
+  }
+}
+
+@media (max-height: 500px) {
+  .sel-chips {
+    justify-content: flex-start;
+  }
+}

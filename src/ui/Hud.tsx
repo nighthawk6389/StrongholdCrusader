@@ -479,6 +479,7 @@ function BuildingPanel({ game }: { game: GameActions }) {
       <div className={`panel selection building-panel ${b.recruit || b.recipes || b.trade || b.drones ? 'wide' : ''}`}>
         <div className="sel-label">
           <strong>{b.name}</strong>
+          {b.level > 1 && <span className="badge ok">Lv {b.level}</span>}
           {b.enemy && <span className="badge bad">Hostile</span>}
           {!b.enemy && !b.powered && <span className="badge bad">No power</span>}
           {b.jobs > 0 && !b.enemy && (
@@ -583,6 +584,17 @@ function BuildingPanel({ game }: { game: GameActions }) {
           <div className="muted small">{b.recruit[0].blocker}: weapons come from an Arms Factory (needs steel).</div>
         )}
         {b.burning && <div className="small badge bad">🔥 Burning</div>}
+        {b.upgrade && !b.enemy && (
+          <div className="upgrade-row">
+            <Btn className="primary" disabled={!!b.upgrade.blocker} onClick={() => game.upgradeSelected()} title={b.upgrade.blocker ?? b.upgrade.description}>
+              ⬆ {b.upgrade.name}
+            </Btn>
+            <span className="small muted">
+              {b.upgrade.description} · {b.upgrade.cost}
+              {b.upgrade.blocker && b.upgrade.blocker !== 'Fully upgraded' ? ` · ${b.upgrade.blocker}` : ''}
+            </span>
+          </div>
+        )}
         <div className="row">
           {b.ignite && (
             <Btn className="danger" onClick={() => game.igniteSelected()} title="Set it alight (needs one of your soldiers nearby)">
@@ -635,8 +647,23 @@ function RtsPanel({ game }: { game: GameActions }) {
         {s.selectionCount > 0 ? (
           <>
             <div className="sel-label">
-              <strong>{s.selectionCount}</strong> selected · <span className="muted">{s.selectionLabel}</span>
+              <strong>{s.selectionCount}</strong> selected
+              {s.selectionGroups.length <= 1 && <span className="muted"> · {s.selectionLabel}</span>}
             </div>
+            {s.selectionGroups.length > 1 && (
+              <div className="sel-chips" title="Tap a type to keep only those; × drops them from the selection">
+                {s.selectionGroups.map((g) => (
+                  <span key={g.kind} className="sel-chip">
+                    <button type="button" className="sel-chip-main" onClick={() => game.selectKindOnly(g.kind)} title={`Keep only the ${g.name}s`}>
+                      {g.count}× {g.name}
+                    </button>
+                    <button type="button" className="sel-chip-x" onClick={() => game.deselectKind(g.kind)} title={`Drop the ${g.name}s`}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="muted small hint">
               {s.isTouch
                 ? 'Tap ground to move · tap a wall top to man it · tap an enemy to attack'
@@ -646,8 +673,13 @@ function RtsPanel({ game }: { game: GameActions }) {
               <Btn onClick={() => game.takeControl()} className="primary" title="Take direct control (F)">
                 Take control{!s.isTouch && <kbd>F</kbd>}
               </Btn>
-              <Btn onClick={() => game.startFlare()} title="Fire an illumination flare (V)">
-                🔦 Flare{!s.isTouch && <kbd>V</kbd>}
+              <Btn
+                onClick={() => game.startFlare()}
+                disabled={s.flares <= 0}
+                title={s.flares > 0 ? `Fire an illumination flare (V) · ${s.flares} left` : 'No flares left: one more every minute'}
+              >
+                🔦 Flare <span className="flare-count">{s.flares}</span>
+                {!s.isTouch && <kbd>V</kbd>}
               </Btn>
               <Btn onClick={() => game.deselect()} title="Deselect (Esc)">
                 Deselect
