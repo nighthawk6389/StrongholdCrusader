@@ -112,7 +112,25 @@ export interface Personality {
   ignites?: boolean;
   /** Upgrade priorities (default: producers and housing). */
   upgrades?: StructureKind[];
-  lines: Record<LineKey, string[]> & { raid?: string[]; hire?: string[] };
+  lines: Record<LineKey, string[]> & {
+    raid?: string[];
+    hire?: string[];
+    /** Signature lines: once early on, then now and again in place of an attack line. */
+    catchphrase?: string[];
+    /** Named lead tank (see `namedTank`): first deployed, leading an attack, destroyed, replaced ({n} = "Second"…). */
+    tankNew?: string[];
+    tankAttack?: string[];
+    tankLost?: string[];
+    tankBack?: string[];
+  };
+  /** The commander names her first tank and keeps a replacement going (Duchess Varga's Rosie). */
+  namedTank?: string;
+}
+
+const ORDINALS = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth'];
+/** "Second", "Third", … "Tenth", then "11th", "12th"… */
+export function ordinal(n: number): string {
+  return ORDINALS[n - 1] ?? `${n}th`;
 }
 
 function withTempo(t: AiTuning, m: Tempo = {}): AiTuning {
@@ -175,6 +193,7 @@ export const OLD_SARGE: Personality = {
     attackFailed: ['Hm. Regroup and try the other flank.', "Not bad. Won't happen twice."],
     win: ['Good effort. Same time tomorrow?'],
     lose: ['Well... you earned it. Carry on.'],
+    catchphrase: ['Mind the wire, kid. Every time. Mind the wire.', 'Walls first. Coffee second.', 'Back in my day we dug these by hand.'],
   },
 };
 
@@ -225,6 +244,7 @@ export const JACKAL: Personality = {
     attackFailed: ['Eh. Plenty more where they came from.', 'Hit and run. Mostly run.'],
     win: ['Too slow! Better luck next time.'],
     lose: ["Fine, fine. You're quicker than you look."],
+    catchphrase: ["Knock knock. It's breakfast.", 'Fast in, faster out.', 'Never stay for the second course.'],
   },
 };
 
@@ -280,6 +300,7 @@ export const THE_ENGINEER: Personality = {
     attackFailed: ['Recalculating.', 'A setback. I have more blueprints.'],
     win: ['Your defenses failed inspection.'],
     lose: ['Hm. I underestimated your load capacity.'],
+    catchphrase: ['Measure twice. Blow it up once.', 'Every structure has a weak point. I brought a list.', 'Mind the gap.'],
   },
 };
 
@@ -338,6 +359,7 @@ export const WARDEN: Personality = {
     attackFailed: ['Back to the cells. We wait.', 'Patience. The walls will hold.'],
     win: ['Your sentence begins now.'],
     lose: ['The perimeter... has fallen.'],
+    catchphrase: ['Lights on. Nobody gets in.', 'Every wall is a promise. I keep mine.', 'Count is clear. Count is always clear.'],
   },
 };
 
@@ -392,6 +414,7 @@ export const THE_BROKER: Personality = {
     attackFailed: ['A write-off. There are always more contracts.', 'Poor returns on that one.'],
     win: ['Pleasure doing business.'],
     lose: ['Fine. Name your price.'],
+    catchphrase: ['Everything has a price.', "It's not personal. It's billable.", 'Read the fine print. Oh, wait. There is none.'],
   },
 };
 
@@ -452,6 +475,7 @@ export const NIGHTSHADE: Personality = {
     attackFailed: ['Withdraw. The night is long.', 'Fade back. Next time, darker.'],
     win: ['Goodnight.'],
     lose: ['...the dawn came early.'],
+    catchphrase: ['Lights out.', "You won't hear the door.", 'We were never here.'],
   },
 };
 
@@ -507,7 +531,13 @@ export const DUCHESS_VARGA: Personality = {
     attackFailed: ['Repair the tanks. We go again.', 'A setback. Steel is patient.'],
     win: ['Another castle for the collection.'],
     lose: ['Hm. You may keep this one.'],
+    catchphrase: ['Steel is patient, darling.', 'Rosie sends her regards.', 'I do so love the sound of treads in the morning.'],
+    tankNew: ['Warm up the engine. Rosie wants to say hello.', 'Rosie is out of the garage. Do be nice to her.'],
+    tankAttack: ['Here comes Rosie, darling. Do try to look surprised.', 'Rosie, dear, lead the way.', 'Make way for Rosie.'],
+    tankLost: ['You killed Rosie. You. Killed. Rosie.', 'Rosie! ...You will pay for every rivet.'],
+    tankBack: ['Rosie the {n}. Same temper, thicker armour.', 'Meet Rosie the {n}. She has heard all about you.', 'Rosie the {n} is ready. She holds grudges.'],
   },
+  namedTank: 'Rosie',
 };
 
 /** The Quartermaster: the biggest economy on the map behind two rings of walls, then a late, crushing push. */
@@ -567,6 +597,7 @@ export const THE_QUARTERMASTER: Personality = {
     attackFailed: ['Write it off. Order more.', 'Stocks remain adequate.'],
     win: ['Account closed.'],
     lose: ['Audit complete. I appear to be insolvent.'],
+    catchphrase: ['In triplicate, please.', 'Everything counted. Everything accounted for.', 'Supply wins wars. Sign here.'],
   },
 };
 
@@ -632,6 +663,13 @@ export class AiCommander implements Controller {
   private lastLostLine = -1e9;
   private lastHqLine = -1e9;
   private said = new Set<string>();
+  /** Named lead tank (unit id, -1 = none) and how many there have been. */
+  namedTankId = -1;
+  namedTankGen = 0;
+  /** Attacks launched (picks when a catchphrase replaces the attack line). */
+  private attackLines = 0;
+  /** Picks which line to say (separate from the sim's random numbers). */
+  private lineSeed = 0x5eed;
   private lastBuildAt = -1e9;
 
   private raidGroup: number[] = [];
@@ -702,6 +740,10 @@ export class AiCommander implements Controller {
         }
       }
       if (e.type === 'result') this.say(sim, e.result === 'victory' ? 'lose' : 'win');
+      if (e.type === 'death' && e.unit === this.namedTankId && e.owner === this.owner) {
+        this.namedTankId = -1;
+        if (!sim.result) this.say(sim, 'tankLost');
+      }
       // Enemy artillery landing near home: time for a mortar pit of our own.
       if (e.type === 'shell' && e.owner === this.enemy && Math.hypot(e.toX - this.home.x, e.toZ - this.home.z) < this.ring + 12) this.shelled = true;
     }
@@ -714,7 +756,11 @@ export class AiCommander implements Controller {
     if (!this.said.has('start') && sim.elapsed > 4) {
       this.said.add('start');
       this.say(sim, 'start');
+    } else if (!this.said.has('catchphrase') && sim.elapsed > 100) {
+      this.said.add('catchphrase');
+      this.say(sim, 'catchphrase');
     }
+    this.nameTank(sim);
     this.manageMorale(sim);
     this.build(sim);
     this.military(sim);
@@ -799,8 +845,39 @@ export class AiCommander implements Controller {
   private say(sim: Sim, kind: keyof Personality['lines']): void {
     const lines = this.personality.lines[kind];
     if (!lines?.length) return;
-    const text = lines[sim.rng.int(lines.length)];
+    // Its own little generator: what a commander says must never change how the match plays out.
+    this.lineSeed = (Math.imul(this.lineSeed ^ (this.lineSeed >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0;
+    const text = lines[this.lineSeed % lines.length].replace('{n}', ordinal(this.namedTankGen));
     sim.emit({ type: 'taunt', owner: this.owner, name: this.personality.name, text });
+  }
+
+  /** The first tank off the line gets a name; when it's destroyed, the next one inherits it. */
+  private nameTank(sim: Sim): void {
+    if (!this.personality.namedTank) return;
+    const u = sim.units;
+    const id = this.namedTankId;
+    if (id >= 0 && (!u.alive[id] || u.owner[id] !== this.owner || u.kind[id] !== UnitKind.Tank)) {
+      // Gone without a death event reaching us (removed outside a step): mourn her now, name the next one later.
+      this.namedTankId = -1;
+      this.say(sim, 'tankLost');
+      return;
+    }
+    if (this.namedTankId >= 0) return;
+    for (let i = 0; i < u.count; i++) {
+      if (!u.alive[i] || u.owner[i] !== this.owner || u.kind[i] !== UnitKind.Tank) continue;
+      this.namedTankId = i;
+      this.namedTankGen++;
+      this.say(sim, this.namedTankGen === 1 ? 'tankNew' : 'tankBack');
+      return;
+    }
+  }
+
+  /** The attack line: the named tank announces itself when it leads, and every third attack gets a catchphrase. */
+  private sayAttack(sim: Sim, ids: readonly number[]): void {
+    const n = this.attackLines++;
+    if (this.namedTankId >= 0 && ids.includes(this.namedTankId)) this.say(sim, 'tankAttack');
+    else if (n % 3 === 2 && this.personality.lines.catchphrase?.length) this.say(sim, 'catchphrase');
+    else this.say(sim, 'attack');
   }
 
   // ---------------------------------------------------------------- economy
@@ -1667,7 +1744,7 @@ export class AiCommander implements Controller {
     this.nextAttackAt = sim.elapsed + this.tuning.attackGap;
     this.attackSize += this.tuning.attackGrowth;
     this.reportedFailure = false;
-    this.say(sim, 'attack');
+    this.sayAttack(sim, ids);
     const side = this.difficulty === 'easy' ? null : this.attackSide(sim, hq.tx + hq.w / 2, hq.tz + hq.h / 2);
     if (side) {
       const feint = ids.length >= 9 ? ids.filter((i) => u.kind[i] === UnitKind.Rifleman).slice(0, 3) : [];

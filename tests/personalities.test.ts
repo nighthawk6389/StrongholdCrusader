@@ -5,6 +5,7 @@ import { createScenario, ENEMY, PLAYER, type MatchOptions } from '../src/sim/sce
 import { loadSim, saveSim, type SimSave } from '../src/sim/save';
 import type { Sim, SimEvent } from '../src/sim/sim';
 import { UnitKind } from '../src/sim/unitTypes';
+import { maxHp } from '../src/sim/structures';
 
 function runSec(sim: Sim, sec: number, onEvent?: (e: SimEvent) => void): void {
   for (let i = 0; i < sec * TICK_RATE && !sim.result; i++) {
@@ -32,6 +33,44 @@ describe('AI personalities', () => {
       }
       expect(p.build.length).toBeGreaterThan(10);
     }
+  });
+
+  it('every opponent has signature catchphrases', () => {
+    for (const key of OPPONENTS) expect(PERSONALITIES[key].lines.catchphrase?.length ?? 0).toBeGreaterThanOrEqual(2);
+  });
+
+  it('Duchess Varga names her first tank Rosie, mourns her and rolls out Rosie the Second', { timeout: 90_000 }, () => {
+    const { sim, ai } = match({ opponent: 'varga' });
+    const lines: string[] = [];
+    const said = (e: SimEvent): void => {
+      if (e.type === 'taunt' && e.owner === ENEMY) lines.push(e.text);
+    };
+    // The player does nothing, so keep their HQ standing long enough for the motor pool to deliver.
+    const hold = (): void => {
+      const hq = sim.economy.hqOf(PLAYER);
+      if (hq) hq.hp = maxHp(hq);
+    };
+    for (let t = 0; t < 900 && ai.namedTankId < 0; t += 10) {
+      hold();
+      runSec(sim, 10, said);
+    }
+    expect(ai.namedTankId).toBeGreaterThanOrEqual(0);
+    expect(sim.units.kind[ai.namedTankId]).toBe(UnitKind.Tank);
+    expect(lines.some((l) => l.includes('Rosie'))).toBe(true);
+
+    lines.length = 0;
+    sim.combat.damageUnit(ai.namedTankId, 1e6, -1, true);
+    runSec(sim, 2, said);
+    expect(ai.namedTankId).toBe(-1);
+    expect(lines.some((l) => /Rosie/.test(l))).toBe(true);
+
+    lines.length = 0;
+    for (let t = 0; t < 900 && ai.namedTankId < 0 && !sim.result; t += 10) {
+      hold();
+      runSec(sim, 10, said);
+    }
+    expect(ai.namedTankGen).toBe(2);
+    expect(lines.some((l) => l.includes('Rosie the Second'))).toBe(true);
   });
 
   it('Jackal raids your work sites early', { timeout: 60_000 }, () => {

@@ -50,9 +50,13 @@ the render preset, and `?post=0|1` switches the high-quality lighting effects. `
   - **Nightshade** (night raider): special forces. Twice a night they slip over your walls to blow up your
     generators and gun towers, and the main attacks wait for darkness.
   - **Duchess Varga** (iron fist): the motor pool comes first: tanks, armored cars and Breachers, again and
-    again.
+    again. Her first tank is **Rosie**: she announces Rosie when she leads an attack, takes it personally when
+    you knock her out, and rolls out Rosie the Second (Third, …) as soon as the next tank is ready.
   - **The Quartermaster** (economic turtle): the biggest economy on the map behind two rings of walls, upgrades
     everything, then a late push with tanks and guns.
+  - Every commander talks (opening line, attacks, losses, hits on their HQ, win or lose) and has a few
+    signature catchphrases ("Mind the wire, kid.", "Knock knock. It's breakfast.", "Lights out."…). What they
+    say never affects how the match plays out.
 - **Maps** (skirmish), all mirrored so both sides start alike, with a new layout every game: **Oasis Basin**
   (balanced), **Dune Sea** (open dunes, scarce timber), **Rocky Pass** (two ridges, three passes), **Oil Fields**
   (oil everywhere, little farmland), **Ruined Town** (a bombed-out town in the middle: broken walls block movement
