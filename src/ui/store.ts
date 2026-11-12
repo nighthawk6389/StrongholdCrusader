@@ -63,6 +63,8 @@ export interface BuildingInfo {
   kind: StructureKind;
   name: string;
   description: string;
+  /** Barracks, motor pool, contracts office: whether a rally point is set (null for other buildings). */
+  rally: boolean | null;
   status: StructureStatus;
   workers: number;
   jobs: number;
@@ -194,7 +196,15 @@ export interface HudState {
   nightShift: boolean;
   /** Looking through night-vision optics (green view). */
   nvg: boolean;
-  targeting: 'flare' | null;
+  targeting: 'flare' | 'rally' | 'patrol' | 'attackMove' | null;
+  /** All selected soldiers are holding fire. */
+  holdFire: boolean;
+  /** Units in control groups 1–4 (phone buttons). */
+  groups: number[];
+  /** Sim time of the latest "under attack" alert. */
+  alertAt: number;
+  /** Sim time (seconds) at the last HUD refresh. */
+  simTime: number;
   /** Flares on hand. */
   flares: number;
   controlledHp: number;
@@ -248,6 +258,10 @@ export const useHud = create<HudState>(() => ({
   nightShift: false,
   nvg: false,
   targeting: null,
+  holdFire: false,
+  groups: [0, 0, 0, 0],
+  alertAt: -1e9,
+  simTime: 0,
   flares: 3,
   controlledHp: 1,
   controlledName: '',

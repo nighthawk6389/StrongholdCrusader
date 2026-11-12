@@ -522,6 +522,7 @@ docs/
 | **M7a** | **Sound, settings, offline** ✅ | Procedural WebAudio (no files): per-weapon gunfire, explosions, shell whistles, mortars, build, fire, radio, alerts; stereo + distance falloff from the camera; voice cap; adaptive music (day/night pad, combat pulse, plucks). Settings screen (volumes, quality, camera speeds, edge pan, look sensitivity/invert, help card) saved in localStorage. Service worker (network-first pages, cache-first hashed assets, offline play), PNG + maskable icons, manifest polish. |
 | **M7b** | **Onboarding & rivals** ✅ | Guided 14-step tutorial mode (own scenario with a quiet walled outpost; steps complete from game state; skip; completion remembered). Nightshade (night-only main attacks, operators first, two sabotage raids a night), Duchess Varga (early motor pool, tanks/cars/Breachers), The Quartermaster (second ring of walls, big economy, late push). Trail grows to 8 stages. Small-phone tuning (tutorial card placement, building panels below the top bars, 4-column recruit grid). Combat fix: units give up on targets their shots can't reach (wall corners) instead of firing forever. |
 | **Art P1** | **Environment & atmosphere** ✅ | Shader-blended terrain with procedural detail (no tile grid), open desert beyond the map, worn paths and building aprons, scorch marks, smoother night light pools, varied boulders with strata, animated oasis water. High quality: GTAO, bloom, colour grade, vignette (toggle in Settings). Particle system for smoke, dust, fire, sparks and debris. |
+| **M8a** | **Commander's toolkit & smarter sieges** ✅ | Minimap (terrain, buildings, seen units, camera view, alert pings; click/drag/tap to look). "Under attack" alerts with sound, per-area throttling and Tab / ⚠ to jump there. Rally points (barracks, motor pool, contracts office). Attack-move, patrol and hold fire. Control groups on phones (1–4 under the map). AI sieges: weak-point breach planner (cover, traps, wall damage, depth, seen defenders, past failures; path length a minor factor), wide flanking march out of tower range, feint at the front gate, focused breach then storm, two prongs on Hard. |
 | **M7c** | **Launch** ✅ | Name (Garrison Zero), emblem and wordmark, regenerated app icons, loading splash, link-preview image and social meta. Sky dome (gradient, sun, moon, stars) and lamp halos at night; softer flashlight. Release hardening: crash screen, About (version, build id, privacy, credits, reset progress), vendor chunks for caching, 3× faster flow-field builds and no path invalidation for mines, wire and trenches. Release checklist in docs/RELEASE.md. |
 
 ---
@@ -559,6 +560,8 @@ docs/
 12. ~~**M7c** launch build.~~ Done. Remaining steps need account access (see docs/RELEASE.md): name
     check, repository rename, Vercel project and domain, a live smoke test.
 13. ~~**Art Phase 1** (environment and atmosphere).~~ Done. Phase 2 waits on the asset decision (Q-A).
+14. ~~**M8a** commander's toolkit (minimap, alerts, rally points, attack-move/patrol/hold fire, phone groups) and
+    smarter AI sieges.~~ Done.
 
 ---
 

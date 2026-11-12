@@ -9,10 +9,13 @@ import { Block, type GameMap } from './map';
 import { Rng } from './rng';
 import { STRUCTURE_DEFS, footprint, type ResId, type Structure, type StructureKind } from './structures';
 import { UNIT_TYPES } from './unitTypes';
-import { Order, UnitStore } from './units';
+import { Order, UnitStore, STANCE_HOLD_FIRE } from './units';
 import type { WaveDirector } from './waves';
 
 /** Anything that plays a side from inside the deterministic step (AI commanders). */
+
+/** Buildings that turn out units and can have a rally point. */
+export const RALLY_KINDS = new Set<StructureKind>(['barracks', 'motorpool', 'contracts']);
 export interface Controller {
   readonly owner: number;
   update(sim: Sim): void;
@@ -83,7 +86,12 @@ export type Command =
   | { type: 'attack'; owner: number; ids: number[]; target: number }
   | { type: 'attackStructure'; owner: number; ids: number[]; structure: number }
   /** Send units to assault `target`'s HQ (breaching walls on the way). */
-  | { type: 'assault'; owner: number; ids: number[]; target: number };
+  | { type: 'assault'; owner: number; ids: number[]; target: number }
+  /** New units from this building head to (x, z); x < 0 clears it. */
+  | { type: 'rally'; owner: number; id: number; x: number; z: number }
+  | { type: 'stance'; owner: number; ids: number[]; holdFire: boolean }
+  | { type: 'attackMove'; owner: number; ids: number[]; x: number; z: number }
+  | { type: 'patrol'; owner: number; ids: number[]; x: number; z: number };
 
 export type SimEvent =
   | {
@@ -658,6 +666,38 @@ export class Sim {
       case 'assault':
         this.combat.startAssault(c.ids.filter(owned), c.target);
         break;
+      case 'rally': {
+        const s = this.structureById(c.id);
+        if (!s || s.owner !== c.owner || !RALLY_KINDS.has(s.kind)) break;
+        if (c.x < 0) {
+          delete s.rallyX;
+          delete s.rallyZ;
+        } else {
+          s.rallyX = Math.min(Math.max(c.x, 0.5), this.map.width - 0.5);
+          s.rallyZ = Math.min(Math.max(c.z, 0.5), this.map.height - 0.5);
+        }
+        break;
+      }
+      case 'stance':
+        for (const id of c.ids) if (owned(id)) u.stance[id] = c.holdFire ? STANCE_HOLD_FIRE : 0;
+        break;
+      case 'attackMove':
+      case 'patrol': {
+        // Ground fighters only; anyone else just walks there.
+        const ids = c.ids.filter((id) => owned(id) && !UNIT_TYPES[u.kind[id]].fly && u.order[id] !== Order.Control);
+        const startX = ids.map((id) => u.x[id]);
+        const startZ = ids.map((id) => u.z[id]);
+        this.issueMove(ids, c.x, c.z, 0);
+        ids.forEach((id, k) => {
+          const t = UNIT_TYPES[u.kind[id]];
+          if (u.order[id] !== Order.Move || !t.armed || t.artillery) return;
+          u.order[id] = c.type === 'patrol' ? Order.Patrol : Order.AttackMove;
+          u.patrolX[id] = startX[k];
+          u.patrolZ[id] = startZ[k];
+          u.target[id] = -1;
+        });
+        break;
+      }
       case 'control': {
         const id = c.id;
         if (!u.isAlive(id) || u.owner[id] !== c.owner) return;

@@ -75,6 +75,7 @@ export class GameRenderer {
   nvgEnabled = true;
 
   private raycaster = new THREE.Raycaster();
+  private rallyFlag = rallyFlag();
   private ndc = new THREE.Vector2();
   private eye = new THREE.Vector3();
   private look = new THREE.Vector3();
@@ -114,7 +115,7 @@ export class GameRenderer {
     this.ghost = new PlacementGhost(sim);
     this.wallGhost = new WallLineGhost(sim);
     this.selectionFrame = new SelectionFrame(sim);
-    this.scene.add(this.ghost.group, this.wallGhost.mesh, this.selectionFrame.group);
+    this.scene.add(this.ghost.group, this.wallGhost.mesh, this.selectionFrame.group, this.rallyFlag);
 
     this.units = new UnitRenderer(sim, quality.shadows);
     this.scene.add(this.units.group);
@@ -306,6 +307,29 @@ export class GameRenderer {
     return { yaw: Math.atan2(d.x, d.z), pitch: Math.asin(Math.max(-1, Math.min(1, d.y))), ex: p.x, ey: p.y, ez: p.z };
   }
 
+  /** Where the screen's four corners meet the ground (ground plane, clipped to 200 m), for the minimap. */
+  viewQuad(): { x: number; z: number }[] {
+    const out: { x: number; z: number }[] = [];
+    const o = this.camera.position;
+    for (const [nx, ny] of [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1],
+    ]) {
+      const d = this.tmp2.set(nx, ny, 0.5).unproject(this.camera).sub(o).normalize();
+      const t = d.y < -0.02 ? Math.min(200, (o.y - 0.2) / -d.y) : 200;
+      out.push({ x: o.x + d.x * t, z: o.z + d.z * t });
+    }
+    return out;
+  }
+
+  /** Flag on the selected building's rally point (null hides it). */
+  setRallyMarker(p: { x: number; z: number } | null): void {
+    this.rallyFlag.visible = !!p;
+    if (p) this.rallyFlag.position.set(p.x, this.sim.map.heightAt(p.x, p.z), p.z);
+  }
+
   /** World ground point under a client-space pixel, or null. */
   pickGround(clientX: number, clientY: number): THREE.Vector3 | null {
     const rect = this.canvas.getBoundingClientRect();
@@ -393,4 +417,19 @@ export class GameRenderer {
     out.y = rect.top + ((1 - v.y) / 2) * rect.height;
     return true;
   }
+}
+
+/** A little green flag on a pole. */
+function rallyFlag(): THREE.Group {
+  const g = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.8, 6), new THREE.MeshBasicMaterial({ color: 0xe8e2d0 }));
+  pole.position.y = 0.9;
+  const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.42), new THREE.MeshBasicMaterial({ color: 0x7dff8a, side: THREE.DoubleSide }));
+  cloth.position.set(0.36, 1.55, 0);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.48, 24), new THREE.MeshBasicMaterial({ color: 0x7dff8a, transparent: true, opacity: 0.8 }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.06;
+  g.add(pole, cloth, ring);
+  g.visible = false;
+  return g;
 }

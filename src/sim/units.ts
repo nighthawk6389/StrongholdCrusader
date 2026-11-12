@@ -17,7 +17,14 @@ export const Order = {
   Follow: 6,
   /** Strike drone diving onto (goalX, goalZ). */
   Dive: 7,
+  /** Walk to (goalX, goalZ), stopping to fight anything in range on the way. */
+  AttackMove: 8,
+  /** Attack-move back and forth between (goalX, goalZ) and (patrolX, patrolZ). */
+  Patrol: 9,
 } as const;
+
+/** Unit stance: 0 = normal, 1 = hold fire (never shoots unless ordered to attack). */
+export const STANCE_HOLD_FIRE = 1;
 
 /** Civilian work-cycle states (see Economy). */
 export const Task = {
@@ -116,6 +123,11 @@ export class UnitStore {
   readonly home = new Int32Array(MAX_UNITS).fill(-1);
   /** Artillery: how set up it is (0 = limbered, 1 = ready to fire). */
   readonly deploy = new Float32Array(MAX_UNITS);
+  /** 0 = normal, STANCE_HOLD_FIRE = hold fire. */
+  readonly stance = new Uint8Array(MAX_UNITS);
+  /** Patrol: the other end of the beat. */
+  readonly patrolX = new Float32Array(MAX_UNITS);
+  readonly patrolZ = new Float32Array(MAX_UNITS);
   /** Closest it has got to its current goal, and the tick it last got closer (crowd-jam detection). */
   readonly navBest = new Float32Array(MAX_UNITS);
   readonly navBestTick = new Int32Array(MAX_UNITS);
@@ -171,6 +183,7 @@ export class UnitStore {
     this.battery[id] = UNIT_TYPES[kind].battery;
     this.home[id] = -1;
     this.deploy[id] = 0;
+    this.stance[id] = 0;
     if (UNIT_TYPES[kind].fly) this.elev[id] = this.pelev[id] = UNIT_TYPES[kind].fly;
     return id;
   }

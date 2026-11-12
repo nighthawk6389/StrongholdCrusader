@@ -866,6 +866,9 @@ export interface Structure {
   manualUntil: number;
   /** Fuel trenches: seconds left burning (0 = not lit). */
   burn: number;
+  /** Barracks, motor pool, contracts office: where new units head (unset = muster by the door). */
+  rallyX?: number;
+  rallyZ?: number;
   /** Minefields: bitmask of sides that have spotted it (1 << owner). */
   seenBy: number;
   /** Minefields: seconds of defusing by enemy engineers so far. */

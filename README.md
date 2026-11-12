@@ -63,9 +63,14 @@ the render preset, and `?post=0|1` switches the high-quality lighting effects. `
   and bullets, and quarries can salvage their concrete) and **Salt Flats** (dead flat, with water, wood and stone
   out on the north and south edges).
 - **How the AI plays** (Normal and up): it scouts your base and sizes up your army from what it has actually
-  seen (no map hacks), swings its main force round to the side of your base with the fewest guns while a few
-  soldiers feint at the gate, attacks early when it clearly outnumbers you, keeps feeding a winning assault and
-  pulls a broken one back to regroup, sends special forces over your walls at night to blow up your generators
+  seen (no map hacks). When you're walled in it looks for the weakest point the way a person would: every
+  stretch of your outer wall is weighed by the towers and gun towers covering it, traps it knows about in front
+  of it, how battered it already is, whether there's another wall behind it, where it has seen your soldiers
+  hanging about and where its last attack was beaten back; the walk there barely counts. The army then swings
+  wide round your base out of tower range to a staging point off that side, a few soldiers feint at the front
+  gate, engineers, Breachers and tanks open the chosen wall while the rest cover them, and everyone pours
+  through the hole. On Hard a big army splits and breaks in at two places at once. Beyond that it attacks
+  early when it clearly outnumbers you, keeps feeding a winning assault and pulls a broken one back to regroup, sends special forces over your walls at night to blow up your generators
   and gun towers, hunts your Commander if it catches it in the open (with strike drones too), answers your
   artillery with mortar pits, puts idle hands to work on more scrap yards and factories, and juggles taxes and
   rations to squeeze the most money out of its people without letting morale crash. Hard attacks earlier, more
@@ -217,7 +222,10 @@ Take direct control:
 | Camera | WASD / screen edges pan, wheel zooms, Q/E or right/middle-drag rotate | Drag pans, pinch zooms, twist rotates |
 | Take control | **F** on a soldier, drone, gun tower or searchlight: WASD + mouse, LMB fire (drone: dive), RMB aim/scope, R reload, G plant charge, V flare at the crosshair, N night vision, T slow motion, Esc/Tab exits | **Take control**, then left thumb moves, right thumb aims; **Fire**, **Aim**, **Reload**, **Charge** and **NVG** buttons |
 | Flare | **V** or **Flare** with soldiers selected, then click (Esc cancels) | **Flare**, then tap |
-| Other | Ctrl+1–9 / 1–9 groups, Space centers, H returns to base, P pauses | **Base**, **All**, **Time** (jump to dawn/day/dusk/night) |
+| Advanced orders | **X** attack-move (fight anything on the way), **C** patrol (back and forth, fighting), **Z** hold fire (stay hidden until you order an attack) | **Advance**, **Patrol**, **Hold fire** in the selection bar |
+| Rally points | Select a Barracks, Motor Pool or Contracts Office, then right-click the ground (or **Y**) | Tap the building, **Set rally point**, tap the ground |
+| Map and alerts | The map (top right): click or drag to look. An alarm and a ping when you're attacked; **Tab** jumps there (again for older ones) | Tap the map; tap **⚠** to jump to the attack |
+| Other | Ctrl+1–9 saves a group, 1–9 recalls it, Space centers, H returns to base, P pauses | **1–4** group buttons under the map (tap to recall, hold to save), **Base**, **All**, **Time** |
 
 ## Scripts
 

@@ -17,7 +17,9 @@ import { useHud } from '../ui/store';
 import { MAPS } from '../sim/maps';
 import { TRAIL, clearTrailStage, setupQuery, trailSetup, type MatchSetup } from './setup';
 import { DOZER_FILL_SEC } from '../sim/combat';
-import { Order } from '../sim/units';
+import { Order, STANCE_HOLD_FIRE } from '../sim/units';
+import { RALLY_KINDS } from '../sim/sim';
+import { minimapTerrain } from '../render/minimap';
 import { GameRenderer, detectQuality } from '../render/GameRenderer';
 import { InputController } from '../input/InputController';
 import { setHud, type BuildingInfo, type ControlInfo as HudControl, type PlacingInfo } from '../ui/store';
@@ -83,7 +85,22 @@ export interface GameActions {
   /** Keep only this unit type in the selection / drop it from the selection. */
   selectKindOnly(kind: number): void;
   deselectKind(kind: number): void;
+  /** Next tap/click on the ground sets a rally point (selected building) or sends the selection on patrol / attack-move. */
+  startOrder(kind: 'rally' | 'patrol' | 'attackMove'): void;
+  clearRally(): void;
+  /** Hold fire on/off for the selected soldiers. */
+  toggleHoldFire(): void;
+  /** Camera to the most recent "under attack" alert (repeat to cycle back through them). */
+  jumpToAlert(): void;
+  /** Control groups 1–9 (shared by the number keys and the phone buttons). */
+  groupSelect(n: number, additive?: boolean): void;
+  groupAssign(n: number): void;
+  drawMinimap(ctx: CanvasRenderingContext2D, w: number, h: number): void;
+  /** Centre the camera on a minimap point (fractions of the map). */
+  minimapJump(fx: number, fz: number): void;
 }
+
+export type Targeting = 'flare' | 'rally' | 'patrol' | 'attackMove';
 
 function isTouchDevice(): boolean {
   return matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -149,7 +166,16 @@ export class Game implements GameActions {
   /** Extra quarter turns the player added to a light's automatic facing. */
   private aimTurns = 0;
   /** Waiting for a click/tap to fire a flare. */
-  targeting: 'flare' | null = null;
+  targeting: Targeting | null = null;
+  /** Control groups (number → unit ids). */
+  readonly groups = new Map<number, number[]>();
+  /** Recent "under attack" alerts (sim seconds), newest last. */
+  private alerts: { x: number; z: number; at: number }[] = [];
+  private alertCursor = -1;
+  private lastAlertAt = -1e9;
+  /** Per area (16-tile cells): when it last raised an alert. */
+  private alertCells = new Map<number, number>();
+  private miniTerrain: HTMLCanvasElement | null = null;
   private placeTile: { tx: number; tz: number } | null = null;
   /** Wall line: anchor tile and current end tile. */
   wallAnchor: { tx: number; tz: number } | null = null;
@@ -381,6 +407,8 @@ export class Game implements GameActions {
     if (this.tutorial) this.updateTutorial(dt, events);
     audio.update(dt, this.sim.cycle.daylight, this.paused || !!this.sim.result);
     if (this.selectedStructure >= 0 && !this.sim.structureById(this.selectedStructure)) this.deselectStructure();
+    const rs = this.selectedStructure >= 0 ? this.sim.structureById(this.selectedStructure) : undefined;
+    this.renderer.setRallyMarker(rs && rs.owner === this.player && rs.rallyX !== undefined && rs.rallyZ !== undefined ? { x: rs.rallyX, z: rs.rallyZ } : null);
     this.renderer.render({
       alpha: this.paused ? 1 : this.acc / TICK_SEC,
       dt,
@@ -491,6 +519,9 @@ export class Game implements GameActions {
       controlledName: c >= 0 ? UNIT_TYPES[u.kind[c]].name : '',
       control: this.controlInfo(),
       aiming: this.renderer.ots.aiming,
+      holdFire: this.selected.size > 0 && [...this.selected].every((id) => u.stance[id] === STANCE_HOLD_FIRE),
+      groups: [1, 2, 3, 4].map((n) => (this.groups.get(n) ?? []).filter((id) => u.isAlive(id) && u.owner[id] === this.player).length),
+      simTime: this.sim.timeSec,
     });
   }
 
@@ -714,6 +745,18 @@ export class Game implements GameActions {
         case 'structureDestroyed':
           if (e.owner === this.player && !STRUCTURE_DEFS[e.kind].trap) this.toast(`Your ${STRUCTURE_DEFS[e.kind].name} was destroyed`);
           break;
+        case 'structureDamaged': {
+          const s = this.sim.structureById(e.id);
+          if (s && s.owner === this.player && !STRUCTURE_DEFS[s.kind].trap) this.raiseAlert(e.x, e.z, `${STRUCTURE_DEFS[s.kind].name} under attack!`);
+          break;
+        }
+        case 'death': {
+          // Losses near home only: a fight you started out there isn't news.
+          const hq = this.sim.economy.hqOf(this.player);
+          const home = hq ? Math.hypot(e.x - (hq.tx + hq.w / 2), e.z - (hq.tz + hq.h / 2)) < 32 : true;
+          if (e.owner === this.player && home) this.raiseAlert(e.x, e.z, UNIT_TYPES[e.kind]?.key === 'civilian' ? 'Civilians under attack!' : 'Troops under fire!');
+          break;
+        }
         case 'result': {
           setHud({ result: { result: e.result, reason: e.reason } });
           clearGame(); // a finished match isn't worth resuming
@@ -829,6 +872,7 @@ export class Game implements GameActions {
       kind: s.kind,
       name: def.name,
       description: def.description,
+      rally: mine && RALLY_KINDS.has(s.kind) ? s.rallyX !== undefined : null,
       status: s.status,
       workers: s.workers.length,
       jobs: def.jobs ?? 0,
@@ -922,6 +966,38 @@ export class Game implements GameActions {
             })
           : null,
     };
+  }
+
+  /**
+   * "Under attack" alert: a ping on the minimap, a warning sound and a message. At most one per area
+   * every 25 s (and one every 5 s overall); not for fights you're already looking at.
+   */
+  private raiseAlert(x: number, z: number, msg: string): void {
+    const now = this.sim.timeSec;
+    const cell = Math.floor(z / 16) * 64 + Math.floor(x / 16);
+    if (now - (this.alertCells.get(cell) ?? -1e9) < 25 || now - this.lastAlertAt < 5) return;
+    this.alertCells.set(cell, now);
+    this.alerts.push({ x, z, at: now });
+    if (this.alerts.length > 8) this.alerts.shift();
+    this.alertCursor = -1;
+    const t = this.renderer.rts.target;
+    const watching = this.controlled < 0 && this.controlledStruct < 0 && Math.hypot(t.x - x, t.z - z) < 16;
+    if (watching) return;
+    this.lastAlertAt = now;
+    audio.play('alert');
+    this.toast(`⚠ ${msg} ${isTouchDevice() ? '(tap ⚠ on the map)' : '(Tab to look)'}`, 3);
+    setHud({ alertAt: now });
+  }
+
+  jumpToAlert(): void {
+    if (!this.alerts.length) {
+      this.toast('No recent alerts');
+      return;
+    }
+    this.alertCursor = this.alertCursor <= 0 ? this.alerts.length - 1 : this.alertCursor - 1;
+    const a = this.alerts[this.alertCursor];
+    if (this.controlled >= 0 || this.controlledStruct >= 0) this.exitControl();
+    this.renderer.rts.lookAtSoft(a.x, a.z);
   }
 
   toast(msg: string, sec = 2.5): void {
@@ -1199,6 +1275,135 @@ export class Game implements GameActions {
   cancelTargeting(): void {
     this.targeting = null;
     this.pushHud();
+  }
+
+  startOrder(kind: 'rally' | 'patrol' | 'attackMove'): void {
+    if (kind === 'rally') {
+      const s = this.selectedStructure >= 0 ? this.sim.structureById(this.selectedStructure) : undefined;
+      if (!s || s.owner !== this.player || !RALLY_KINDS.has(s.kind)) return;
+    } else if (this.selected.size === 0) {
+      return;
+    }
+    this.cancelPlacing();
+    this.targeting = kind;
+    this.pushHud();
+  }
+
+  /** A tap/click on the ground while targeting. */
+  targetAt(x: number, z: number): void {
+    const t = this.targeting;
+    if (t === 'flare') {
+      this.fireFlareAt(x, z);
+      return;
+    }
+    this.targeting = null;
+    if (t === 'rally' && this.selectedStructure >= 0) {
+      this.sim.enqueue({ type: 'rally', owner: this.player, id: this.selectedStructure, x, z });
+      this.renderer.fx.moveMarker(x, z);
+      this.toast('Rally point set: new units will head there');
+    } else if ((t === 'patrol' || t === 'attackMove') && this.selected.size) {
+      this.sim.enqueue({ type: t, owner: this.player, ids: [...this.selected], x, z });
+      this.renderer.fx.moveMarker(x, z);
+    }
+    this.pushHud();
+  }
+
+  clearRally(): void {
+    if (this.selectedStructure < 0) return;
+    this.sim.enqueue({ type: 'rally', owner: this.player, id: this.selectedStructure, x: -1, z: -1 });
+    setTimeout(() => this.pushHud(), 80);
+  }
+
+  toggleHoldFire(): void {
+    if (!this.selected.size) return;
+    const u = this.sim.units;
+    const all = [...this.selected].every((id) => u.stance[id] === STANCE_HOLD_FIRE);
+    this.sim.enqueue({ type: 'stance', owner: this.player, ids: [...this.selected], holdFire: !all });
+    this.toast(all ? 'Weapons free' : 'Holding fire: they only shoot when you order an attack');
+    setTimeout(() => this.pushHud(), 80);
+  }
+
+  groupSelect(n: number, additive = false): void {
+    const u = this.sim.units;
+    const g = (this.groups.get(n) ?? []).filter((id) => u.isAlive(id) && u.owner[id] === this.player);
+    this.groups.set(n, g);
+    if (!g.length) {
+      if (!additive && this.selected.size) this.groupAssign(n);
+      return;
+    }
+    this.select(g, additive);
+  }
+
+  groupAssign(n: number): void {
+    if (!this.selected.size) return;
+    this.groups.set(n, [...this.selected]);
+    this.toast(`Group ${n} set (${this.selected.size})`);
+    this.pushHud();
+  }
+
+  minimapJump(fx: number, fz: number): void {
+    const map = this.sim.map;
+    if (this.controlled >= 0 || this.controlledStruct >= 0) return;
+    this.renderer.rts.jumpTo(Math.min(Math.max(fx, 0), 1) * map.width, Math.min(Math.max(fz, 0), 1) * map.height);
+  }
+
+  /** Overview map: ground, buildings, the units you can see, your view, recent alerts. */
+  drawMinimap(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    const sim = this.sim;
+    const map = sim.map;
+    if (!this.miniTerrain) this.miniTerrain = minimapTerrain(map);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.miniTerrain, 0, 0, w, h);
+    const night = this.renderer.dayNight.night;
+    if (night > 0.05) {
+      ctx.fillStyle = `rgba(6, 10, 24, ${0.5 * night})`;
+      ctx.fillRect(0, 0, w, h);
+    }
+    const sx = w / map.width;
+    const sz = h / map.height;
+    for (const s of sim.structures) {
+      const mine = s.owner === this.player;
+      if (s.kind === 'mines' && !mine && !sim.traps.knows(this.player, s)) continue;
+      const def = STRUCTURE_DEFS[s.kind];
+      ctx.fillStyle = mine ? (def.trap ? '#4a6aa8' : '#6f9bff') : def.trap ? '#a8584a' : '#ff6a55';
+      ctx.fillRect(s.tx * sx, s.tz * sz, Math.max(1.5, s.w * sx), Math.max(1.5, s.h * sz));
+    }
+    const u = sim.units;
+    const seen = sim.vision.seen[this.player];
+    for (let i = 0; i < u.count; i++) {
+      if (!u.alive[i]) continue;
+      const mine = u.owner[i] === this.player;
+      if (!mine && seen[i] !== 1) continue;
+      const t = UNIT_TYPES[u.kind[i]];
+      if (mine && !t.armed && !t.fly) {
+        ctx.fillStyle = '#c9d6ff';
+        ctx.fillRect(u.x[i] * sx - 0.75, u.z[i] * sz - 0.75, 1.5, 1.5);
+        continue;
+      }
+      const r = t.vehicle ? 2.4 : 1.7;
+      ctx.fillStyle = mine ? (this.selected.has(i) ? '#7dff8a' : '#9cc0ff') : '#ff3b30';
+      ctx.fillRect(u.x[i] * sx - r / 2, u.z[i] * sz - r / 2, r, r);
+    }
+    // What the camera sees.
+    const q = this.renderer.viewQuad();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    q.forEach((p, k) => (k ? ctx.lineTo(p.x * sx, p.z * sz) : ctx.moveTo(p.x * sx, p.z * sz)));
+    ctx.closePath();
+    ctx.stroke();
+    // Alert pings.
+    const now = sim.timeSec;
+    for (const a of this.alerts) {
+      const age = now - a.at;
+      if (age > 10) continue;
+      const k = (age % 1.2) / 1.2;
+      ctx.strokeStyle = `rgba(255, 70, 50, ${1 - k})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(a.x * sx, a.z * sz, 3 + k * 9, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
 
   /** Fire a flare at a ground point (from targeting mode). */

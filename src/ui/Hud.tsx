@@ -1,4 +1,4 @@
-import { useEffect, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { GameActions } from '../game/Game';
 import { audio } from '../audio/AudioEngine';
 import type { PhaseName } from '../sim/clock';
@@ -631,6 +631,13 @@ function BuildingPanel({ game }: { game: GameActions }) {
               Take control{!useHud.getState().isTouch && <kbd>F</kbd>}
             </Btn>
           )}
+          {b.rally !== null && (
+            <Btn onClick={() => game.startOrder('rally')} title="New units head to a spot you pick (right-click the ground works too)">
+              ⚑ {b.rally ? 'Move rally point' : 'Set rally point'}
+              {!useHud.getState().isTouch && <kbd>Y</kbd>}
+            </Btn>
+          )}
+          {b.rally && <Btn onClick={() => game.clearRally()}>Clear rally</Btn>}
           {b.jobs > 0 && !b.enemy && <Btn onClick={() => game.toggleSelectedActive()}>{b.active ? '❚❚ Pause' : '▶ Resume'}</Btn>}
           {b.canDemolish && (
             <Btn className="danger" onClick={() => game.demolishSelected()} title={`Refund: ${b.refund}`}>
@@ -644,17 +651,114 @@ function BuildingPanel({ game }: { game: GameActions }) {
   );
 }
 
+const TARGETING: Record<'flare' | 'rally' | 'patrol' | 'attackMove', { title: string; note: string; where: string }> = {
+  flare: { title: 'Flare', note: '$15 · lights an area for 30 s', where: 'where to fire it (near your soldiers)' },
+  rally: { title: 'Rally point', note: 'new units from this building head there', where: 'the ground where they should gather' },
+  patrol: { title: 'Patrol', note: 'back and forth from where they are, fighting on the way', where: 'the other end of the beat' },
+  attackMove: { title: 'Attack-move', note: 'they stop to fight anything on the way', where: 'where to go' },
+};
+
+/** Overview map (top right): tap or drag to look somewhere; ⚠ jumps to the latest attack. */
+function Minimap({ game }: { game: GameActions }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const alertAt = useHud((s) => s.alertAt);
+  const isTouch = useHud((s) => s.isTouch);
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    let raf = 0;
+    let last = 0;
+    const loop = (t: number): void => {
+      raf = requestAnimationFrame(loop);
+      if (t - last < 140) return;
+      last = t;
+      const c = ref.current;
+      const ctx = c?.getContext('2d');
+      if (c && ctx) game.drawMinimap(ctx, c.width, c.height);
+      setNow(useHud.getState().simTime);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [game]);
+  const jump = (e: ReactPointerEvent<HTMLCanvasElement>): void => {
+    const r = e.currentTarget.getBoundingClientRect();
+    game.minimapJump((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+  };
+  const recent = now - alertAt < 30;
+  return (
+    <div className="minimap panel">
+      <canvas
+        ref={ref}
+        width={192}
+        height={192}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          jump(e);
+        }}
+        onPointerMove={(e) => {
+          if (e.buttons) jump(e);
+        }}
+      />
+      {recent && (
+        <button type="button" className="minimap-alert" onClick={() => game.jumpToAlert()} title="Look at the latest attack (Tab)">
+          ⚠{!isTouch && <kbd>Tab</kbd>}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Phones: control groups. Tap to select (or, when empty, to save the current selection); hold to save. */
+function GroupButtons({ game }: { game: GameActions }) {
+  const groups = useHud((s) => s.groups);
+  const count = useHud((s) => s.selectionCount);
+  const hold = useRef<number | null>(null);
+  const held = useRef(false);
+  if (!count && groups.every((g) => g === 0)) return null;
+  return (
+    <div className="group-buttons">
+      {groups.map((g, k) => (
+        <button
+          key={k}
+          type="button"
+          className={`btn group-btn ${g ? 'filled' : ''}`}
+          onPointerDown={() => {
+            held.current = false;
+            hold.current = window.setTimeout(() => {
+              held.current = true;
+              game.groupAssign(k + 1);
+            }, 550);
+          }}
+          onPointerUp={() => {
+            if (hold.current) clearTimeout(hold.current);
+            hold.current = null;
+            if (!held.current) game.groupSelect(k + 1);
+          }}
+          onPointerLeave={() => {
+            if (hold.current) clearTimeout(hold.current);
+            hold.current = null;
+          }}
+          title={g ? `Group ${k + 1}: ${g} (hold to replace with the selection)` : `Group ${k + 1}: tap or hold to save the selection`}
+        >
+          {k + 1}
+          {g > 0 && <span className="group-count">{g}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function RtsPanel({ game }: { game: GameActions }) {
   const s = useHud();
-  if (s.targeting === 'flare') {
+  if (s.targeting) {
+    const info = TARGETING[s.targeting];
     return (
       <div className="bottombar">
         <div className="panel selection">
           <div className="sel-label">
-            <strong>Flare</strong> · <span className="muted">$15 · lights an area for 30 s</span>
+            <strong>{info.title}</strong> · <span className="muted">{info.note}</span>
           </div>
           <div className="place-status ok">
-            {s.isTouch ? 'Tap where to fire it (near your soldiers)' : 'Click where to fire it (near your soldiers) · Esc cancels'}
+            {s.isTouch ? `Tap ${info.where}` : `Click ${info.where} · Esc cancels`}
           </div>
           <div className="row">
             <Btn onClick={() => game.cancelTargeting()}>✕ Cancel</Btn>
@@ -705,6 +809,20 @@ function RtsPanel({ game }: { game: GameActions }) {
               >
                 🔦 Flare <span className="flare-count">{s.flares}</span>
                 {!s.isTouch && <kbd>V</kbd>}
+              </Btn>
+              <Btn onClick={() => game.startOrder('attackMove')} title="Walk there, fighting anything on the way (X)">
+                ⚔ {s.isTouch ? 'Advance' : 'Attack-move'}
+                {!s.isTouch && <kbd>X</kbd>}
+              </Btn>
+              <Btn onClick={() => game.startOrder('patrol')} title="Walk back and forth between here and a spot you pick, fighting on the way (C)">
+                ⇄ Patrol{!s.isTouch && <kbd>C</kbd>}
+              </Btn>
+              <Btn
+                onClick={() => game.toggleHoldFire()}
+                active={s.holdFire}
+                title="Hold fire: they won't shoot (and give themselves away) unless you order an attack (Z)"
+              >
+                🤫 Hold fire{!s.isTouch && <kbd>Z</kbd>}
               </Btn>
               <Btn onClick={() => game.deselect()} title="Deselect (Esc)">
                 Deselect
@@ -1080,7 +1198,11 @@ function Help({ game }: { game: GameActions }) {
             </li>
             <li>
               Tap soldiers to select (double-tap for the squad). Tap ground to move, a <b>wall top</b> to man it, an{' '}
-              <b>enemy</b> to attack.
+              <b>enemy</b> to attack. <b>Advance</b>, <b>Patrol</b> and <b>Hold fire</b> are in the bar; hold a{' '}
+              <b>1–4</b> button to save a group.
+            </li>
+            <li>
+              Tap the <b>map</b> (top right) to look somewhere; <b>⚠</b> jumps to where you're being attacked.
             </li>
             <li>
               <b>Take control</b> of a soldier, drone, gun tower or searchlight: left thumb moves, right thumb aims, hold{' '}
@@ -1096,7 +1218,12 @@ function Help({ game }: { game: GameActions }) {
               Click the <b>Barracks</b> to recruit. Click a building for status, or <b>Morale</b> for rations and taxes.
             </li>
             <li>
-              Drag to select soldiers. <b>Right-click</b>: ground = move, wall top = man it, enemy = attack.
+              Drag to select soldiers. <b>Right-click</b>: ground = move, wall top = man it, enemy = attack. <b>X</b>{' '}
+              attack-move, <b>C</b> patrol, <b>Z</b> hold fire. <b>Ctrl+1–9</b> saves a group, <b>1–9</b> recalls it.
+            </li>
+            <li>
+              The <b>map</b> (top right): click to look somewhere. When you're attacked you'll hear an alarm: <b>Tab</b>{' '}
+              jumps there. With a Barracks or Motor Pool selected, right-click (or <b>Y</b>) sets its rally point.
             </li>
             <li>
               <b>F</b> takes direct control of a soldier, drone, gun tower or searchlight: WASD + mouse, <b>LMB</b> fire,{' '}
@@ -1149,6 +1276,7 @@ export function Hud({ game }: { game: GameActions }) {
   const buildOpen = useHud((s) => s.buildOpen);
   const placing = useHud((s) => s.placing);
   const result = useHud((s) => s.result);
+  const isTouch = useHud((s) => s.isTouch);
   return (
     <div className="hud">
       <TopBar game={game} />
@@ -1166,6 +1294,8 @@ export function Hud({ game }: { game: GameActions }) {
             </button>
           )}
           <RtsPanel game={game} />
+          <Minimap game={game} />
+          {isTouch && !buildOpen && !placing && <GroupButtons game={game} />}
         </>
       ) : (
         <ControlOverlay game={game} />

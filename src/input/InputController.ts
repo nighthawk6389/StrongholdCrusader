@@ -44,7 +44,6 @@ export class InputController {
   private readonly finePointer = matchMedia('(hover: hover) and (pointer: fine)').matches;
   private pinch: { dist: number; angle: number; midX: number; midY: number } | null = null;
   private lastTap = { t: 0, unit: -1 };
-  private groups = new Map<number, number[]>();
   private lockChangedAt = 0;
 
   // Touch control (virtual joystick + look)
@@ -323,7 +322,7 @@ export class InputController {
       if (this.game.targeting) {
         if (e.button === 0) {
           const g = this.game.renderer.pickGround(p.x, p.y);
-          if (g) this.game.fireFlareAt(g.x, g.z);
+          if (g) this.game.targetAt(g.x, g.z);
         } else if (e.button === 2) this.game.cancelTargeting();
         return;
       }
@@ -339,6 +338,15 @@ export class InputController {
       } else if (e.button === 2 && p.moved <= DRAG_PX) {
         if (this.game.placing) {
           this.game.cancelPlacing();
+          return;
+        }
+        // A barracks / motor pool / contracts office selected: right-click sets its rally point.
+        if (this.game.selected.size === 0 && useHud.getState().building?.rally !== null && useHud.getState().building?.rally !== undefined) {
+          const g = this.game.renderer.pickGround(p.x, p.y);
+          if (g) {
+            this.game.startOrder('rally');
+            this.game.targetAt(g.x, g.z);
+          }
           return;
         }
         this.commandAt(p.x, p.y, 22);
@@ -473,7 +481,7 @@ export class InputController {
   private handleTap(x: number, y: number): void {
     if (this.game.targeting) {
       const g = this.game.renderer.pickGround(x, y);
-      if (g) this.game.fireFlareAt(g.x, g.z);
+      if (g) this.game.targetAt(g.x, g.z);
       return;
     }
     if (this.game.placing) {
@@ -671,16 +679,30 @@ export class InputController {
           this.game.selectAll();
         }
         break;
+      case 'KeyX':
+        this.game.startOrder('attackMove');
+        break;
+      case 'KeyC':
+        this.game.startOrder('patrol');
+        break;
+      case 'KeyZ':
+        this.game.toggleHoldFire();
+        break;
+      case 'KeyY':
+        this.game.startOrder('rally');
+        break;
+      case 'Tab':
+        e.preventDefault();
+        this.game.jumpToAlert();
+        break;
       default:
         if (/^Digit[1-9]$/.test(e.code)) {
           const n = Number(e.code.slice(5));
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
-            this.groups.set(n, [...this.game.selected]);
-            this.game.toast(`Group ${n} set`);
+            this.game.groupAssign(n);
           } else {
-            const g = this.groups.get(n);
-            if (g) this.game.select(g, e.shiftKey);
+            this.game.groupSelect(n, e.shiftKey);
           }
         }
     }

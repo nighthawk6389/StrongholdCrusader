@@ -608,6 +608,9 @@ export class Economy {
       }
     }
     this.sim.emit({ type: 'hired', owner, name: c.name, ids });
+    if (office.rallyX !== undefined && office.rallyZ !== undefined) {
+      this.sim.enqueue({ type: 'move', owner, ids, x: office.rallyX, z: office.rallyZ });
+    }
     return ids;
   }
 
@@ -666,9 +669,10 @@ export class Economy {
       }
     }
     this.sim.emit({ type: 'recruited', owner: u.owner[i], unit: i, kind });
-    // Muster a little way from the door.
+    // Head for the rally point, or muster a little way from the door.
     const a = this.sim.rng.next() * Math.PI * 2;
-    this.sim.goTo(i, d.x + Math.cos(a) * 2, d.z + Math.sin(a) * 2);
+    if (b.rallyX !== undefined && b.rallyZ !== undefined) this.sim.goTo(i, b.rallyX + Math.cos(a) * 1.2, b.rallyZ + Math.sin(a) * 1.2);
+    else this.sim.goTo(i, d.x + Math.cos(a) * 2, d.z + Math.sin(a) * 2);
     this.recount();
   }
 

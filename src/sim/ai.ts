@@ -8,6 +8,7 @@ import { RECRUITABLE, UNIT_TYPES, UnitKind } from './unitTypes';
 import { RETURN_AT } from './drones';
 import { CYCLE_SEC } from './clock';
 import { Order, Task } from './units';
+import { flankRoute, planBreaches, type SiegeMemory } from './siege';
 
 // ------------------------------------------------------------------ tuning
 
@@ -115,6 +116,8 @@ export interface Personality {
   lines: Record<LineKey, string[]> & {
     raid?: string[];
     hire?: string[];
+    /** Said when the chosen wall gives way and the troops pour through. */
+    breach?: string[];
     /** Signature lines: once early on, then now and again in place of an attack line. */
     catchphrase?: string[];
     /** Named lead tank (see `namedTank`): first deployed, leading an attack, destroyed, replaced ({n} = "Second"…). */
@@ -125,6 +128,26 @@ export interface Personality {
   };
   /** The commander names her first tank and keeps a replacement going (Duchess Varga's Rosie). */
   namedTank?: string;
+}
+
+/** An attack forming up (see AiCommander.manageSieges). Plain data, so it saves with the game. */
+interface Siege {
+  ids: number[];
+  /** Diversion at the front gate, sent in when the breach starts. */
+  feint: number[];
+  /** Wall or gate to open (-1: no wall in the way, just go in from the staging point). */
+  wall: number;
+  ox: number;
+  oz: number;
+  /** Waypoints round the enemy base; the last is the staging point. */
+  route: { x: number; z: number }[];
+  leg: number;
+  phase: 'march' | 'breach';
+  since: number;
+  /** Bearing of the breach from the enemy HQ. */
+  angle: number;
+  /** Strength (worth) when it set off. */
+  strength: number;
 }
 
 const ORDINALS = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth'];
@@ -193,6 +216,7 @@ export const OLD_SARGE: Personality = {
     attackFailed: ['Hm. Regroup and try the other flank.', "Not bad. Won't happen twice."],
     win: ['Good effort. Same time tomorrow?'],
     lose: ['Well... you earned it. Carry on.'],
+    breach: ['Hole in the wall! Go, go, go!', "There's our door. Move!"],
     catchphrase: ['Mind the wire, kid. Every time. Mind the wire.', 'Walls first. Coffee second.', 'Back in my day we dug these by hand.'],
   },
 };
@@ -244,6 +268,7 @@ export const JACKAL: Personality = {
     attackFailed: ['Eh. Plenty more where they came from.', 'Hit and run. Mostly run.'],
     win: ['Too slow! Better luck next time.'],
     lose: ["Fine, fine. You're quicker than you look."],
+    breach: ["Side door's open, boys!", 'Who needs the front gate?'],
     catchphrase: ["Knock knock. It's breakfast.", 'Fast in, faster out.', 'Never stay for the second course.'],
   },
 };
@@ -300,6 +325,7 @@ export const THE_ENGINEER: Personality = {
     attackFailed: ['Recalculating.', 'A setback. I have more blueprints.'],
     win: ['Your defenses failed inspection.'],
     lose: ['Hm. I underestimated your load capacity.'],
+    breach: ['Breach confirmed. Proceed in an orderly fashion.', 'Structural failure, exactly as calculated.'],
     catchphrase: ['Measure twice. Blow it up once.', 'Every structure has a weak point. I brought a list.', 'Mind the gap.'],
   },
 };
@@ -359,6 +385,7 @@ export const WARDEN: Personality = {
     attackFailed: ['Back to the cells. We wait.', 'Patience. The walls will hold.'],
     win: ['Your sentence begins now.'],
     lose: ['The perimeter... has fallen.'],
+    breach: ['The wall is open. Take the yard.', 'Breach on the flank. Advance.'],
     catchphrase: ['Lights on. Nobody gets in.', 'Every wall is a promise. I keep mine.', 'Count is clear. Count is always clear.'],
   },
 };
@@ -414,6 +441,7 @@ export const THE_BROKER: Personality = {
     attackFailed: ['A write-off. There are always more contracts.', 'Poor returns on that one.'],
     win: ['Pleasure doing business.'],
     lose: ['Fine. Name your price.'],
+    breach: ["Door's open. Go collect.", 'Access granted. Bill them for the wall.'],
     catchphrase: ['Everything has a price.', "It's not personal. It's billable.", 'Read the fine print. Oh, wait. There is none.'],
   },
 };
@@ -475,6 +503,7 @@ export const NIGHTSHADE: Personality = {
     attackFailed: ['Withdraw. The night is long.', 'Fade back. Next time, darker.'],
     win: ['Goodnight.'],
     lose: ['...the dawn came early.'],
+    breach: ['Inside.', 'The wall is gone. So are we.'],
     catchphrase: ['Lights out.', "You won't hear the door.", 'We were never here.'],
   },
 };
@@ -531,6 +560,7 @@ export const DUCHESS_VARGA: Personality = {
     attackFailed: ['Repair the tanks. We go again.', 'A setback. Steel is patient.'],
     win: ['Another castle for the collection.'],
     lose: ['Hm. You may keep this one.'],
+    breach: ['Through the gap, darling. Do keep up.', 'A door at last. How civilised.'],
     catchphrase: ['Steel is patient, darling.', 'Rosie sends her regards.', 'I do so love the sound of treads in the morning.'],
     tankNew: ['Warm up the engine. Rosie wants to say hello.', 'Rosie is out of the garage. Do be nice to her.'],
     tankAttack: ['Here comes Rosie, darling. Do try to look surprised.', 'Rosie, dear, lead the way.', 'Make way for Rosie.'],
@@ -597,6 +627,7 @@ export const THE_QUARTERMASTER: Personality = {
     attackFailed: ['Write it off. Order more.', 'Stocks remain adequate.'],
     win: ['Account closed.'],
     lose: ['Audit complete. I appear to be insolvent.'],
+    breach: ['Access acquired. Proceed per the manifest.', 'The wall has been... reallocated.'],
     catchphrase: ['In triplicate, please.', 'Everything counted. Everything accounted for.', 'Supply wins wars. Sign here.'],
   },
 };
@@ -1534,9 +1565,12 @@ export class AiCommander implements Controller {
 
     const mine = (id: number): boolean => u.isAlive(id) && u.owner[id] === this.owner;
     this.saboteurs = this.saboteurs.filter(mine);
-    if (this.stage) this.stage.ids = this.stage.ids.filter(mine);
+    for (const sg of this.sieges) {
+      sg.ids = sg.ids.filter(mine);
+      sg.feint = sg.feint.filter(mine);
+    }
     if (this.scout >= 0 && !mine(this.scout)) this.scout = -1;
-    const busy = new Set([...this.raidGroup, ...this.saboteurs, ...(this.stage?.ids ?? []), this.scout]);
+    const busy = new Set([...this.raidGroup, ...this.saboteurs, ...this.sieges.flatMap((sg) => [...sg.ids, ...sg.feint]), this.scout]);
     const free = army.filter(
       (i) => !this.garrison.has(i) && !busy.has(i) && !sim.combat.assault[i] && u.order[i] !== Order.Control && u.task[i] !== Task.Recruit,
     );
@@ -1582,16 +1616,17 @@ export class AiCommander implements Controller {
       // Only grumble if the assault was mostly wiped out (not when it simply won).
       this.reportedFailure = true;
       const survivors = this.launched.filter((id) => u.isAlive(id) && u.owner[id] === this.owner).length;
-      if (survivors < this.launched.length * 0.3 && !sim.result) this.say(sim, 'attackFailed');
+      if (survivors < this.launched.length * 0.3 && !sim.result) {
+        this.noteFailure(sim);
+        this.say(sim, 'attackFailed');
+      }
     }
+    if (this.sieges.length) this.manageSieges(sim);
     if (this.attackGroup.length > 0) {
       this.manageAssault(sim, free);
       return;
     }
-    if (this.stage) {
-      this.manageStage(sim);
-      return;
-    }
+    if (this.sieges.length) return;
     const enemyWalls = sim.structures.some((s) => s.owner === this.enemy && STRUCTURE_DEFS[s.kind].armored);
     const engineers = free.filter((i) => u.kind[i] === UnitKind.Engineer || u.kind[i] === UnitKind.Operator).length;
     // Armor counts for more than one rifleman, and tanks/howitzers/breachers deal with walls themselves.
@@ -1619,7 +1654,12 @@ export class AiCommander implements Controller {
   private scout = -1;
   private scoutTarget = { x: 0, z: 0 };
   private lastScoutAt = -1e9;
-  private stage: { ids: number[]; x: number; z: number; since: number; size: number } | null = null;
+  /** Attacks still forming up: marching round to a breach point, or opening it. */
+  private sieges: Siege[] = [];
+  /** Where attacks were beaten back, and where their soldiers have been seen. */
+  private mem: SiegeMemory = { failures: [], heat: new Float32Array(16 * 16), heatCell: 8 };
+  /** Bearing (from their HQ) of the breach we last stormed; 99 = none. */
+  private lastBreachAngle = 99;
   private saboteurs: number[] = [];
   private sabotageNight = -1;
   private sabotageCount = 0;
@@ -1630,10 +1670,19 @@ export class AiCommander implements Controller {
   /** What we've seen of the enemy's army lately (decays when nobody's looking). No vision cheats. */
   private updateIntel(sim: Sim): void {
     const u = sim.units;
+    // Where their soldiers hang about (fades over a couple of minutes).
+    const m = this.mem;
+    const cells = Math.ceil(Math.max(sim.map.width, sim.map.height) / m.heatCell);
+    if (m.heat.length !== cells * cells) m.heat = new Float32Array(cells * cells);
+    const fade = Math.pow(0.5, (this.tuning.thinkTicks / 20) / 120);
+    for (let k = 0; k < m.heat.length; k++) m.heat[k] *= fade;
     let seen = 0;
     for (let i = 0; i < u.count; i++) {
       if (!u.alive[i] || u.owner[i] !== this.enemy || !UNIT_TYPES[u.kind[i]].armed) continue;
-      if (sim.vision.isSeen(this.owner, i)) seen += worth(u.kind[i]);
+      if (!sim.vision.isSeen(this.owner, i)) continue;
+      seen += worth(u.kind[i]);
+      const c = Math.floor(u.z[i] / m.heatCell) * cells + Math.floor(u.x[i] / m.heatCell);
+      if (c >= 0 && c < m.heat.length) m.heat[c] = Math.min(2.5, m.heat[c] + 0.04 * worth(u.kind[i]) * (this.tuning.thinkTicks / 12));
     }
     for (const s of sim.structures) if (s.owner === this.enemy && s.kind === 'guntower' && sim.combat.crewed(s)) seen += 3;
     if (seen >= this.knownEnemy * 0.8 && seen > 0) this.lastIntelAt = sim.elapsed;
@@ -1745,42 +1794,209 @@ export class AiCommander implements Controller {
     this.attackSize += this.tuning.attackGrowth;
     this.reportedFailure = false;
     this.sayAttack(sim, ids);
-    const side = this.difficulty === 'easy' ? null : this.attackSide(sim, hq.tx + hq.w / 2, hq.tz + hq.h / 2);
+    if (this.difficulty === 'easy') {
+      this.assaultNow(sim, ids);
+      return;
+    }
+    // A diversion at the front gate while the real attack goes in somewhere else.
+    const feint = ids.length >= 9 ? ids.filter((i) => u.kind[i] === UnitKind.Rifleman).slice(0, 3) : [];
+    const main = ids.filter((i) => !feint.includes(i));
+    const from = this.centroid(sim, main);
+    this.mem.failures = this.mem.failures.filter((f) => sim.elapsed - f.at < 600);
+    const prongs = this.difficulty === 'hard' && main.length >= 14 ? 2 : 1;
+    const plans = planBreaches(sim, this.owner, this.enemy, this.home, this.mem, {
+      max: prongs,
+      spread: 1.2,
+      noise: this.difficulty === 'hard' ? 3 : 6,
+      // Small raiding parties go in hard and fast; big armies can afford the long way round.
+      marchCost: 4 + this.knownEnemy * 0.4 + (main.length < 10 ? 8 : 0),
+    });
+    if (plans.length) {
+      // Share the wall-breakers out so every prong can open its own hole.
+      const groups: number[][] = plans.map(() => []);
+      const ordered = [...main].sort((a, b) => Number(this.opener(sim, b)) - Number(this.opener(sim, a)) || a - b);
+      ordered.forEach((id, k) => groups[k % groups.length].push(id));
+      plans.forEach((plan, k) => {
+        const g = groups[k];
+        if (!g.length) return;
+        const route = flankRoute(sim, this.owner, this.enemy, from, { x: plan.sx, z: plan.sz });
+        this.sieges.push({
+          ids: g,
+          feint: k === 0 ? feint : [],
+          wall: plan.wall,
+          ox: plan.ox,
+          oz: plan.oz,
+          route,
+          leg: 0,
+          phase: 'march',
+          since: sim.elapsed,
+          angle: plan.angle,
+          strength: g.reduce((a, i) => a + worth(u.kind[i]), 0),
+        });
+        sim.enqueue({ type: 'move', owner: this.owner, ids: g, x: route[0].x, z: route[0].z });
+      });
+      return;
+    }
+    // Already a way in (no walls in the way): still come round the least defended side.
+    const side = this.attackSide(sim, hq.tx + hq.w / 2, hq.tz + hq.h / 2);
     if (side) {
-      const feint = ids.length >= 9 ? ids.filter((i) => u.kind[i] === UnitKind.Rifleman).slice(0, 3) : [];
-      if (feint.length) sim.enqueue({ type: 'assault', owner: this.owner, ids: feint, target: this.enemy });
-      const main = ids.filter((i) => !feint.includes(i));
-      this.stage = { ids: main, x: side.x, z: side.z, since: sim.elapsed, size: main.length };
-      sim.enqueue({ type: 'move', owner: this.owner, ids: main, x: side.x, z: side.z });
+      // No wall to open: head straight for the weak side (a wide arc only pays off against a fortress).
+      const route = [side];
+      this.sieges.push({
+        ids: main,
+        feint,
+        wall: -1,
+        ox: side.x,
+        oz: side.z,
+        route,
+        leg: 0,
+        phase: 'march',
+        since: sim.elapsed,
+        angle: Math.atan2(side.z - (hq.tz + hq.h / 2), side.x - (hq.tx + hq.w / 2)),
+        strength: main.reduce((a, i) => a + worth(u.kind[i]), 0),
+      });
+      sim.enqueue({ type: 'move', owner: this.owner, ids: main, x: route[0].x, z: route[0].z });
       return;
     }
     this.assaultNow(sim, ids);
   }
 
-  private assaultNow(sim: Sim, ids: number[]): void {
-    const u = sim.units;
-    sim.enqueue({ type: 'assault', owner: this.owner, ids, target: this.enemy });
-    this.attackGroup = [...ids];
-    this.launched = [...ids];
-    this.launchedStrength = ids.reduce((a, i) => a + worth(u.kind[i]), 0);
-    this.lastAttackLaunched = true;
-    this.attackLaunchedAt = sim.elapsed;
+  /** Units that can open a wall: charges, a dozer blade with charges left, a big gun. */
+  private opener(sim: Sim, i: number): boolean {
+    const t = UNIT_TYPES[sim.units.kind[i]];
+    return sim.units.charges[i] > 0 || !!t.siege || !!t.artillery;
   }
 
-  /** The flanking body goes in once most of it has reached the staging point (or it's taking too long). */
-  private manageStage(sim: Sim): void {
-    const st = this.stage!;
+  private centroid(sim: Sim, ids: readonly number[]): { x: number; z: number } {
     const u = sim.units;
-    if (st.ids.length === 0) {
-      this.stage = null;
-      return;
+    if (!ids.length) return { x: this.home.x, z: this.home.z };
+    let x = 0;
+    let z = 0;
+    for (const i of ids) {
+      x += u.x[i];
+      z += u.z[i];
     }
-    const there = st.ids.filter((i) => Math.hypot(u.x[i] - st.x, u.z[i] - st.z) < 7).length;
-    // Caught on the way round (someone's hurt or down): fight from where we are.
-    const engaged = st.ids.length < st.size || st.ids.some((i) => u.hp[i] < UNIT_TYPES[u.kind[i]].hp);
-    if (there >= st.ids.length * 0.7 || engaged || sim.elapsed - st.since > 50) {
-      this.stage = null;
-      this.assaultNow(sim, st.ids);
+    return { x: x / ids.length, z: z / ids.length };
+  }
+
+  /** Send units at the enemy HQ; joins an assault already under way (another prong). */
+  private assaultNow(sim: Sim, ids: number[]): void {
+    if (!ids.length) return;
+    const u = sim.units;
+    sim.enqueue({ type: 'assault', owner: this.owner, ids, target: this.enemy });
+    if (this.attackGroup.length === 0) {
+      this.launched = [];
+      this.launchedStrength = 0;
+      this.attackLaunchedAt = sim.elapsed;
+    }
+    this.attackGroup.push(...ids);
+    this.launched.push(...ids);
+    this.launchedStrength += ids.reduce((a, i) => a + worth(u.kind[i]), 0);
+    this.lastAttackLaunched = true;
+  }
+
+  /** Remember where we got beaten back, so the next attack tries somewhere else. */
+  private noteFailure(sim: Sim): void {
+    if (this.lastBreachAngle === 99) return;
+    this.mem.failures.push({ angle: this.lastBreachAngle, at: sim.elapsed });
+    this.lastBreachAngle = 99;
+  }
+
+  /**
+   * Attacks forming up. March: follow the wide arc to the staging point (if they're caught on the
+   * way and badly hurt, fight from where they are). Breach: the diversion hits the front gate, the
+   * wall-breakers go for the chosen wall while the rest cover them from just outside; when it gives,
+   * everyone storms through the gap. Gives up waiting after a while and just goes in.
+   */
+  private manageSieges(sim: Sim): void {
+    const u = sim.units;
+    for (const sg of [...this.sieges]) {
+      const done = (): void => {
+        this.sieges.splice(this.sieges.indexOf(sg), 1);
+      };
+      if (!sg.ids.length) {
+        if (sg.feint.length) this.assaultNow(sim, sg.feint);
+        done();
+        continue;
+      }
+      const now = sg.ids.reduce((a, i) => a + worth(u.kind[i]), 0);
+      const storm = (): void => {
+        this.lastBreachAngle = sg.angle;
+        this.assaultNow(sim, sg.ids);
+        if (sg.feint.length) this.assaultNow(sim, sg.feint);
+        done();
+      };
+      if (sg.phase === 'march') {
+        const wp = sg.route[sg.leg];
+        const there = sg.ids.filter((i) => Math.hypot(u.x[i] - wp.x, u.z[i] - wp.z) < 6).length;
+        // Badly mauled on the way: pull back and live to try again (they fight back as they walk).
+        if (now < sg.strength * 0.45) {
+          sim.enqueue({ type: 'move', owner: this.owner, ids: [...sg.ids, ...sg.feint], x: this.home.x, z: this.home.z + 2 });
+          this.nextAttackAt = Math.min(this.nextAttackAt, sim.elapsed + this.tuning.attackGap * 0.6);
+          done();
+          continue;
+        }
+        if (there >= sg.ids.length * 0.7 || sim.elapsed - sg.since > 45) {
+          sg.leg++;
+          sg.since = sim.elapsed;
+          if (sg.leg < sg.route.length) {
+            const next = sg.route[sg.leg];
+            sim.enqueue({ type: 'move', owner: this.owner, ids: sg.ids, x: next.x, z: next.z });
+            // On the last leg: the diversion hits the front gate now, drawing defenders away from the approach.
+            if (sg.leg === sg.route.length - 1 && sg.feint.length) {
+              sim.enqueue({ type: 'assault', owner: this.owner, ids: sg.feint, target: this.enemy });
+              sg.feint = [];
+            }
+            continue;
+          }
+          // In position.
+          if (sg.wall < 0 || !this.enemyStructure(sim, sg.wall)) {
+            storm();
+            continue;
+          }
+          sg.phase = 'breach';
+          if (sg.feint.length) {
+            sim.enqueue({ type: 'assault', owner: this.owner, ids: sg.feint, target: this.enemy });
+            sg.feint = [];
+          }
+          this.orderBreach(sim, sg, true);
+        }
+        continue;
+      }
+      // Breach.
+      if (!this.enemyStructure(sim, sg.wall)) {
+        this.say(sim, 'breach');
+        storm();
+        continue;
+      }
+      const openers = sg.ids.filter((i) => this.opener(sim, i));
+      if (!openers.length || sim.elapsed - sg.since > 80 || now < sg.strength * 0.4) {
+        storm();
+        continue;
+      }
+      this.orderBreach(sim, sg, false);
+    }
+  }
+
+  private enemyStructure(sim: Sim, id: number): Structure | undefined {
+    const s = sim.structureById(id);
+    return s && s.owner === this.enemy ? s : undefined;
+  }
+
+  /** Wall-breakers on the wall; everyone else covers them from just outside. */
+  private orderBreach(sim: Sim, sg: Siege, first: boolean): void {
+    const u = sim.units;
+    const s = this.enemyStructure(sim, sg.wall);
+    if (!s) return;
+    const openers = sg.ids.filter((i) => this.opener(sim, i) && (first || u.order[i] === Order.Idle || u.order[i] === Order.Move));
+    if (openers.length) sim.enqueue({ type: 'attackStructure', owner: this.owner, ids: openers, structure: s.id });
+    if (!first) return;
+    const wx = s.tx + s.w / 2;
+    const wz = s.tz + s.h / 2;
+    const d = Math.hypot(sg.ox - wx, sg.oz - wz) || 1;
+    const cover = sg.ids.filter((i) => !this.opener(sim, i));
+    if (cover.length) {
+      sim.enqueue({ type: 'move', owner: this.owner, ids: cover, x: sg.ox + ((sg.ox - wx) / d) * 3, z: sg.oz + ((sg.oz - wz) / d) * 3 });
     }
   }
 
@@ -1810,6 +2026,7 @@ export class AiCommander implements Controller {
         this.attackGroup = [];
         this.nextAttackAt = Math.min(this.nextAttackAt, sim.elapsed + this.tuning.attackGap * 0.6);
         this.reportedFailure = true;
+        this.noteFailure(sim);
         this.say(sim, 'attackFailed');
       }
       return;

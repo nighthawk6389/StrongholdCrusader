@@ -3,7 +3,7 @@ import { Block } from './map';
 import { Nav, turnToward, wrapAngle, type Sim } from './sim';
 import { STRUCTURE_DEFS, structureTop, upgradeMul, type MortarSpec, type Structure } from './structures';
 import { UNIT_TYPES, UnitKind } from './unitTypes';
-import { MAX_UNITS, Order } from './units';
+import { MAX_UNITS, Order, STANCE_HOLD_FIRE } from './units';
 import { NOISE_SEC } from './vision';
 
 const ENGAGE_INTERVAL = 4;
@@ -154,8 +154,12 @@ export class Combat {
         case Order.Assault:
           this.doAssault(i);
           break;
+        case Order.AttackMove:
+        case Order.Patrol:
+          this.doAttackMove(i);
+          break;
         default:
-          this.autoEngage(i, u.order[i] === Order.Move || u.order[i] === Order.Follow);
+          if (u.stance[i] !== STANCE_HOLD_FIRE) this.autoEngage(i, u.order[i] === Order.Move || u.order[i] === Order.Follow);
       }
     }
     this.updateTurrets();
@@ -460,6 +464,33 @@ export class Combat {
       u.target[i] = -1;
       u.targetStruct[i] = -1;
     }
+  }
+
+  /** Attack-move and patrol: walk on, but stop and fight whatever comes into range. */
+  private doAttackMove(i: number): void {
+    const sim = this.sim;
+    const u = sim.units;
+    if (u.stance[i] !== STANCE_HOLD_FIRE) {
+      const t = this.scan(i);
+      if (t >= 0) {
+        u.vx[i] = u.vz[i] = 0;
+        u.heading[i] = Math.atan2(u.x[t] - u.x[i], u.z[t] - u.z[i]);
+        this.autoFire(i, t, false);
+        return;
+      }
+    }
+    const r = sim.navigate(i);
+    if (r === Nav.Moving) return;
+    u.vx[i] = u.vz[i] = 0;
+    if (u.order[i] === Order.Patrol) {
+      // Turn round and walk the beat the other way.
+      const bx = u.patrolX[i];
+      const bz = u.patrolZ[i];
+      u.patrolX[i] = u.goalX[i];
+      u.patrolZ[i] = u.goalZ[i];
+      if (Math.hypot(bx - u.x[i], bz - u.z[i]) > 1 && sim.setDestination(i, bx, bz, 0)) return;
+    }
+    u.order[i] = Order.Idle;
   }
 
   private doAssault(i: number): void {
