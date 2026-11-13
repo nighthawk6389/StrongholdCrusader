@@ -7,6 +7,8 @@ import type { MatchSetup } from './setup';
 /** One autosave slot in localStorage: the game itself plus a small summary for the main menu. */
 const DATA_KEY = 'siege-save';
 const META_KEY = 'siege-save-meta';
+/** Which running copy of the game (tab, window, page kept in the back/forward cache) the slot belongs to. */
+const OWNER_KEY = 'siege-save-owner';
 
 export interface SaveMeta {
   mode: GameMode;
@@ -70,6 +72,34 @@ export function writeGame(g: StoredGame): boolean {
   } catch {
     clearGame();
     return false;
+  }
+}
+
+/** A random id for one running copy of the game. */
+export function newInstanceId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * The slot belongs to the copy of the game that was played last. A game claims it when it starts on an
+ * empty slot, when it resumes the saved game, and whenever you touch it. A copy left open in another tab,
+ * in the background, or in the browser's back/forward cache then can't overwrite a newer game.
+ */
+export function claimSlot(id: string): void {
+  try {
+    if (localStorage.getItem(OWNER_KEY) !== id) localStorage.setItem(OWNER_KEY, id);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/** May this copy of the game write (or clear) the slot? Yes if it claimed it last, or nobody has. */
+export function ownsSlot(id: string): boolean {
+  try {
+    const owner = localStorage.getItem(OWNER_KEY);
+    return owner === null || owner === id;
+  } catch {
+    return true; // let the write itself fail and say so
   }
 }
 

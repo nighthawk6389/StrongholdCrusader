@@ -3,7 +3,7 @@ import { TICK_SEC, formatHour, type PhaseName } from '../sim/clock';
 import { TAX_LEVELS } from '../sim/economy';
 import { createScenario, ENEMY, type GameMode, type Scenario } from '../sim/scenario';
 import { loadSim, saveSim } from '../sim/save';
-import { clearGame, writeGame, type StoredGame } from './saveSlot';
+import { claimSlot, clearGame, newInstanceId, ownsSlot, readMeta, writeGame, type StoredGame } from './saveSlot';
 import type { Sim, SimEvent } from '../sim/sim';
 import { PRICES, RES_INFO, Res, STRUCTURE_DEFS, costText, footprint, maxHp, nextUpgrade, type ResId, type StructureKind } from '../sim/structures';
 import type { Difficulty } from '../sim/ai';
@@ -157,6 +157,8 @@ export class Game implements GameActions {
   readonly difficulty: Difficulty;
   /** Navigating away on purpose (restart / main menu): don't autosave over the cleared slot. */
   private leaving = false;
+  /** This copy of the game (see claimSlot): only the one played last writes the save slot. */
+  private readonly instanceId = newInstanceId();
   private autosaveTimer = 0;
   private pausedForAway = false;
   private warnedStorage = false;
@@ -262,6 +264,9 @@ export class Game implements GameActions {
       this.tut.camStart = { x: r.target.x, z: r.target.z, yaw: r.yaw, dist: r.dist };
     }
     if (resume && !loadFailed) this.resumeFrom(resume);
+    // Starting on an empty slot or resuming the saved game makes this the game to save. An old link or tab
+    // reopened while a different game is saved waits until you actually play it.
+    if ((resume && !loadFailed) || !readMeta()) claimSlot(this.instanceId);
     if (loadFailed) this.toast("Couldn't load your saved game, so here's a fresh one", 4);
 
     // Leaving the screen (app switch, tab change, lock screen, closing): pause and save.
@@ -271,6 +276,12 @@ export class Game implements GameActions {
     const unlock = (): void => audio.unlock();
     window.addEventListener('pointerdown', unlock, { capture: true });
     window.addEventListener('keydown', unlock, { capture: true });
+    // Touching the game makes it the one that gets saved.
+    const claim = (): void => {
+      if (!this.leaving) claimSlot(this.instanceId);
+    };
+    window.addEventListener('pointerdown', claim, { capture: true });
+    window.addEventListener('keydown', claim, { capture: true });
     document.addEventListener('visibilitychange', () => audio.setSuspended(document.hidden));
 
     document.addEventListener('visibilitychange', () => {
@@ -314,7 +325,8 @@ export class Game implements GameActions {
 
   /** Write the autosave slot. Returns false if nothing was saved. */
   saveNow(): boolean {
-    if (this.leaving || this.sim.result) return false;
+    // Another copy of the game (a newer game, or this one continued elsewhere) owns the slot: leave it be.
+    if (this.leaving || this.sim.result || !ownsSlot(this.instanceId)) return false;
     const info = this.sim.cycle;
     const rts = this.renderer.rts;
     const ok = writeGame({
@@ -759,7 +771,7 @@ export class Game implements GameActions {
         }
         case 'result': {
           setHud({ result: { result: e.result, reason: e.reason } });
-          clearGame(); // a finished match isn't worth resuming
+          if (ownsSlot(this.instanceId)) clearGame(); // a finished match isn't worth resuming (but don't wipe another game's save)
           const stage = this.setup.trail;
           if (stage !== null) {
             if (e.result === 'victory') clearTrailStage(stage);

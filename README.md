@@ -103,7 +103,9 @@ The start screen picks the mode. You can also link straight to a match: `?mode=s
 The game saves itself to your browser when you switch away from it (another tab or app, the lock screen, closing
 the tab), when you reload the page, and every 30 seconds while you play. Open the same game link again, or press
 **Continue** on the start screen, and you're back where you left off, paused. Starting a new game replaces the
-save, and a finished match (win or lose) clears it. There's one save slot, kept per browser and device.
+save, and a finished match (win or lose) clears it. There's one save slot, kept per browser and device, and it
+always holds the game you played last: an older game still open in another tab or window, or an old game link,
+won't overwrite it unless you go back and actually play that one.
 
 ## How to play
 

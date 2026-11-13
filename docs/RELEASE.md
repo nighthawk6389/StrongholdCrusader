@@ -9,7 +9,7 @@ Status of the 0.9.0 launch candidate. Items marked **You** need someone with acc
 | --- | --- |
 | Name and branding | Garrison Zero everywhere players see it: title screen wordmark, browser tab, installed-app name, emblem icon (SVG, 192/512 PNG, maskable, Apple touch icon), loading splash, link-preview image (`public/og-image.jpg`, 1200×630). |
 | Modes | Tutorial (14 steps), Commander's Trail (8 stages), Skirmish (8 commanders × 6 maps × 3 difficulties, random layouts), Hold the Line, Sandbox. |
-| Saving | Autosave every 30 s and when you leave; resume on return; one slot per browser. Trail, tutorial and settings progress kept locally. |
+| Saving | Autosave every 30 s and when you leave; resume on return; one slot per browser, owned by the copy of the game played last (stale tabs and cached pages can't overwrite it). Trail, tutorial and settings progress kept locally. |
 | Offline / install | Service worker caches the game after the first visit; installable to phone home screens. |
 | Settings | Volumes, graphics quality, camera speeds, edge scrolling, look sensitivity and invert, help card. |
 | Sound | Procedural effects and adaptive music (no audio files, nothing to license). |

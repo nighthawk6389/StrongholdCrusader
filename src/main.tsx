@@ -99,9 +99,16 @@ if (setup) {
     go(setupQuery(s));
   };
   const saved = readMeta();
+  // Read the slot again on Continue: it may have changed since this menu was drawn.
   const resume = (): void => {
-    if (saved) go(setupQuery(metaSetup(saved)));
+    const now = readMeta();
+    if (now) go(setupQuery(metaSetup(now)));
   };
+  // Back to the menu with the browser's back button or gesture: browsers often show the copy of this page
+  // they kept from before, with an out-of-date Continue card. Load it afresh instead.
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) location.reload();
+  });
   root.render(
     <StrictMode>
       <MainMenu onStart={start} saved={saved} onContinue={resume} trailDone={trailCleared()} />
